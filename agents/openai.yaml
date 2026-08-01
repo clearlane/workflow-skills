@@ -1,0 +1,4 @@
+interface:
+  display_name: "Designing Workflow Skills"
+  short_description: "Move multi-step skill logic into executable workflows"
+  default_prompt: "Use $designing-workflow-skills to design a resumable, runtime-neutral workflow for this skill."
