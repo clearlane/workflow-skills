@@ -99,6 +99,98 @@ if approval.matches(proposal):
 
 Approval must include exact scope. Recompute or request approval again when proposal changes. Never infer approval from earlier discussion.
 
+## 7. Command Entrypoint Adapter
+
+Use when workflow needs explicit, reusable invocation through host command surface.
+
+```text
+request = parseInvocation(rawInput)
+validated = validate(request)
+context = loadRequiredContext(validated)
+result = coordinator(validated, context)
+render(result)
+```
+
+Adapter owns:
+
+- Discovery metadata and concise invocation help.
+- Argument parsing, defaults, normalization, and validation.
+- Required resource and prerequisite checks.
+- Host-native context acquisition and interaction.
+- Coordinator invocation and status rendering.
+
+Coordinator owns:
+
+- Routing, phase order, concurrency, retries, loops, checkpoints, resume, and rollback.
+- Durable workflow state and artifact production.
+- Exact approval gates and side-effect execution.
+
+Do not encode workflow transitions in command prose. Do not splice raw arguments into shell commands or paths. Pass validated values through explicit coordinator parameters.
+
+See [command-entrypoints.md](command-entrypoints.md) for adapter contract and focused checks.
+
+## 8. Delegated Worker Adapter
+
+Use when coordinator assigns one bounded task through host delegation runtime.
+
+```text
+contract = defineWorker(task, ownedScope, capabilities, outputSchema)
+context = loadApplicableContext(contract)
+result = delegate(contract, context)
+record(result)
+```
+
+Worker owns assigned task only. Coordinator owns selection, dependencies, concurrency, retries, durable state, approvals, rollback, and result aggregation.
+
+Use host-default execution settings unless task has concrete capability, latency, cost, isolation, or context requirement. Validate host metadata in adapter and worker behavior through positive, negative, overlap, and failure scenarios.
+
+See [delegated-workers.md](delegated-workers.md) for contract and focused checks.
+
+## 9. Event Hook Adapter
+
+Use when workflow must guard or react at host lifecycle boundary.
+
+```text
+event = parseHostEvent(rawEvent)
+validated = validateEvent(event)
+outcome = handler(validated)
+return normalize(outcome)
+```
+
+Handler owns one boundary decision or reaction. Coordinator owns global ordering, state, retry, approval, rollback, and resume. Assume matching handlers may run independently and concurrently.
+
+See [event-hooks.md](event-hooks.md) for boundary classes, safety, state, and checks.
+
+## 10. External Tool Adapter
+
+Use when coordinator calls MCP server or external service.
+
+```text
+capability = discoverRequiredCapability(adapter)
+request = validateRequest(input, capability.schema)
+result = adapter.call(capability, request)
+record(normalize(result))
+```
+
+Adapter owns protocol, authentication, connection, schema discovery, permission mapping, and result normalization. Coordinator owns call graph, batching, retry, partial success, approval, and durable progress.
+
+See [external-tools.md](external-tools.md) for integration contract and focused checks.
+
+## 11. Skill Settings Adapter
+
+Use when workflow behavior needs stable user or project preferences.
+
+```text
+documents = discoverAndValidateSettings()
+effective, provenance = resolveSettings(defaults, documents, invocation)
+result = coordinator(input, freeze(effective))
+recordSettingsDigest(result.run, effective)
+```
+
+Settings adapter owns schema, locations, parsing, migration, precedence, reload, and provenance. Coordinator owns mutable progress, retries, approvals, artifacts, and resume. Do not store both in same contract.
+
+Commands, event handlers, workers, and external-tool adapters consume same validated effective snapshot. Secrets arrive through separate protected boundary. See [skill-settings.md](skill-settings.md) for full contract and checks.
+
 ## Combining Patterns
 
 Compose patterns in code, not copied prose. Common combinations:
@@ -107,6 +199,11 @@ Compose patterns in code, not copied prose. Common combinations:
 - Ordered discovery phase followed by parallel item pipeline.
 - Pipeline where each item uses bounded feedback loop.
 - Dependency graph with safety gate before mutation tasks.
+- Thin command entrypoint invoking any coordinator shape.
+- Pipeline delegating one bounded worker per independent item.
+- Event hook guarding safety gate or invoking coordinator entrypoint.
+- Pipeline or dependency graph issuing typed external-tool calls.
+- Command entrypoint applying validated invocation overrides before coordinator start.
 
 Keep nesting shallow. If coordinator becomes difficult to inspect, split handlers or phases into named functions while preserving one state owner.
 
@@ -122,6 +219,8 @@ Persist only durable facts:
 
 Do not persist model chain-of-thought. Persist inputs, outputs, decisions, and observable state.
 
+Record effective settings digest and provenance when configuration affects reproducibility. Keep settings document outside mutable workflow-state schema.
+
 ## Runtime Adapter Boundary
 
 Keep runtime-specific details at coordinator edge:
@@ -131,5 +230,6 @@ Keep runtime-specific details at coordinator edge:
 - Approval prompt API.
 - Tool allowlist syntax.
 - Cancellation and resume hooks.
+- Settings locations, formats, precedence, reload, and migration semantics.
 
 Core workflow logic should remain understandable without one vendor's terminology.

@@ -6,11 +6,21 @@ Runtime-neutral agent skill for designing reliable multi-step workflows with exe
 
 - Routing and dispatch tables
 - Parallel item pipelines with bounded concurrency
+- Runtime-neutral skill structure and progressive disclosure
+- Typed user-local and project-local skill settings with precedence and provenance
+- Event-triggered guards and lifecycle reactions
+- MCP and external-tool integration contracts
+- Bounded delegated-worker contracts and selection tests
 - Ordered executable phases
 - Dependency graphs and resumable state
 - Bounded feedback loops
 - Approval gates for destructive actions
 - Validator-backed checks at actionable boundaries
+- Thin explicit command entrypoints with validated arguments
+- Runtime-neutral command metadata, interaction, failure, and adapter testing contracts
+- Runtime-neutral worker metadata, capability, output, failure, and adapter contracts
+- Runtime-neutral transport, authentication, schema, lifecycle, partial-success, and hook contracts
+- Runtime-neutral settings discovery, parsing, migration, atomic update, security, and reload contracts
 
 ## Install
 
@@ -25,9 +35,18 @@ Start a new Codex session after installation.
 ## Structure
 
 - `SKILL.md` — activation and core workflow-design rules
+- `references/skill-structure.md` — skill contract, progressive disclosure, resources, and deployment shapes
+- `references/event-hooks.md` — event-boundary handler design
+- `references/external-tools.md` — MCP and external-service adapter design
 - `references/workflow-patterns.md` — dynamic coordinator patterns
+- `references/delegated-workers.md` — bounded runtime-neutral worker design
+- `references/command-entrypoints.md` — safe runtime-neutral command adapter design
+- `references/skill-settings.md` — validated skill preferences, scopes, precedence, lifecycle, and security
+- `scripts/resolve_settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
+- `examples/skill-settings/` — small runtime-neutral settings fixtures
 - `workflows/design-a-workflow-skill.md` — authoring and refactoring process
 - `agents/openai.yaml` — Codex UI metadata
+- `UPSTREAM.md` — absorbed-source baselines, capability map summary, and refresh procedure
 
 ## Origin and Changes
 
@@ -36,10 +55,20 @@ This project adapts Trail of Bits' `designing-workflow-skills` skill from [`trai
 Trail of Bits removed the original plugin in [PR #215](https://github.com/trailofbits/skills/pull/215) on July 31, 2026. This adaptation:
 
 - Moves ordering, branching, concurrency, retry, and resume logic into executable coordinators.
-- Replaces Claude-specific tool guidance with runtime-neutral capability guidance.
+- Replaces runtime-specific tool guidance with runtime-neutral capability guidance.
 - Removes obsolete task tools, fixed batching advice, and mandatory prompt-level verification.
 - Removes duplicated generic skill-authoring guidance already covered by current skill tooling.
 - Removes Trail of Bits branding while preserving attribution.
+
+Command-entrypoint guidance independently re-expresses generic concepts from project-local `command-development` source. No runtime-specific syntax, files, or examples were copied.
+
+Delegated-worker guidance independently re-expresses generic concepts from project-local `agent-development` source. No runtime-specific syntax, templates, examples, or validator code were copied.
+
+Skill-structure, event-hook, and external-tool guidance independently re-express generic concepts from project-local `skill-development`, `hook-development`, and `mcp-integration` sources. No runtime-specific syntax, shell utilities, templates, examples, or validator code were copied.
+
+Skill-settings guidance independently re-expresses generic concepts from project-local `plugin-settings` source. It separates preferences from mutable workflow state and excludes vendor paths, metadata, reload claims, shell parsers, templates, and examples.
+
+See [`UPSTREAM.md`](UPSTREAM.md) for source baselines, absorbed coverage, deliberate exclusions, monitoring procedure, and changelog.
 
 ## License
 

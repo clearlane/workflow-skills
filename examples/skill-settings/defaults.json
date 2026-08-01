@@ -1,0 +1,5 @@
+{
+  "enabled": true,
+  "max_attempts": 3,
+  "mode": "standard"
+}

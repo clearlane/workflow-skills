@@ -1,4 +1,4 @@
 interface:
   display_name: "Designing Workflow Skills"
-  short_description: "Move multi-step skill logic into executable workflows"
-  default_prompt: "Use $designing-workflow-skills to design a resumable, runtime-neutral workflow for this skill."
+  short_description: "Design configurable workflow skills and safe adapters"
+  default_prompt: "Use $designing-workflow-skills to design a runtime-neutral workflow skill with executable coordination, validated skill settings, progressive disclosure, safe event and external-tool adapters, bounded workers, and thin command entrypoints."
