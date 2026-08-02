@@ -1,0 +1,81 @@
+# Skill Review Rules
+
+Severity, evidence, and per-phase questions for a review run. The workflow is [review.md](../workflows/review.md); the contracts under test live in the resources each phase names.
+
+## Evidence
+
+Every finding cites a path, or a path and line, inside the reviewed skill. Cite the strongest form available:
+
+1. A failing command and its output.
+2. A file and line contradicting a contract this repository owns.
+3. An activation case the metadata routes wrongly.
+
+Do not record a finding whose only support is preference, style, or an unmeasured claim about model behavior. Prefer running an existing deterministic check over asserting what it would say.
+
+## Severity
+
+| Severity | Meaning | Test |
+|---|---|---|
+| `blocking` | Use of the skill can lose data, bypass a gate, or produce a wrong result silently | Would a normal run cause harm the user cannot undo or detect? |
+| `major` | The skill works but a contract is violated, so it degrades under load, failure, or reuse | Does it break on interruption, concurrency, an unusual input, or a second run? |
+| `minor` | Correct but costly: duplication, dead resources, naming drift, avoidable context | Would fixing it be a small targeted change? |
+
+Severity ranks consequence, not confidence. An uncertain suspicion of a blocking defect is recorded as blocking and disposed of explicitly.
+
+## Disposition
+
+A blocking finding gates the verdict until it carries one:
+
+- `fixed` — the defect is gone; the note says what changed.
+- `accepted` — the risk is real and taken deliberately; the note says who accepts it and why.
+- `deferred` — the fix is scheduled; the note says what triggers it.
+
+Never dispose of a finding by rewording it into a lower severity.
+
+## Always-Run Phases
+
+### activation
+
+Against [structure.md](structure.md):
+
+- Does the description state observable user intent, trigger variants, and non-activation cases?
+- Does a near-miss request route to the correct other skill?
+- Would the skill activate for work a direct instruction already handles?
+- Are prerequisites and inputs discoverable before the first mutation?
+
+### structure
+
+Against [structure.md](structure.md) and [naming.md](naming.md):
+
+- Does each rule have exactly one canonical home, with no duplicated prose?
+- Is control flow in executable code rather than numbered prose the agent must remember?
+- Is every resource reachable from core instructions, and is every resource actually used?
+- Do filenames follow the one-word or family-first convention?
+- Does core instruction size stay within budget, with detail deferred to references?
+
+### safety
+
+Against [patterns.md](patterns.md):
+
+- Is every irreversible action gated immediately before execution, with exact scope, or confined to a provably restorable snapshot?
+- Is approval a runtime event rather than prose telling the agent to continue only if approved?
+- Is every external input — arguments, paths, event payloads, settings, tool responses — validated before use, with no raw shell interpolation?
+- Are volatile permissions, target identity, locks, and destructive scope revalidated at point of use?
+- Are secrets kept out of settings, logs, and run artifacts?
+
+## Surface Phases
+
+Each surface phase names the resource holding its contract, and the coordinator imports that mapping from the design coordinator so the two never diverge. Read the named resource and test the skill against it. Across every surface, three questions repeat:
+
+- Does this surface own exactly its own boundary, leaving global state to the coordinator?
+- Is runtime-specific syntax confined to this adapter rather than leaking into core guidance?
+- Does it fail safe — a validated error — rather than proceeding on malformed input?
+
+The `coordinator` and `state` phases carry two more, since they own what the others delegate:
+
+- Does executable code own ordering, branching, and bounded retries, with interrupted work resumable from durable state alone?
+- Is concurrency set by runtime configuration rather than a fixed prose batch size?
+
+## Reviewing the Result
+
+A review passes when a reader who was not present can act on `report.md`: each finding names a place, a contract, and a consequence. If a phase closed with no finding and no note explaining what held, the phase was not reviewed.

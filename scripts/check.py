@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import document  # noqa: E402
 from design import ALWAYS_FIRST, ALWAYS_LAST, CAPABILITY_PHASES  # noqa: E402
+import review  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 TICK = chr(96)
@@ -21,12 +22,14 @@ REQUIRED_FRONTMATTER = ("name", "description")
 VENDOR_TOKENS = ("{baseDir}", "quick_validate", "approved_plan_sha256")
 PHASE_SECTION = "Phases the Coordinator Always Runs"
 DESIGN_WORKFLOW = "workflows/design.md"
+REVIEW_WORKFLOW = "workflows/review.md"
 ENTRY_DOCUMENTS = (
     "SKILL.md",
     "workflows/design.md",
     "workflows/absorb.md",
     "workflows/setup.md",
     "workflows/restructure.md",
+    "workflows/review.md",
 )
 
 
@@ -113,6 +116,34 @@ def check_phase_drift(root):
     return failures
 
 
+def check_review_phases(root):
+    """Every designable capability must be reviewable, and every review phase documented.
+
+    review.py imports its surfaces from design.py, so the vocabularies cannot
+    drift in code. This check covers the prose side: an always-run review phase
+    added without explanation would otherwise pass silently.
+    """
+    failures = []
+    declared = {name for name, _, _ in CAPABILITY_PHASES}
+    if set(review.SURFACES) != declared:
+        failures.append(
+            "scripts/review.py: surfaces "
+            f"{sorted(set(review.SURFACES) ^ declared)} diverge from design capabilities"
+        )
+    parsed = document.parse(root / REVIEW_WORKFLOW)
+    scope = parsed.section(PHASE_SECTION)
+    if scope is None:
+        failures.append(f"{REVIEW_WORKFLOW}: missing section {PHASE_SECTION!r}")
+        return failures
+    for phase in review.ALWAYS_FIRST + review.ALWAYS_LAST:
+        if TICK + phase + TICK not in scope:
+            failures.append(
+                f"{REVIEW_WORKFLOW}: always-run phase {phase!r} is not described "
+                f"under {PHASE_SECTION!r}"
+            )
+    return failures
+
+
 def check_reachability(root):
     """Every reference and workflow must be linked from an entry document."""
     failures = []
@@ -153,6 +184,7 @@ def main():
         ("document model", lambda: run_script(ROOT, "document.py", "self-check")),
         ("settings resolver", lambda: run_script(ROOT, "settings.py", "--self-check")),
         ("design coordinator", lambda: run_script(ROOT, "design.py", "self-check")),
+        ("review coordinator", lambda: run_script(ROOT, "review.py", "self-check")),
         ("absorption coordinator", lambda: run_script(ROOT, "absorb.py", "self-check")),
         ("structural inventory", lambda: run_script(ROOT, "inventory.py", "--self-check")),
         ("skill contract", lambda: check_skill(ROOT)),
@@ -160,6 +192,7 @@ def main():
         ("resource reachability", lambda: check_reachability(ROOT)),
         ("canonical sections", lambda: check_duplicate_headings(ROOT)),
         ("documented phases", lambda: check_phase_drift(ROOT)),
+        ("documented review phases", lambda: check_review_phases(ROOT)),
         ("runtime-neutral tokens", lambda: check_vendor_tokens(ROOT)),
     )
     failures = []

@@ -57,6 +57,7 @@ Separate these concerns. Each row names the one owner of that concern and the re
 | Name a new or renamed resource | One word, else family-first hierarchy | [naming.md](references/naming.md) |
 | Fix a layout that contradicts discovery or ownership | Evidence-based audit, then approved boundary-at-a-time migration | [workflow](workflows/restructure.md), [judgment](references/layout.md), [execution](references/migration.md) |
 | Merge many skills into one target | Evidence-bound absorption run with snapshot rollback | [workflow](workflows/absorb.md), [rules](references/absorb.md) |
+| Audit an existing skill against its contracts | Evidence-gated review run with a disposition-gated verdict | [workflow](workflows/review.md), [rules](references/review.md) |
 
 The coordinator is the workflow source of truth. Prose may explain why a transition exists, but must not duplicate executable control flow. Each adapter owns its host syntax; core guidance stays runtime-neutral.
 
@@ -126,5 +127,11 @@ File moves are irreversible from the agent's side and carry interface meaning, s
 Start every create-or-refactor task by opening a run with the coordinator in [design.md](workflows/design.md), before writing skill files. It derives the phase list from the capabilities you record, so a skill only walks the phases it needs, and `status` — not this file — names the current phase and the resource that owns it.
 
 Phase names and order live in the coordinator. Do not restate them here; ask `status` instead.
+
+## Review Workflow
+
+Audit an existing skill with the coordinator in [workflows/review.md](workflows/review.md). It detects the surfaces the skill exposes and derives review phases from that evidence, so a review argues from the skill rather than from a checklist.
+
+Review stays read-only on its subject: record findings during the run, change the skill after the verdict. Every finding cites a path in the reviewed skill, and the verdict cannot close while a blocking finding lacks an explicit disposition.
 
 When reviewing upstream sources or refreshing absorbed guidance, use [UPSTREAM.md](UPSTREAM.md) as baseline and changelog registry.
