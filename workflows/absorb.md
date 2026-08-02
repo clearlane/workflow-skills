@@ -104,7 +104,9 @@ Run the checks relevant to the changed skill:
 
 Write `validation.json` with `plan_sha256`, `passed`, `checks`, `remaining_gaps`, and `notes`, then advance. Failed validation returns to merge until the configured attempt bound.
 
-Invalid merge evidence, a changed plan, a changed source, an out-of-scope diff, malformed validation evidence, or exhausted attempts restore the snapshot and end the run in `rolled-back`. When repair needs files outside the bound plan, use `revise-plan` instead of widening the diff.
+A changed plan, a changed source, an out-of-scope diff, a diff that contradicts the declared evidence, or exhausted attempts restore the snapshot and end the run in `rolled-back`, after preserving the in-progress target under `revisions/`. When repair needs files outside the bound plan, use `revise-plan` instead of widening the diff.
+
+Evidence the coordinator cannot read, such as a wrong field type or an empty check list, is a reporting mistake rather than unsafe execution. It is rejected without rollback, leaving the target and phase intact so a corrected file advances the run.
 
 ## 6. Orchestrator Feedback
 

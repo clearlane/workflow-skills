@@ -15,6 +15,7 @@ Track absorbed sources here so later upstream changes can be reviewed for useful
 | Plugin Settings | [`anthropics/claude-code/plugins/plugin-dev/skills/plugin-settings`](https://github.com/anthropics/claude-code/tree/main/plugins/plugin-dev/skills/plugin-settings) | Installed `main` snapshot tree SHA-256 `67546a58c6562768b175670b5aed1c2f9a304899167d875959736fc2acd2eae3` | 2026-08-01 | `7817f599855e36a227c7df70b0f1e11361546909bb38513fd17e29120427559b` |
 | Absorb Skills | Project-local skill `absorb-skills`, previously vendored at `.agents/skills/absorb-skills/` | Snapshot tree SHA-256 `e39465db1fe44d4085944150065c9500e91fefd5408cc7819cbd5097d20d2666` | 2026-08-02 | `06a4b90b9236dec20bfcb0aa7cf4d2310513f3e5a182a12c038c901870453d50` |
 | Plugin Structure | Project-local skill `plugin-structure`, previously vendored at `.agents/skills/plugin-structure/` | Snapshot tree SHA-256 `2ee40187a7a59dab446b2dcfc86c3def0c3c3af987a9fdc17a824abd7876136b` | 2026-08-02 | `31df13de9ab55a174fe90901edba9fcf53286c7c0041e08e178b798423c06430` |
+| Project Organizer | Project-local skill `project-organizer`, previously at `skills/project-organizer/` | Snapshot tree SHA-256 `b500ca62b3fb7252cfd7c36f6f66b6bd5f6120deaee38f420e5bc9400e59d40e` | 2026-08-02 | `b3c7f9f9b875aa474d4e229fff8e641e74ac37abf847f29d94e76fbea66113e0` |
 
 Anthropic baselines above are local skill-tree digests recorded by absorption runs, not upstream commit IDs. Future refreshes should record exact upstream commit SHA when available because `main` is mutable.
 
@@ -197,6 +198,38 @@ Canonical destinations:
 - `references/naming.md`
 - `scripts/design.py`
 
+### Project Organizer
+
+Absorbed:
+
+- Evidence-first layout diagnosis: classify the scope shape and its protected contracts before proposing any structure.
+- Structural rubric separating confirmed problems from preferences, deliberate exceptions, and blocked items, with quality tests and a priority order.
+- Ecosystem evidence prompts for JavaScript, Python, Go, Rust, JVM, .NET, and other package managers, plus the cross-cutting operational surfaces a move can break.
+- Exact proposal contract: current and target trees, path-by-path operation manifest, affected reference surfaces, validation commands, and rollback.
+- Approval gate immediately before moves, renames, or deletions, with an audit-only route that stops at the proposal.
+- Boundary-at-a-time migration order, reference repair in the same step, and focused checks between boundaries.
+- Risk cases: case-only renames, symlinks, generated files, applied migrations, vendored content, large files, public import paths, and dirty worktrees.
+- Discovery-contract preservation across moves, stale-path search with a positive control, and structural handoff reporting.
+- Deterministic side-effect-free structural inventory script, now with its own self-check in the repository check entrypoint.
+
+Reworked or excluded:
+
+- Scoped the domain to skills, bundles, and the repositories holding them instead of a general project-organization product, so activation stays bound to this skill's contract.
+- Reorganized three source-shaped references into two job-shaped ones: `references/layout.md` for judgment and `references/migration.md` for execution.
+- Condensed the ecosystem catalog into evidence prompts rather than per-framework tree prescriptions.
+- Kept the untrusted-input and repository-native-check rules as the target's existing invariants instead of restating them.
+- Left restructuring as a workflow with a deterministic inventory script and an approval gate; a linear, approval-gated, version-control-reversible run does not yet justify a coordinator.
+- Omitted the source frontmatter, host metadata file, and host invocation token, and never absorbed the machine-local filesystem artifact in the source tree.
+- Fixed a defect in the absorbed inventory script: symlinked directories are never walked, so they were missing from the inventory entirely; they are now recorded with a `directory` flag that the script's self-check enforces.
+
+Canonical destinations:
+
+- `workflows/restructure.md`
+- `references/layout.md`
+- `references/migration.md`
+- `scripts/inventory.py`
+- `SKILL.md`
+
 ## Upstream Review Procedure
 
 When any source changes upstream:
@@ -215,6 +248,14 @@ Run `python3 scripts/check.py` for the deterministic portion of step 8.
 Review upstream releases or source-path changes periodically even when changelog does not name these skills. Useful fixes may arrive through repository-wide sweeps.
 
 ## Changelog
+
+### 2026-08-02 (latest)
+
+- Absorbed `project-organizer` as the `restructure` workflow with `references/layout.md`, `references/migration.md`, and `scripts/inventory.py`, scoping layout work to skills, bundles, and their repositories.
+- Separated malformed absorption evidence from unsafe execution: a mistyped field now holds the phase and preserves the merge instead of rolling the target back, after this run lost a complete, checked merge to one string-versus-list mistake.
+- Made rollback non-lossy by preserving the in-progress target under `revisions/` before restoring the snapshot, so an out-of-scope path costs a re-bind rather than the whole merge.
+- Fixed the absorbed inventory script so symlinked directories appear in the inventory instead of disappearing, and added a self-check proving no writes, no symlink following, exclusion handling, and honest truncation.
+- Extended the repository check entrypoint to cover the new workflow's reachability and the inventory self-check.
 
 ### 2026-08-02 (later)
 

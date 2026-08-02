@@ -21,7 +21,13 @@ REQUIRED_FRONTMATTER = ("name", "description")
 VENDOR_TOKENS = ("{baseDir}", "quick_validate", "approved_plan_sha256")
 PHASE_SECTION = "Phases the Coordinator Always Runs"
 DESIGN_WORKFLOW = "workflows/design.md"
-ENTRY_DOCUMENTS = ("SKILL.md", "workflows/design.md", "workflows/absorb.md", "workflows/setup.md")
+ENTRY_DOCUMENTS = (
+    "SKILL.md",
+    "workflows/design.md",
+    "workflows/absorb.md",
+    "workflows/setup.md",
+    "workflows/restructure.md",
+)
 
 
 def check_skill(root):
@@ -148,6 +154,7 @@ def main():
         ("settings resolver", lambda: run_script(ROOT, "settings.py", "--self-check")),
         ("design coordinator", lambda: run_script(ROOT, "design.py", "self-check")),
         ("absorption coordinator", lambda: run_script(ROOT, "absorb.py", "self-check")),
+        ("structural inventory", lambda: run_script(ROOT, "inventory.py", "--self-check")),
         ("skill contract", lambda: check_skill(ROOT)),
         ("links and anchors", lambda: document.broken_links(ROOT)),
         ("resource reachability", lambda: check_reachability(ROOT)),
@@ -169,4 +176,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

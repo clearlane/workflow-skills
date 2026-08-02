@@ -1,6 +1,6 @@
 ---
 name: designing-workflow-skills
-description: Design, refactor, package, or merge runtime-neutral workflow skills whose multi-step behavior spans executable coordination, validated skill settings, event-triggered guards, MCP or external-tool services, delegated workers, and explicit command entrypoints. Use when workflows need routing, phases, concurrency, dependencies, resume, bounded loops, configurable behavior, safety gates, progressive disclosure, validated adapters, or durable failure recovery, when bundling skills and components for host discovery and distribution, and when absorbing or consolidating one or many skills into one target without losing capabilities or copying host-specific syntax into core guidance.
+description: Design, refactor, package, merge, or restructure runtime-neutral workflow skills whose multi-step behavior spans executable coordination, validated skill settings, event-triggered guards, MCP or external-tool services, delegated workers, and explicit command entrypoints. Use when workflows need routing, phases, concurrency, dependencies, resume, bounded loops, configurable behavior, safety gates, progressive disclosure, validated adapters, or durable failure recovery, when bundling skills and components for host discovery and distribution, when absorbing or consolidating one or many skills into one target without losing capabilities or copying host-specific syntax into core guidance, and when auditing or safely moving the files of a skill, bundle, or the repository holding them without breaking discovery, imports, builds, tests, or packaging.
 ---
 
 # Designing Workflow Skills
@@ -18,6 +18,7 @@ Use this skill when creating or refactoring a reusable skill whose behavior need
 - Progressive disclosure across core instructions, references, scripts, examples, and output assets.
 - Packaging skills and components as a bundle a host discovers, loads, and distributes.
 - Merging or consolidating several skills, or folding an upstream skill into an existing one, without losing capability coverage.
+- Auditing or moving the files of a skill, bundle, or its repository when the current layout contradicts discovery, ownership, or packaging.
 
 ## When Not to Use
 
@@ -54,6 +55,7 @@ Separate these concerns. Each row names the one owner of that concern and the re
 | Package components for host discovery and distribution | Bundle manifest, conventional component locations, portable bundle-root references | [packaging.md](references/packaging.md) |
 | Route logic, knowledge, samples, and output material | Bundled resources | [structure.md](references/structure.md) |
 | Name a new or renamed resource | One word, else family-first hierarchy | [naming.md](references/naming.md) |
+| Fix a layout that contradicts discovery or ownership | Evidence-based audit, then approved boundary-at-a-time migration | [workflow](workflows/restructure.md), [judgment](references/layout.md), [execution](references/migration.md) |
 | Merge many skills into one target | Evidence-bound absorption run with snapshot rollback | [workflow](workflows/absorb.md), [rules](references/absorb.md) |
 
 The coordinator is the workflow source of truth. Prose may explain why a transition exists, but must not duplicate executable control flow. Each adapter owns its host syntax; core guidance stays runtime-neutral.
@@ -112,6 +114,12 @@ Use prose-only sequencing only for short, low-risk workflows that do not need re
 Merge skills semantically, never by concatenation. Keep sources read-only, store run progress in a durable directory outside every skill, and give every capability and runtime dependency an explicit disposition so nothing is dropped silently. Organize the result by canonical job shape rather than by absorbed-source name.
 
 Every absorption also tests this skill's own coordinator against unfamiliar material. Record the resulting verdict, and prefer fixing an observed coordinator defect during the run that exposed it.
+
+## Restructuring Layouts
+
+A layout is wrong only when evidence says so: manifests, discovery rules, and build behavior decide, not a preferred tree. Gather deterministic facts first with `scripts/inventory.py`, separate confirmed problems from preferences, and propose an exact operation manifest before touching anything.
+
+File moves are irreversible from the agent's side and carry interface meaning, so they take the approval gate above: approve the exact operation set, execute one ownership boundary at a time, repair every reference surface in the same step, and preserve unrelated user changes in the worktree.
 
 ## Design Workflow
 

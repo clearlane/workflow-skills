@@ -186,7 +186,9 @@ For `omit`, `reason` is required and `destination` may be absent. For `integrate
 
 ## Merge Evidence
 
-`apply.json` records the bound `plan_sha256`, cumulative `changed_files`, cumulative `deleted_files`, and `notes`. `validation.json` records the bound `plan_sha256`, `passed`, a non-empty `checks` list of `name`, `command`, and `exit_code`, plus `remaining_gaps` and `notes`. A passing validation cannot contain a failed check or a remaining gap.
+`apply.json` records the bound `plan_sha256`, cumulative `changed_files`, cumulative `deleted_files`, and `notes`. `validation.json` records the bound `plan_sha256`, `passed`, a non-empty `checks` list of `name`, `command`, and `exit_code`, plus `remaining_gaps` and `notes`. A passing validation cannot contain a failed check or a remaining gap. Every list field stays a list even when empty.
+
+Malformed evidence and unsafe execution are different failures. A wrong field type or an empty check list means the run cannot read the evidence yet, so the coordinator rejects it and holds the phase. Rollback is reserved for evidence that proves the mutation unsafe: a changed plan or source, a diff outside the bound plan, a diff contradicting the declaration, or exhausted attempts. Because a rollback is lossy, it preserves the in-progress target first, so a scope mistake costs a re-bind rather than the merge.
 
 ## Orchestrator Feedback
 

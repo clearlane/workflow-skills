@@ -37,6 +37,18 @@ ALLOWED_OPERATIONS = {"create", "update", "delete", "move"}
 ALLOWED_DECISIONS = {"integrate", "retain", "omit"}
 ALLOWED_RUNTIME_DECISIONS = {"generalize", "omit"}
 
+
+class MalformedEvidence(SystemExit):
+    """Evidence the run cannot read yet, as opposed to execution proven unsafe.
+
+    Rolling back for a mistyped field destroys a merge that was never unsafe, so
+    the coordinator rejects the evidence and keeps the target and phase intact.
+    """
+
+
+def malformed(message):
+    raise MalformedEvidence(message)
+
 def inspect_skill(path, allow_missing=False):
     resolved = path.expanduser().resolve()
     if not resolved.exists():
@@ -272,6 +284,11 @@ def rollback_target(root, state, inventory, reason):
     if snapshot.get("plan_sha256") != state.get("execution_plan_sha256"):
         fail("Rollback snapshot does not match bound plan")
     target = Path(inventory["target"]["path"])
+    # Restoring the baseline is safe but lossy: an out-of-scope path or a failed
+    # attempt would otherwise destroy correct merge work. Keep a copy first so a
+    # rollback costs a re-bind rather than the whole merge.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    preserve_target_work(root, inventory, root / "revisions" / f"{stamp}-rollback-target")
     restore_tracked_files(rollback_root / "target", target, snapshot.get("target_exists"))
     restored = inspect_skill(target, allow_missing=True)
     if restored["exists"] != snapshot.get("target_exists") or restored["sha256"] != snapshot.get("target_sha256"):
@@ -305,7 +322,9 @@ def validate_apply(root, state, inventory):
     if value.get("plan_sha256") != current_plan_hash:
         fail(f"{path}: plan_sha256 does not match bound plan")
     for field in ("changed_files", "deleted_files", "notes"):
-        require_list(value.get(field), f"{path}: {field}")
+        if not isinstance(value.get(field), list):
+            # A shape error is unreadable evidence, not proof of unsafe execution.
+            malformed(f"{path}: {field} must be list")
     declared_changed = sorted(safe_relative_path(item, f"{path}: changed_files") for item in value["changed_files"])
     declared_deleted = sorted(safe_relative_path(item, f"{path}: deleted_files") for item in value["deleted_files"])
     changed, deleted, current_skill = target_diff(inventory)
@@ -325,18 +344,21 @@ def validate_validation(root, state):
     if value.get("plan_sha256") != state.get("execution_plan_sha256"):
         fail(f"{path}: plan_sha256 does not match bound plan")
     if not isinstance(value.get("passed"), bool):
-        fail(f"{path}: passed must be boolean")
+        malformed(f"{path}: passed must be boolean")
     for field in ("checks", "remaining_gaps", "notes"):
-        require_list(value.get(field), f"{path}: {field}")
+        if not isinstance(value.get(field), list):
+            malformed(f"{path}: {field} must be list")
     if not value["checks"]:
-        fail(f"{path}: checks must not be empty")
+        malformed(f"{path}: checks must not be empty")
     for index, check in enumerate(value["checks"]):
         if not isinstance(check, dict):
-            fail(f"{path}: checks[{index}] must be object")
-        require_text(check.get("name"), f"{path}: checks[{index}].name")
-        require_text(check.get("command"), f"{path}: checks[{index}].command")
+            malformed(f"{path}: checks[{index}] must be object")
+        for field in ("name", "command"):
+            item = check.get(field)
+            if not isinstance(item, str) or not item.strip():
+                malformed(f"{path}: checks[{index}].{field} must be non-empty text")
         if not isinstance(check.get("exit_code"), int):
-            fail(f"{path}: checks[{index}].exit_code must be integer")
+            malformed(f"{path}: checks[{index}].exit_code must be integer")
     if value["passed"] and (value["remaining_gaps"] or any(item["exit_code"] != 0 for item in value["checks"])):
         fail(f"{path}: passed validation cannot contain failed checks or remaining gaps")
     return value
@@ -469,6 +491,8 @@ def command_advance(args):
     elif phase == "merge":
         try:
             validate_apply(root, state, inventory)
+        except MalformedEvidence:
+            raise
         except SystemExit as error:
             rollback_after_error(root, state, inventory, error)
         state["phase"] = "validation"
@@ -477,6 +501,8 @@ def command_advance(args):
         try:
             validate_apply(root, state, inventory)
             value = validate_validation(root, state)
+        except MalformedEvidence:
+            raise
         except SystemExit as error:
             rollback_after_error(root, state, inventory, error)
         if value["passed"]:
@@ -638,6 +664,31 @@ def command_self_check(_args):
         assert read_json(run / "state.json")["phase"] == "rolled-back"
         assert (target / "SKILL.md").read_text() == baseline
         assert not (target / "EXTRA.md").exists()
+        # Rollback restores the baseline but must not destroy the merge attempt.
+        preserved = [path for path in (run / "revisions").iterdir() if path.name.endswith("-rollback-target")]
+        assert len(preserved) == 1, preserved
+        assert (preserved[0] / "SKILL.md").read_text() == "changed\n"
+        assert (preserved[0] / "EXTRA.md").read_text() == "outside plan\n"
+
+        # Malformed evidence is a reporting mistake, not unsafe execution: the
+        # merge survives, the phase holds, and a corrected file advances the run.
+        target, _sources, run, _baseline, plan_hash = prepare_run("malformed")
+        merged = "---\nname: target\ndescription: Combined target skill.\n---\n\n# Target\n\nMerged.\n"
+        (target / "SKILL.md").write_text(merged)
+        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": "not a list"})
+        result = execute("advance", "--run-dir", run, check=False)
+        assert result.returncode != 0 and "notes must be list" in result.stderr
+        assert "rolled back" not in result.stderr
+        assert read_json(run / "state.json")["phase"] == "merge"
+        assert (target / "SKILL.md").read_text() == merged
+        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": []})
+        execute("advance", "--run-dir", run)
+        assert read_json(run / "state.json")["phase"] == "validation"
+        write_json(run / "validation.json", {"plan_sha256": plan_hash, "passed": "yes", "checks": [], "remaining_gaps": [], "notes": []})
+        result = execute("advance", "--run-dir", run, check=False)
+        assert result.returncode != 0 and "rolled back" not in result.stderr
+        assert read_json(run / "state.json")["phase"] == "validation"
+        assert (target / "SKILL.md").read_text() == merged
 
         target, _sources, run, baseline, plan_hash = prepare_run("vcs")
         vcs = target / ".git"
