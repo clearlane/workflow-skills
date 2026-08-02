@@ -160,6 +160,11 @@ Review upstream releases or source-path changes periodically even when changelog
 
 ## Changelog
 
+### 2026-08-02
+
+- Added one-word and family-first hierarchical resource filename guidance.
+- Added a deterministic filename checker and renamed the settings resolver to `scripts/settings.py` to follow the convention.
+
 ### 2026-08-01
 
 - Rebuilt removed Trail of Bits workflow skill around executable coordination and runtime-neutral adapters.

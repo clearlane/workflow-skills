@@ -49,6 +49,8 @@ For each use case, identify:
 
 Keep one canonical home per rule. Create no unused directory or placeholder. See [structure.md](../references/structure.md).
 
+Name each planned file before creating it. Prefer one word where clear; otherwise use a stable family-first hierarchy such as `command-create` and `command-review`. Read [naming.md](../references/naming.md) and include the filename check in the repository's normal validation path when possible.
+
 ## 4. Encode Control Flow
 
 Implement order, branching, concurrency, retries, and loop bounds in executable code.
@@ -212,6 +214,7 @@ Run representative checks:
 - Coordinator failure rendered with durable artifacts and resume information.
 - Sensitive entrypoint requiring explicit invocation and exact approval.
 - Representative real task proving references and scripts improve outcome.
+- Invalid filename characters or separators, plus manual review that multiword names are necessary and family-first.
 
 Use runtime tests or small assert-based script. Test control flow, not prose formatting.
 

@@ -47,6 +47,7 @@ This writes one destination per supported agent and can be intentionally broad; 
 
 - `SKILL.md` — activation and core workflow-design rules
 - `references/structure.md` — skill contract, progressive disclosure, resources, and deployment shapes
+- `references/naming.md` — one-word and family-first hierarchical filename convention
 - `workflows/setup.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
 - `references/events.md` — event-boundary handler design
 - `references/tools.md` — MCP and external-service adapter design
@@ -54,7 +55,8 @@ This writes one destination per supported agent and can be intentionally broad; 
 - `references/workers.md` — bounded runtime-neutral worker design
 - `references/commands.md` — safe runtime-neutral command adapter design
 - `references/settings.md` — validated skill preferences, scopes, precedence, lifecycle, and security
-- `scripts/resolve_settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
+- `scripts/settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
+- `scripts/names.py` — deterministic portable filename check
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
 - `workflows/design.md` — authoring and refactoring process
 - `agents/openai.yaml` — Codex UI metadata

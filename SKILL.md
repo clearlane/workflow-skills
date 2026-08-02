@@ -87,6 +87,8 @@ Follow [setup.md](workflows/setup.md) when workflow needs environment provisioni
 
 Read [structure.md](references/structure.md) for activation, progressive disclosure, resources, deployment shapes, and skill checks.
 
+Read [naming.md](references/naming.md) before creating or renaming skill resources. Prefer one-word filenames; when one word is insufficient, use family-first hierarchical names such as `command-create` and `command-review`, then run the available filename check.
+
 Read [events.md](references/events.md) when workflow reacts to host lifecycle or action boundaries.
 
 Read [tools.md](references/tools.md) when workflow uses MCP servers or other external services.
@@ -223,6 +225,7 @@ When reviewing upstream sources or refreshing absorbed guidance, use [UPSTREAM.m
 - Do checks call existing validators instead of duplicating them?
 - Are runtime-specific tool names isolated to runtime adapters?
 - Does core skill route detailed knowledge and repeated logic without duplication?
+- Do new or renamed resources use one-word filenames where clear, otherwise consistent family-first hierarchical names?
 - Are event handlers thin, independent, timeout-bounded, and safe under concurrent execution?
 - Does external-tool adapter validate schemas, authentication, permissions, and partial failures?
 - Does each delegated worker own one bounded task with structured input, output, and failure status?

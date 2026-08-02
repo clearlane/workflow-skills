@@ -46,7 +46,7 @@ Create only resources that task needs. Delete generated placeholders and empty s
 - Keep one canonical home for each rule, schema, or example.
 - Prefer executable scripts for repeated exact transformations and checks.
 
-Resource names should describe function, not absorbed source identity.
+Resource names should describe function, not absorbed source identity. Apply [naming.md](naming.md): prefer one-word filenames and use family-first hierarchical names only when one word is insufficient.
 
 ## Activation Metadata
 
@@ -87,6 +87,7 @@ Run available executable checks for:
 - Referenced path existence and direct-link integrity.
 - Script syntax, executability, focused behavior, and trust boundaries.
 - Duplicate or unreachable resources.
+- Filename syntax plus manual review of one-word preference and family-first hierarchy.
 - Host discovery and metadata schema.
 - Positive, negative, overlap, and missing-input activation scenarios.
 - Representative task proving skill improves outcome, not only that it loads.

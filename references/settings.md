@@ -58,7 +58,7 @@ Invocation overrides are ephemeral unless user explicitly requests persistence.
 Resolve JSON layers with field provenance:
 
 ```bash
-python3 scripts/resolve_settings.py \
+python3 scripts/settings.py \
   --defaults examples/skill-settings/defaults.json \
   --project examples/skill-settings/project.json \
   --override '{"mode":"focused"}'
@@ -67,7 +67,7 @@ python3 scripts/resolve_settings.py \
 Run built-in precedence, provenance, atomic-write, and stale-update check:
 
 ```bash
-python3 scripts/resolve_settings.py \
+python3 scripts/settings.py \
   --defaults examples/skill-settings/defaults.json \
   --self-check
 ```
