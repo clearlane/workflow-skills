@@ -167,6 +167,8 @@ Set concurrency in runtime configuration. Never encode a universal batch size su
 
 Separate environment mutation from readiness observation. Setup must be an explicit, idempotent entrypoint that plans and records installations, initialization, registration, or migration. Never run setup merely because the skill activated.
 
+For agent-skill installation, use `npx skills`: discover with `add <source> --list`, install exact skill and agent selections, make project/global and copy/link choices explicit, and verify in the same scope. Use `--agent '*'` when installation must cover every agent supported by the current CLI. Never hardcode agent directories or claim this installs arbitrary system prerequisites.
+
 Before creating mutable run state or dispatching work, derive route-specific requirements and produce a structured pre-flight report. Check only prerequisites needed by the selected invocation. Classify findings as blocking, approval-requiring, or warnings, and include concrete remediation without exposing secrets.
 
 Cache expensive observations only with environment, input, settings, capability-version, and expiry keys. Re-run pre-flight after setup. Revalidate volatile credentials, permissions, locks, target identity, and destructive scope immediately before use; pre-flight never replaces an action-local safety gate. See [setup.md](workflows/setup.md).
@@ -230,6 +232,7 @@ When reviewing upstream sources or refreshing absorbed guidance, use [UPSTREAM.m
 - Does one adapter own settings discovery, parsing, migration, reload, and provenance?
 - Are arguments and paths validated before use without raw shell interpolation?
 - Is setup explicit, idempotent, version-aware, and separate from normal activation?
+- Does skill installation use `npx skills`, explicit source/skill/agent/scope/mode, discovery before mutation, and same-scope verification without hardcoded agent paths?
 - Does route-specific pre-flight run before mutable state or work dispatch and return actionable blockers?
 - Are volatile permissions, target identity, locks, and destructive scope revalidated at point of use?
 - Could exact command syntax be deleted in favor of host documentation?

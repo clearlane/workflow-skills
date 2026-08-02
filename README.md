@@ -25,13 +25,23 @@ Runtime-neutral agent skill for designing reliable multi-step workflows with exe
 
 ## Install
 
-Install project-local copied files for Codex:
+Discover the skill before installing:
 
 ```bash
-npx skills add clearlane/workflow-skills --agent codex --copy
+npx --yes skills add clearlane/workflow-skills --list
 ```
 
-Start a new Codex session after installation.
+Install a portable project-local copy for every agent supported by the current `skills` CLI:
+
+```bash
+npx --yes skills add clearlane/workflow-skills \
+  --skill designing-workflow-skills \
+  --agent '*' \
+  --yes \
+  --copy
+```
+
+This writes one destination per supported agent and can be intentionally broad; replace `'*'` with explicit agent IDs when appropriate. Omit `--copy` when installing from an active local checkout and you want agents to follow repository edits through the CLI's default link mode. Add `--global` only for an explicit user-level install. Start a fresh agent session if the host discovers skills only at startup.
 
 ## Structure
 

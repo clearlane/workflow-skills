@@ -92,7 +92,7 @@ Use one worker per independent item when runtime bounds concurrency. Batch only 
 When prerequisites exist:
 
 1. Derive requirements from validated invocation, selected route, effective settings, and target environment.
-2. Keep setup as an explicit, idempotent, version-aware entrypoint; preview and approve privileged or material changes.
+2. Keep setup as an explicit, idempotent, version-aware entrypoint; preview and approve privileged or material changes. For agent-skill installation, use `npx skills` with discovery, explicit source/skill/agent/scope/mode, and same-scope verification rather than host paths.
 3. Make pre-flight side-effect-free and return structured ready, blocked, approval-required, and warning results with remediation.
 4. Run pre-flight before creating mutable run state or dispatching workers. Re-run it after setup from fresh observations.
 5. Cache expensive observations only with environment identity, relevant digests, capability version, and bounded expiry.
