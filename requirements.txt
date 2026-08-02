@@ -1,0 +1,6 @@
+# Dependencies for this repository's own checks (scripts/check.py).
+# Skill guidance stays runtime-neutral; these libraries are this repo's tooling only.
+markdown-it-py>=3.0    # CommonMark parsing: links, headings, fences
+mdit-py-plugins>=0.4   # frontmatter block extraction
+PyYAML>=6.0            # frontmatter parsing
+

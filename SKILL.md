@@ -115,6 +115,8 @@ Every absorption also tests this skill's own coordinator against unfamiliar mate
 
 ## Design Workflow
 
-Follow [design.md](workflows/design.md) when creating or refactoring a workflow skill. Its coordinator derives the phase list from the contract you record, so a skill only walks the phases its capabilities require.
+Start every create-or-refactor task by opening a run with the coordinator in [design.md](workflows/design.md), before writing skill files. It derives the phase list from the capabilities you record, so a skill only walks the phases it needs, and `status` — not this file — names the current phase and the resource that owns it.
+
+Phase names and order live in the coordinator. Do not restate them here; ask `status` instead.
 
 When reviewing upstream sources or refreshing absorbed guidance, use [UPSTREAM.md](UPSTREAM.md) as baseline and changelog registry.

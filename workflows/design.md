@@ -94,6 +94,13 @@ Run the focused checks owned by each resource the contract selected. Then exerci
 
 Use runtime tests or a small assert-based script. Test control flow, not prose formatting. In this repository, run `python3 scripts/check.py`.
 
+Its document-structure checks parse markdown and YAML through `scripts/document.py` rather than matching text, so fenced blocks and inline code never register as links. Install the parsers once with `pip install -r requirements.txt`. Ask a structural question directly while drafting:
+
+```bash
+python3 scripts/document.py links .
+python3 scripts/document.py outline SKILL.md
+```
+
 ## Review Questions
 
 Each question tests one owner boundary; the owning reference holds the rule itself.

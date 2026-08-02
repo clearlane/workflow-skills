@@ -1,91 +1,130 @@
 #!/usr/bin/env python3
-"""Repository check entrypoint: runs every deterministic project check."""
+"""Repository check entrypoint: runs every deterministic project check.
+
+Structural questions about documents go through scripts/document.py, so this
+file declares what must hold rather than how markdown or YAML is parsed.
+"""
 import argparse
-import re
 import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import document  # noqa: E402
+from design import ALWAYS_FIRST, ALWAYS_LAST, CAPABILITY_PHASES  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
-FENCE = re.compile(r"^\s*(```|~~~)")
-INLINE_CODE = re.compile(r"`[^`]*`")
-LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+TICK = chr(96)
 SKILL_LINE_BUDGET = 500
+REQUIRED_FRONTMATTER = ("name", "description")
 VENDOR_TOKENS = ("{baseDir}", "quick_validate", "approved_plan_sha256")
-IGNORED_DIRECTORIES = {".git", "__pycache__", "node_modules"}
-
-
-def documents(root):
-    for path in sorted(root.rglob("*.md")):
-        relative = path.relative_to(root)
-        if any(part in IGNORED_DIRECTORIES or part.startswith(".") for part in relative.parts):
-            continue
-        yield path
-
-
-def prose_lines(text):
-    """Yield lines outside fenced blocks, with inline code spans removed."""
-    fenced = False
-    for line in text.splitlines():
-        if FENCE.match(line):
-            fenced = not fenced
-            continue
-        if fenced:
-            continue
-        yield INLINE_CODE.sub("", line)
-
-
-def check_links(root):
-    failures = []
-    for path in documents(root):
-        for line in prose_lines(path.read_text()):
-            for target in LINK.findall(line):
-                if target.startswith(("http://", "https://", "#", "mailto:")):
-                    continue
-                resolved = (path.parent / target.split("#")[0]).resolve()
-                if not resolved.exists():
-                    failures.append(f"{path.relative_to(root)}: broken link {target}")
-    return failures
+PHASE_SECTION = "Phases the Coordinator Always Runs"
+DESIGN_WORKFLOW = "workflows/design.md"
+ENTRY_DOCUMENTS = ("SKILL.md", "workflows/design.md", "workflows/absorb.md", "workflows/setup.md")
 
 
 def check_skill(root):
+    """The core instruction file must stay discoverable and within budget."""
     failures = []
-    skill = root / "SKILL.md"
-    text = skill.read_text()
-    lines = text.splitlines()
-    if not text.startswith("---\n"):
+    parsed = document.parse(root / "SKILL.md")
+    if parsed.frontmatter_error:
+        failures.append(f"SKILL.md: invalid frontmatter: {parsed.frontmatter_error}")
+    elif parsed.frontmatter is None:
         failures.append("SKILL.md: missing frontmatter block")
     else:
-        frontmatter = text.split("---\n", 2)[1]
-        for field in ("name:", "description:"):
-            if field not in frontmatter:
-                failures.append(f"SKILL.md: frontmatter missing {field}")
-    if len(lines) > SKILL_LINE_BUDGET:
-        failures.append(f"SKILL.md: {len(lines)} lines exceeds budget {SKILL_LINE_BUDGET}")
+        for key in REQUIRED_FRONTMATTER:
+            value = parsed.frontmatter.get(key)
+            if not isinstance(value, str) or not value.strip():
+                failures.append(f"SKILL.md: frontmatter missing non-empty {key}")
+    if parsed.line_count > SKILL_LINE_BUDGET:
+        failures.append(f"SKILL.md: {parsed.line_count} lines exceeds budget {SKILL_LINE_BUDGET}")
     return failures
 
 
 def check_vendor_tokens(root):
+    """Core guidance stays runtime-neutral; host syntax belongs in adapters."""
     failures = []
-    for path in documents(root):
-        for number, line in enumerate(path.read_text().splitlines(), 1):
+    for parsed in document.walk(root):
+        for number, line in enumerate(parsed.text.splitlines(), 1):
             for token in VENDOR_TOKENS:
                 if token in line:
-                    failures.append(f"{path.relative_to(root)}:{number}: vendor token {token}")
+                    failures.append(
+                        f"{parsed.path.relative_to(root)}:{number}: vendor token {token}"
+                    )
     return failures
 
 
 def check_duplicate_headings(root):
     """One canonical home per topic: reject a repeated H2 within one document."""
     failures = []
-    for path in documents(root):
+    for parsed in document.walk(root):
         seen = set()
-        for line in prose_lines(path.read_text()):
-            if line.startswith("## "):
-                heading = line[3:].strip()
-                if heading in seen:
-                    failures.append(f"{path.relative_to(root)}: duplicate section {heading!r}")
-                seen.add(heading)
+        for heading in parsed.headings_at(2):
+            if heading.text in seen:
+                failures.append(
+                    f"{parsed.path.relative_to(root)}:{heading.line}: "
+                    f"duplicate section {heading.text!r}"
+                )
+            seen.add(heading.text)
+    return failures
+
+
+def check_phase_drift(root):
+    """Documented phases must match the phases the coordinator actually derives.
+
+    Prose cannot enforce order, but it can go stale. Renaming or adding a phase
+    in design.py without updating the workflow would otherwise pass silently.
+    """
+    failures = []
+    parsed = document.parse(root / DESIGN_WORKFLOW)
+    documented = {
+        line.split("|")[1].strip().strip(TICK)
+        for line in parsed.text.splitlines()
+        if line.startswith("| " + TICK)
+    }
+    declared = {name for name, _, _ in CAPABILITY_PHASES}
+    for missing in sorted(declared - documented):
+        failures.append(
+            f"{DESIGN_WORKFLOW}: capability {missing!r} has no row; design.py "
+            "derives a phase the workflow never explains"
+        )
+    for extra in sorted(documented - declared):
+        failures.append(
+            f"{DESIGN_WORKFLOW}: capability {extra!r} is documented but design.py "
+            "derives no phase for it"
+        )
+    scope = parsed.section(PHASE_SECTION)
+    if scope is None:
+        failures.append(f"{DESIGN_WORKFLOW}: missing section {PHASE_SECTION!r}")
+        return failures
+    for phase in ALWAYS_FIRST + ALWAYS_LAST:
+        if TICK + phase + TICK not in scope:
+            failures.append(
+                f"{DESIGN_WORKFLOW}: always-run phase {phase!r} is not described "
+                f"under {PHASE_SECTION!r}"
+            )
+    return failures
+
+
+def check_reachability(root):
+    """Every reference and workflow must be linked from an entry document."""
+    failures = []
+    linked = set()
+    for name in ENTRY_DOCUMENTS:
+        parsed = document.parse(root / name)
+        for link in parsed.links:
+            if link.external or not link.path:
+                continue
+            resolved = (parsed.path.parent / link.path).resolve()
+            if resolved.exists():
+                linked.add(resolved)
+    for directory in ("references", "workflows"):
+        for path in sorted((root / directory).glob("*.md")):
+            if path.resolve() not in linked:
+                failures.append(
+                    f"{path.relative_to(root)}: not linked from SKILL.md or any workflow"
+                )
     return failures
 
 
@@ -105,12 +144,15 @@ def main():
     checks = (
         ("filenames", lambda: run_script(ROOT, "names.py", str(ROOT))),
         ("shared state primitives", lambda: run_script(ROOT, "state.py")),
+        ("document model", lambda: run_script(ROOT, "document.py", "self-check")),
         ("settings resolver", lambda: run_script(ROOT, "settings.py", "--self-check")),
         ("design coordinator", lambda: run_script(ROOT, "design.py", "self-check")),
         ("absorption coordinator", lambda: run_script(ROOT, "absorb.py", "self-check")),
         ("skill contract", lambda: check_skill(ROOT)),
-        ("relative links", lambda: check_links(ROOT)),
+        ("links and anchors", lambda: document.broken_links(ROOT)),
+        ("resource reachability", lambda: check_reachability(ROOT)),
         ("canonical sections", lambda: check_duplicate_headings(ROOT)),
+        ("documented phases", lambda: check_phase_drift(ROOT)),
         ("runtime-neutral tokens", lambda: check_vendor_tokens(ROOT)),
     )
     failures = []
@@ -127,3 +169,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
