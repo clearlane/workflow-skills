@@ -81,21 +81,21 @@ The coordinator is the workflow source of truth. Prose may explain why a transit
 | Make skill behavior configurable | Validated skill-settings adapter |
 | Provision prerequisites or prove readiness | Separate setup entrypoint and pre-flight report |
 
-Read [workflow-patterns.md](references/workflow-patterns.md) for concrete structures and failure policies.
+Read [patterns.md](references/patterns.md) for concrete structures and failure policies.
 
-Follow [setup-preflight.md](workflows/setup-preflight.md) when workflow needs environment provisioning, capability checks, credentials, service health, resource checks, or resume compatibility before execution.
+Follow [setup.md](workflows/setup.md) when workflow needs environment provisioning, capability checks, credentials, service health, resource checks, or resume compatibility before execution.
 
-Read [skill-structure.md](references/skill-structure.md) for activation, progressive disclosure, resources, deployment shapes, and skill checks.
+Read [structure.md](references/structure.md) for activation, progressive disclosure, resources, deployment shapes, and skill checks.
 
-Read [event-hooks.md](references/event-hooks.md) when workflow reacts to host lifecycle or action boundaries.
+Read [events.md](references/events.md) when workflow reacts to host lifecycle or action boundaries.
 
-Read [external-tools.md](references/external-tools.md) when workflow uses MCP servers or other external services.
+Read [tools.md](references/tools.md) when workflow uses MCP servers or other external services.
 
-Read [delegated-workers.md](references/delegated-workers.md) when workflow delegates bounded work.
+Read [workers.md](references/workers.md) when workflow delegates bounded work.
 
-Read [command-entrypoints.md](references/command-entrypoints.md) when workflow needs an explicit command surface.
+Read [commands.md](references/commands.md) when workflow needs an explicit command surface.
 
-Read [skill-settings.md](references/skill-settings.md) when skill behavior needs user-local, project-local, or invocation-level preferences.
+Read [settings.md](references/settings.md) when skill behavior needs user-local, project-local, or invocation-level preferences.
 
 ## Skill Structure
 
@@ -148,7 +148,7 @@ Use settings only for user-controlled preferences such as modes, limits, feature
 
 Settings adapter owns schema, defaults, locations, precedence, parsing, migration, reload semantics, and provenance. Use host-native structured configuration or a real parser and serializer already available in project. Commands, event handlers, workers, and coordinator consume validated effective settings rather than reparsing files independently.
 
-When settings are writable, validate proposed values before same-directory atomic replacement and protect against concurrent updates. Use secret store or protected environment for credentials. See [skill-settings.md](references/skill-settings.md).
+When settings are writable, validate proposed values before same-directory atomic replacement and protect against concurrent updates. Use secret store or protected environment for credentials. See [settings.md](references/settings.md).
 
 ## Concurrency and Delegation
 
@@ -169,7 +169,7 @@ Separate environment mutation from readiness observation. Setup must be an expli
 
 Before creating mutable run state or dispatching work, derive route-specific requirements and produce a structured pre-flight report. Check only prerequisites needed by the selected invocation. Classify findings as blocking, approval-requiring, or warnings, and include concrete remediation without exposing secrets.
 
-Cache expensive observations only with environment, input, settings, capability-version, and expiry keys. Re-run pre-flight after setup. Revalidate volatile credentials, permissions, locks, target identity, and destructive scope immediately before use; pre-flight never replaces an action-local safety gate. See [setup-preflight.md](workflows/setup-preflight.md).
+Cache expensive observations only with environment, input, settings, capability-version, and expiry keys. Re-run pre-flight after setup. Revalidate volatile credentials, permissions, locks, target identity, and destructive scope immediately before use; pre-flight never replaces an action-local safety gate. See [setup.md](workflows/setup.md).
 
 ## Validation Placement
 
@@ -207,7 +207,7 @@ Use prose-only sequencing only for short, low-risk workflows that do not need re
 
 ## Design Workflow
 
-Follow [design-a-workflow-skill.md](workflows/design-a-workflow-skill.md) when creating or refactoring a workflow skill.
+Follow [design.md](workflows/design.md) when creating or refactoring a workflow skill.
 
 When reviewing upstream sources or refreshing absorbed guidance, use [UPSTREAM.md](UPSTREAM.md) as baseline and changelog registry.
 

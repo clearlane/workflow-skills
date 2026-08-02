@@ -127,7 +127,7 @@ Coordinator owns:
 
 Do not encode workflow transitions in command prose. Do not splice raw arguments into shell commands or paths. Pass validated values through explicit coordinator parameters.
 
-See [command-entrypoints.md](command-entrypoints.md) for adapter contract and focused checks.
+See [commands.md](commands.md) for adapter contract and focused checks.
 
 ## 8. Delegated Worker Adapter
 
@@ -144,7 +144,7 @@ Worker owns assigned task only. Coordinator owns selection, dependencies, concur
 
 Use host-default execution settings unless task has concrete capability, latency, cost, isolation, or context requirement. Validate host metadata in adapter and worker behavior through positive, negative, overlap, and failure scenarios.
 
-See [delegated-workers.md](delegated-workers.md) for contract and focused checks.
+See [workers.md](workers.md) for contract and focused checks.
 
 ## 9. Event Hook Adapter
 
@@ -159,7 +159,7 @@ return normalize(outcome)
 
 Handler owns one boundary decision or reaction. Coordinator owns global ordering, state, retry, approval, rollback, and resume. Assume matching handlers may run independently and concurrently.
 
-See [event-hooks.md](event-hooks.md) for boundary classes, safety, state, and checks.
+See [events.md](events.md) for boundary classes, safety, state, and checks.
 
 ## 10. External Tool Adapter
 
@@ -174,7 +174,7 @@ record(normalize(result))
 
 Adapter owns protocol, authentication, connection, schema discovery, permission mapping, and result normalization. Coordinator owns call graph, batching, retry, partial success, approval, and durable progress.
 
-See [external-tools.md](external-tools.md) for integration contract and focused checks.
+See [tools.md](tools.md) for integration contract and focused checks.
 
 ## 11. Skill Settings Adapter
 
@@ -189,7 +189,7 @@ recordSettingsDigest(result.run, effective)
 
 Settings adapter owns schema, locations, parsing, migration, precedence, reload, and provenance. Coordinator owns mutable progress, retries, approvals, artifacts, and resume. Do not store both in same contract.
 
-Commands, event handlers, workers, and external-tool adapters consume same validated effective snapshot. Secrets arrive through separate protected boundary. See [skill-settings.md](skill-settings.md) for full contract and checks.
+Commands, event handlers, workers, and external-tool adapters consume same validated effective snapshot. Secrets arrive through separate protected boundary. See [settings.md](settings.md) for full contract and checks.
 
 ## 12. Setup and Pre-flight
 
@@ -206,7 +206,7 @@ result = coordinator(request, settings, report)
 
 Keep setup explicit, idempotent, version-aware, and separate from normal activation. Run route-specific pre-flight before mutable run state or worker dispatch. Re-run pre-flight after setup, and revalidate volatile conditions at point of use.
 
-See [setup-preflight.md](../workflows/setup-preflight.md) for contracts, check classes, remediation, freshness, and focused checks.
+See [setup.md](../workflows/setup.md) for contracts, check classes, remediation, freshness, and focused checks.
 
 ## Combining Patterns
 

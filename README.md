@@ -36,17 +36,17 @@ Start a new Codex session after installation.
 ## Structure
 
 - `SKILL.md` — activation and core workflow-design rules
-- `references/skill-structure.md` — skill contract, progressive disclosure, resources, and deployment shapes
-- `workflows/setup-preflight.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
-- `references/event-hooks.md` — event-boundary handler design
-- `references/external-tools.md` — MCP and external-service adapter design
-- `references/workflow-patterns.md` — dynamic coordinator patterns
-- `references/delegated-workers.md` — bounded runtime-neutral worker design
-- `references/command-entrypoints.md` — safe runtime-neutral command adapter design
-- `references/skill-settings.md` — validated skill preferences, scopes, precedence, lifecycle, and security
+- `references/structure.md` — skill contract, progressive disclosure, resources, and deployment shapes
+- `workflows/setup.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
+- `references/events.md` — event-boundary handler design
+- `references/tools.md` — MCP and external-service adapter design
+- `references/patterns.md` — dynamic coordinator patterns
+- `references/workers.md` — bounded runtime-neutral worker design
+- `references/commands.md` — safe runtime-neutral command adapter design
+- `references/settings.md` — validated skill preferences, scopes, precedence, lifecycle, and security
 - `scripts/resolve_settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
-- `workflows/design-a-workflow-skill.md` — authoring and refactoring process
+- `workflows/design.md` — authoring and refactoring process
 - `agents/openai.yaml` — Codex UI metadata
 - `UPSTREAM.md` — absorbed-source baselines, capability map summary, and refresh procedure
 

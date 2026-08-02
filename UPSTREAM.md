@@ -44,9 +44,9 @@ Reworked or excluded:
 
 Canonical destinations:
 
-- `references/command-entrypoints.md`
-- `references/workflow-patterns.md`
-- `workflows/design-a-workflow-skill.md`
+- `references/commands.md`
+- `references/patterns.md`
+- `workflows/design.md`
 
 ### Agent Development
 
@@ -63,9 +63,9 @@ Reworked or excluded:
 
 Canonical destinations:
 
-- `references/delegated-workers.md`
-- `references/workflow-patterns.md`
-- `workflows/design-a-workflow-skill.md`
+- `references/workers.md`
+- `references/patterns.md`
+- `workflows/design.md`
 
 ### Hook Development
 
@@ -81,9 +81,9 @@ Reworked or excluded:
 
 Canonical destinations:
 
-- `references/event-hooks.md`
-- `references/workflow-patterns.md`
-- `workflows/design-a-workflow-skill.md`
+- `references/events.md`
+- `references/patterns.md`
+- `workflows/design.md`
 
 ### MCP Integration
 
@@ -99,9 +99,9 @@ Reworked or excluded:
 
 Canonical destinations:
 
-- `references/external-tools.md`
-- `references/workflow-patterns.md`
-- `workflows/design-a-workflow-skill.md`
+- `references/tools.md`
+- `references/patterns.md`
+- `workflows/design.md`
 
 ### Skill Development
 
@@ -116,8 +116,8 @@ Reworked or excluded:
 
 Canonical destinations:
 
-- `references/skill-structure.md`
-- `workflows/design-a-workflow-skill.md`
+- `references/structure.md`
+- `workflows/design.md`
 - `SKILL.md`
 
 ### Plugin Settings
@@ -138,9 +138,9 @@ Reworked or excluded:
 
 Canonical destinations:
 
-- `references/skill-settings.md`
-- `references/workflow-patterns.md`
-- `workflows/design-a-workflow-skill.md`
+- `references/settings.md`
+- `references/patterns.md`
+- `workflows/design.md`
 - `SKILL.md`
 
 ## Upstream Review Procedure

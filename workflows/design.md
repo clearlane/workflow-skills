@@ -23,7 +23,7 @@ Stop if task is simple enough for one direct skill instruction. Do not create co
 
 ## 2. Choose Coordinator Shape
 
-Select smallest pattern from [workflow-patterns.md](../references/workflow-patterns.md):
+Select smallest pattern from [patterns.md](../references/patterns.md):
 
 - Route for independent paths.
 - Pipeline for independent items.
@@ -47,7 +47,7 @@ For each use case, identify:
 - Runnable or copyable samples for examples when repository uses them.
 - Output-only templates or media for assets.
 
-Keep one canonical home per rule. Create no unused directory or placeholder. See [skill-structure.md](../references/skill-structure.md).
+Keep one canonical home per rule. Create no unused directory or placeholder. See [structure.md](../references/structure.md).
 
 ## 4. Encode Control Flow
 
@@ -98,7 +98,7 @@ When prerequisites exist:
 5. Cache expensive observations only with environment identity, relevant digests, capability version, and bounded expiry.
 6. Revalidate volatile credentials, permissions, locks, target identity, and destructive scope immediately before use.
 
-See [setup-preflight.md](setup-preflight.md).
+See [setup.md](setup.md).
 
 ## 8. Place Safety and Checks
 
@@ -124,7 +124,7 @@ When behavior is configurable:
 5. Pass one immutable effective snapshot to coordinator and bounded adapters.
 6. Use validated serialization, same-directory atomic replacement, and concurrency protection for updates.
 
-See [skill-settings.md](../references/skill-settings.md).
+See [settings.md](../references/settings.md).
 
 ## 10. Design Event Hooks
 
@@ -136,7 +136,7 @@ For each required boundary:
 4. Define stable state identity, concurrency, idempotency, and safe fallback.
 5. Validate registration and representative event payloads.
 
-See [event-hooks.md](../references/event-hooks.md).
+See [events.md](../references/events.md).
 
 ## 11. Design External Tools
 
@@ -148,7 +148,7 @@ For each MCP or service adapter:
 4. Normalize results and redact secrets.
 5. Test connectivity, discovery, success, auth, timeout, rate-limit, and recovery paths.
 
-See [external-tools.md](../references/external-tools.md).
+See [tools.md](../references/tools.md).
 
 ## 12. Design Delegated Workers
 
@@ -160,7 +160,7 @@ For each delegated task, define:
 4. Output artifact or schema coordinator consumes.
 5. Partial, retryable, blocked, terminal, and cancellation results.
 
-Keep global phases, dependencies, retries, progress, approvals, rollback, and durable state in coordinator. See [delegated-workers.md](../references/delegated-workers.md).
+Keep global phases, dependencies, retries, progress, approvals, rollback, and durable state in coordinator. See [workers.md](../references/workers.md).
 
 ## 13. Design Command Entrypoint
 
@@ -172,7 +172,7 @@ When explicit command surface is needed, implement thin runtime adapter:
 4. Call one coordinator entrypoint with structured values.
 5. Render status, artifacts, failures, and resume information.
 
-Keep exact registration, metadata, context, and interaction syntax outside core workflow guidance. Never splice raw arguments into shell text. See [command-entrypoints.md](../references/command-entrypoints.md).
+Keep exact registration, metadata, context, and interaction syntax outside core workflow guidance. Never splice raw arguments into shell text. See [commands.md](../references/commands.md).
 
 ## 14. Write Skill Adapter
 
