@@ -111,6 +111,6 @@ Merge skills semantically, never by concatenation. Keep sources read-only, store
 
 ## Design Workflow
 
-Follow [design.md](workflows/design.md) when creating or refactoring a workflow skill.
+Follow [design.md](workflows/design.md) when creating or refactoring a workflow skill. Its coordinator derives the phase list from the contract you record, so a skill only walks the phases its capabilities require.
 
 When reviewing upstream sources or refreshing absorbed guidance, use [UPSTREAM.md](UPSTREAM.md) as baseline and changelog registry.

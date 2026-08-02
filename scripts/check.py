@@ -104,7 +104,9 @@ def main():
     argparse.ArgumentParser(description="Run every deterministic repository check.").parse_args()
     checks = (
         ("filenames", lambda: run_script(ROOT, "names.py", str(ROOT))),
+        ("shared state primitives", lambda: run_script(ROOT, "state.py")),
         ("settings resolver", lambda: run_script(ROOT, "settings.py", "--self-check")),
+        ("design coordinator", lambda: run_script(ROOT, "design.py", "self-check")),
         ("absorption coordinator", lambda: run_script(ROOT, "absorb.py", "self-check")),
         ("skill contract", lambda: check_skill(ROOT)),
         ("relative links", lambda: check_links(ROOT)),

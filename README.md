@@ -60,6 +60,8 @@ This writes one destination per supported agent and can be intentionally broad; 
 - `references/absorb.md` — capability model, merge dispositions, conflict policy, and absorption artifact schemas
 - `workflows/absorb.md` — absorption workflow, coordinator entry, invariants, and rollback contract
 - `scripts/absorb.py` — absorption coordinator with durable run state, plan binding, snapshot rollback, and self-check
+- `scripts/design.py` — design coordinator deriving phases from the recorded contract, with durable decisions and resume
+- `scripts/state.py` — shared durable-run primitives used by both coordinators
 - `scripts/check.py` — single entrypoint running every deterministic repository check
 - `scripts/settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
 - `scripts/names.py` — deterministic portable filename check

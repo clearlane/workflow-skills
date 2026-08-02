@@ -1,201 +1,87 @@
-# Design a Dynamic Workflow Skill
+# Design a Workflow Skill
 
-Use this process to create or refactor multi-step skill without duplicating workflow control in prose.
+Create or refactor a multi-step skill without holding workflow control in prose. The coordinator at `scripts/design.py` derives the phase list from the contract you record, so a skill with no settings never walks a settings phase.
 
-## 1. Define Contract
+When the work merges existing skills rather than designing new behavior, follow [absorb.md](absorb.md) first, then run this workflow for whatever the merged contract still lacks.
 
-Write down:
+## Define the Contract
 
-- Triggering requests.
-- Required inputs and trust boundaries.
-- Observable outputs.
-- Safety invariants.
+Before starting a run, write down:
+
+- Triggering requests, required inputs, trust boundaries, and observable outputs.
+- Safety invariants and irreversible actions.
 - Runtime capabilities available: scripts, workflow API, state store, delegation, approval, progress UI.
 - Deployment shape and host discovery requirements.
-- Event boundaries requiring independent guard or reaction.
-- MCP servers or external services, schemas, authentication, and side effects.
-- Whether any task is bounded and independent enough for delegated worker.
-- Whether workflow needs explicit command entrypoint, declared arguments, or manual-only invocation.
-- Whether prerequisites require explicit setup and which readiness conditions need pre-flight checks.
-- Whether users need stable skill settings, which scopes exist, and whether any values are secrets.
 
-Stop if task is simple enough for one direct skill instruction. Do not create coordinator without resume, branching, concurrency, retry, safety, or repeated-use need.
+Then decide which capabilities the skill actually needs. Each one selects its phase and nothing else:
 
-When the work merges existing skills rather than designing new behavior, follow [absorb.md](absorb.md) instead of restarting the contract from scratch. Absorb first, then continue this process for whatever the merged contract still lacks.
+| Capability | Select when | Contract |
+|---|---|---|
+| `coordinator` | Order, branching, concurrency, retries, or loops need executable control | [patterns.md](../references/patterns.md) |
+| `state` | Work must resume after interruption or partial failure | [patterns.md](../references/patterns.md) |
+| `settings` | Users need stable preferences across runs | [settings.md](../references/settings.md) |
+| `setup` | Prerequisites need provisioning or readiness proof | [setup.md](setup.md) |
+| `install` | The workflow installs agent skills | [install.md](../references/install.md) |
+| `events` | Behavior must occur at a host lifecycle boundary | [events.md](../references/events.md) |
+| `tools` | The workflow calls MCP servers or external services | [tools.md](../references/tools.md) |
+| `workers` | Bounded independent tasks are delegated | [workers.md](../references/workers.md) |
+| `commands` | Users need explicit reusable invocation | [commands.md](../references/commands.md) |
 
-## 2. Choose Coordinator Shape
+Stop here if the task is simple enough for one direct instruction. Do not create a coordinator without a resume, branching, concurrency, retry, safety, or repeated-use need.
 
-Select smallest pattern from [patterns.md](../references/patterns.md):
+## Start a Run
 
-- Route for independent paths.
-- Pipeline for independent items.
-- Delegated worker adapter for one bounded independent task.
-- Event hook adapter for host lifecycle boundary.
-- External-tool adapter for MCP or service capability.
-- Ordered phases for staged transformations.
-- Dependency graph for blocked work.
-- Bounded loop for iterative improvement.
-- Safety gate for destructive action.
-- Thin command entrypoint adapter for explicit invocation.
+```bash
+python3 scripts/design.py init \
+  --name <skill-name> \
+  --skill <skill-path> \
+  --run-dir <run-directory> \
+  --capability coordinator \
+  --capability state
+```
 
-Combine patterns only when task requires combination.
+Omit `--capability` entirely for a skill that needs none. The run directory must be empty and must not sit inside the skill being designed.
 
-## 3. Plan Reusable Resources
+Inspect the current phase, its owning resource, and the next action at any time:
 
-For each use case, identify:
+```bash
+python3 scripts/design.py status --run-dir <run-directory>
+```
 
-- Repeated deterministic logic for scripts.
-- Detailed schemas, policies, or decision tables for references.
-- Runnable or copyable samples for examples when repository uses them.
-- Output-only templates or media for assets.
+## Work Each Phase
 
-Keep one canonical home per rule. Create no unused directory or placeholder. See [structure.md](../references/structure.md).
+`status` names one phase and the resource that holds its contract. Read that resource, design that concern, then record the decision:
 
-Name each planned file before creating it. Prefer one word where clear; otherwise use a stable family-first hierarchy such as `command-create` and `command-review`. Read [naming.md](../references/naming.md) and include the filename check in the repository's normal validation path when possible.
+```bash
+python3 scripts/design.py complete-phase \
+  --run-dir <run-directory> \
+  --phase <phase> \
+  --note "<decision and rationale>"
+```
 
-## 4. Encode Control Flow
+Phases complete in order. The coordinator rejects an out-of-order or empty-note completion, and every decision persists under `decisions/` so an interrupted run resumes from artifacts rather than memory.
 
-Implement order, branching, concurrency, retries, and loop bounds in executable code.
+When a capability surfaces late, extend the plan without losing completed work:
 
-Prefer:
+```bash
+python3 scripts/design.py add-capability \
+  --run-dir <run-directory> \
+  --capability events
+```
 
-1. Existing runtime workflow primitives.
-2. Existing project language and stdlib.
-3. Small coordinator script.
+## Phases the Coordinator Always Runs
 
-Avoid new dependency solely for orchestration syntax.
+`contract` opens every run: record purpose, inputs, outputs, invariants, and prerequisites against [structure.md](../references/structure.md).
 
-Make functions return explicit artifacts or state. Keep hidden mutable state out of model conversation.
+`resources` plans the files themselves. Route repeated deterministic logic to scripts, detailed schemas and decision tables to references, runnable samples to examples, and output-only material to assets. Keep one canonical home per rule and create no unused placeholder. Name each planned file before creating it using [naming.md](../references/naming.md).
 
-## 5. Add Durable State
+`checks` places validation where failure becomes actionable rather than as a trailing verification phase, and puts approval immediately before irreversible actions. Prefer an existing deterministic check over restating its logic.
 
-Persist enough state to resume:
+`review` closes the run with the questions below.
 
-- Current route or phase.
-- Per-item or per-task status.
-- Artifact identifiers.
-- Retry counters.
-- Terminal errors.
+## Exercise the Result
 
-Make completed idempotent work skippable. Guard non-idempotent work against duplicate execution.
-
-## 6. Set Failure and Concurrency Policies
-
-Define:
-
-- Retryable versus terminal errors.
-- Maximum retries or loop iterations.
-- Fail-fast, collect-failures, or threshold behavior.
-- Runtime concurrency limit.
-- Cancellation behavior.
-
-Use one worker per independent item when runtime bounds concurrency. Batch only for concrete setup or service constraints.
-
-## 7. Design Setup and Pre-flight
-
-When prerequisites exist:
-
-1. Derive requirements from validated invocation, selected route, effective settings, and target environment.
-2. Keep setup as an explicit, idempotent, version-aware entrypoint; preview and approve privileged or material changes. For agent-skill installation, use `npx skills` with discovery, explicit source/skill/agent/scope/mode, and same-scope verification rather than host paths.
-3. Make pre-flight side-effect-free and return structured ready, blocked, approval-required, and warning results with remediation.
-4. Run pre-flight before creating mutable run state or dispatching workers. Re-run it after setup from fresh observations.
-5. Cache expensive observations only with environment identity, relevant digests, capability version, and bounded expiry.
-6. Revalidate volatile credentials, permissions, locks, target identity, and destructive scope immediately before use.
-
-See [setup.md](setup.md).
-
-## 8. Place Safety and Checks
-
-Put validation at relevant boundary:
-
-- Inputs before mutation.
-- Artifact schema after generation.
-- Existing test, lint, build, or validator before handoff when affected.
-- Postconditions around irreversible operations when required for safety.
-
-Put approval immediately before destructive action. Bind approval to exact proposal.
-
-Do not add generic final verification phase when no deterministic check exists.
-
-## 9. Design Skill Settings
-
-When behavior is configurable:
-
-1. Define schema, types, defaults, allowed values, version, and disable behavior.
-2. Separate preferences from mutable coordinator state and secrets.
-3. Define user, project, and invocation scopes with deterministic precedence and provenance.
-4. Let host adapter own location, format, discovery, parsing, migration, caching, and reload semantics.
-5. Pass one immutable effective snapshot to coordinator and bounded adapters.
-6. Use validated serialization, same-directory atomic replacement, and concurrency protection for updates.
-
-See [settings.md](../references/settings.md).
-
-## 10. Design Event Hooks
-
-For each required boundary:
-
-1. Select deterministic, model-evaluated, or layered execution.
-2. Define matcher, input schema, owned scope, timeout, and normalized outcome.
-3. Keep workflow transitions in coordinator.
-4. Define stable state identity, concurrency, idempotency, and safe fallback.
-5. Validate registration and representative event payloads.
-
-See [events.md](../references/events.md).
-
-## 11. Design External Tools
-
-For each MCP or service adapter:
-
-1. Define required capabilities, schemas, transport needs, and lifecycle.
-2. Validate portable configuration, authentication, tenant, and least privilege.
-3. Put call order, retries, partial success, approval, and resume in coordinator.
-4. Normalize results and redact secrets.
-5. Test connectivity, discovery, success, auth, timeout, rate-limit, and recovery paths.
-
-See [tools.md](../references/tools.md).
-
-## 12. Design Delegated Workers
-
-For each delegated task, define:
-
-1. Stable purpose and positive or negative selection conditions.
-2. Structured inputs, exact ownership, and applicable project context.
-3. Least-privilege capabilities and any justified execution override.
-4. Output artifact or schema coordinator consumes.
-5. Partial, retryable, blocked, terminal, and cancellation results.
-
-Keep global phases, dependencies, retries, progress, approvals, rollback, and durable state in coordinator. See [workers.md](../references/workers.md).
-
-## 13. Design Command Entrypoint
-
-When explicit command surface is needed, implement thin runtime adapter:
-
-1. Declare purpose, arguments, prerequisites, and invocation policy.
-2. Parse and validate raw inputs before use.
-3. Gather minimum required context through host-native APIs.
-4. Call one coordinator entrypoint with structured values.
-5. Render status, artifacts, failures, and resume information.
-
-Keep exact registration, metadata, context, and interaction syntax outside core workflow guidance. Never splice raw arguments into shell text. See [commands.md](../references/commands.md).
-
-## 14. Write Skill Adapter
-
-Keep `SKILL.md` small. Include:
-
-- When workflow applies.
-- Required inputs and runtime prerequisites.
-- Invariants and safety boundaries.
-- Coordinator entry command or API.
-- Links to only references needed during execution.
-- Host metadata and deployment adapter requirements.
-
-Keep activation metadata specific and core instructions lean. Use repository-native initializer, validator, discovery, and packaging when available.
-
-## 15. Exercise the Workflow
-
-Run the focused checks owned by each resource you used: [structure.md](../references/structure.md) for activation and packaging, [events.md](../references/events.md), [tools.md](../references/tools.md), [workers.md](../references/workers.md), [commands.md](../references/commands.md), [settings.md](../references/settings.md), and [setup.md](setup.md).
-
-Then exercise the coordinator behavior no single adapter owns:
+Run the focused checks owned by each resource the contract selected. Then exercise the coordinator behavior no single adapter owns:
 
 - Fresh successful run, and an interrupted run resumed from persisted state alone.
 - One item failure inside a parallel pipeline, with sibling items unaffected.
@@ -205,13 +91,11 @@ Then exercise the coordinator behavior no single adapter owns:
 - One run proving preferences stay immutable while coordinator state changes.
 - A representative real task proving the references and scripts improve the outcome.
 
-Use runtime tests or a small assert-based script. Test control flow, not prose formatting.
+Use runtime tests or a small assert-based script. Test control flow, not prose formatting. In this repository, run `python3 scripts/check.py`.
 
-After real use, fix missed activation, ambiguous routes, repeated manual logic, unused resources, and broken assumptions with smallest targeted change.
+## Review Questions
 
-## 16. Review the Result
-
-Answer these before handoff. Each question tests one owner boundary; the owning reference holds the rule itself.
+Each question tests one owner boundary; the owning reference holds the rule itself.
 
 - Does executable code own ordering, branching, and bounded retries, with interrupted work resumable from durable state?
 - Is concurrency set by runtime configuration rather than a fixed prose batch size?
@@ -224,3 +108,5 @@ Answer these before handoff. Each question tests one owner boundary; the owning 
 - Are volatile permissions, target identity, locks, and destructive scope revalidated at point of use?
 - Does each rule have exactly one canonical home, with no duplicated prose or unused scaffolding?
 - Do new or renamed resources follow the filename convention?
+
+After real use, fix missed activation, ambiguous routes, repeated manual logic, unused resources, and broken assumptions with the smallest targeted change.

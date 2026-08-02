@@ -191,6 +191,8 @@ Review upstream releases or source-path changes periodically even when changelog
 
 ### 2026-08-02
 
+- Replaced the sixteen prose steps in `workflows/design.md` with an executable coordinator at `scripts/design.py` that derives phases from the recorded contract, persists decisions, and resumes from artifacts, so the skill follows its own rule against prose-held workflow state.
+- Extracted shared durable-run primitives into `scripts/state.py` and made both coordinators consume them instead of keeping private copies.
 - Consolidated duplicated guidance so each rule has one canonical home: `SKILL.md` became a router, per-topic summaries were removed in favor of their references, the review checklist moved into `workflows/design.md`, and agent-skill installation moved from `workflows/setup.md` into `references/install.md`.
 - Added `scripts/check.py` as the single deterministic check entrypoint, replacing ad-hoc validation.
 - Excluded version-control and cache directories from absorption digests and snapshots, and made rollback restore tracked files instead of deleting the whole target tree.
