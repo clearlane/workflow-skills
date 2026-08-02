@@ -191,33 +191,36 @@ Keep `SKILL.md` small. Include:
 
 Keep activation metadata specific and core instructions lean. Use repository-native initializer, validator, discovery, and packaging when available.
 
-## 15. Exercise Setup, Pre-flight, Activation, Adapters, Settings, and Resume
+## 15. Exercise the Workflow
 
-Run representative checks:
+Run the focused checks owned by each resource you used: [structure.md](../references/structure.md) for activation and packaging, [events.md](../references/events.md), [tools.md](../references/tools.md), [workers.md](../references/workers.md), [commands.md](../references/commands.md), [settings.md](../references/settings.md), and [setup.md](setup.md).
 
-- Already-ready environment where setup is a no-op and pre-flight succeeds.
-- Missing provisionable and non-provisionable prerequisites with exact remediation.
-- Setup followed by fresh pre-flight rather than assumed readiness.
-- Stale pre-flight cache and volatile condition changed before action.
-- Fresh successful run.
-- Interrupted run resumed from persisted state.
-- One item failure in parallel pipeline.
-- Positive, negative, overlap, and missing-input skill activation scenarios.
-- Event handler malformed input, timeout, concurrency, and safe fallback.
-- External-tool missing authentication, schema mismatch, rate limit, partial success, and resume.
-- Positive, negative, overlap, and missing-input worker selection scenarios.
-- Worker attempt to mutate outside owned scope.
-- Partial or terminal worker result preserved by coordinator.
-- Retry bound reached.
-- Changed destructive proposal requiring new approval.
-- Missing, malformed, conflicting, and traversal-like command inputs.
-- Missing settings, precedence conflicts, malformed types, unknown schema version, unsafe paths, concurrent update, failed migration, and settings rollback.
-- One run proving preferences remain immutable while coordinator state changes.
+Then exercise the coordinator behavior no single adapter owns:
+
+- Fresh successful run, and an interrupted run resumed from persisted state alone.
+- One item failure inside a parallel pipeline, with sibling items unaffected.
+- Retry bound reached, returning a terminal result rather than looping.
+- Changed destructive proposal requiring fresh approval.
 - Coordinator failure rendered with durable artifacts and resume information.
-- Sensitive entrypoint requiring explicit invocation and exact approval.
-- Representative real task proving references and scripts improve outcome.
-- Invalid filename characters or separators, plus manual review that multiword names are necessary and family-first.
+- One run proving preferences stay immutable while coordinator state changes.
+- A representative real task proving the references and scripts improve the outcome.
 
-Use runtime tests or small assert-based script. Test control flow, not prose formatting.
+Use runtime tests or a small assert-based script. Test control flow, not prose formatting.
 
 After real use, fix missed activation, ambiguous routes, repeated manual logic, unused resources, and broken assumptions with smallest targeted change.
+
+## 16. Review the Result
+
+Answer these before handoff. Each question tests one owner boundary; the owning reference holds the rule itself.
+
+- Does executable code own ordering, branching, and bounded retries, with interrupted work resumable from durable state?
+- Is concurrency set by runtime configuration rather than a fixed prose batch size?
+- Are destructive actions gated immediately before execution, or confined to a provably restorable snapshot?
+- Do checks call existing validators instead of restating their logic?
+- Does each adapter — event, external-tool, worker, command, settings — own exactly its own boundary while the coordinator retains global state?
+- Are runtime-specific names and syntax confined to adapters?
+- Is every external input validated before use, without raw shell interpolation?
+- Is setup explicit, idempotent, and separate from activation, with route-specific pre-flight before mutable state?
+- Are volatile permissions, target identity, locks, and destructive scope revalidated at point of use?
+- Does each rule have exactly one canonical home, with no duplicated prose or unused scaffolding?
+- Do new or renamed resources follow the filename convention?

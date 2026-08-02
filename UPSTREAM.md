@@ -183,12 +183,17 @@ When any source changes upstream:
 7. Update this registry with new baseline commit or tree digest, absorption date, plan hash, retained changes, and explicit omissions.
 8. Run skill validator, link check, runtime-neutral token scan, native discovery, focused script checks, and `git diff --check`.
 
+Run `python3 scripts/check.py` for the deterministic portion of step 8.
+
 Review upstream releases or source-path changes periodically even when changelog does not name these skills. Useful fixes may arrive through repository-wide sweeps.
 
 ## Changelog
 
 ### 2026-08-02
 
+- Consolidated duplicated guidance so each rule has one canonical home: `SKILL.md` became a router, per-topic summaries were removed in favor of their references, the review checklist moved into `workflows/design.md`, and agent-skill installation moved from `workflows/setup.md` into `references/install.md`.
+- Added `scripts/check.py` as the single deterministic check entrypoint, replacing ad-hoc validation.
+- Excluded version-control and cache directories from absorption digests and snapshots, and made rollback restore tracked files instead of deleting the whole target tree.
 - Absorbed the `absorb-skills` source into this skill as the `absorb` workflow, adding an evidence-bound absorption coordinator, workflow route, and reference.
 - Added one-word and family-first hierarchical resource filename guidance.
 - Added a deterministic filename checker and renamed the settings resolver to `scripts/settings.py` to follow the convention.

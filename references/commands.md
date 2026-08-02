@@ -2,16 +2,6 @@
 
 Use command as thin adapter around executable workflow coordinator. Host owns exact registration, metadata, invocation, context, and interaction syntax.
 
-## Contents
-
-1. When to add command
-2. Adapter contract
-3. Input boundary
-4. Context and runtime capabilities
-5. Interaction and approval
-6. Failure behavior
-7. Focused checks
-
 ## When to Add Command
 
 Add explicit command entrypoint when workflow needs at least one:

@@ -2,17 +2,6 @@
 
 Package workflow behavior so activation stays precise, core context stays small, and repeated work remains deterministic.
 
-## Contents
-
-1. Contract and use cases
-2. Resource routing
-3. Progressive disclosure
-4. Activation metadata
-5. Instruction style
-6. Deployment shapes
-7. Validation and activation tests
-8. Iteration
-
 ## Contract and Use Cases
 
 Start with representative requests and expected outcomes. Record:

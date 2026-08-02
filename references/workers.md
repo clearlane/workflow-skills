@@ -2,18 +2,6 @@
 
 Use delegated workers for bounded autonomous tasks inside coordinator-owned workflow.
 
-## Contents
-
-1. Selection
-2. Ownership boundary
-3. Worker contract
-4. Task shapes
-5. Activation scenarios
-6. Capabilities and execution settings
-7. Runtime adapter boundary
-8. Results and failures
-9. Focused checks
-
 ## Selection
 
 | Need | Use |

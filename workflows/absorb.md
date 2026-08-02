@@ -96,7 +96,7 @@ Write `apply.json` with the bound `plan_sha256`, cumulative changed files, cumul
 
 Run the checks relevant to the changed skill:
 
-- The repository-native or host-native skill validator.
+- The repository-native check entrypoint when one exists. In this repository that is `python3 scripts/check.py`; otherwise use the host-native skill validator.
 - The focused check of every changed bundled script.
 - Capability coverage against `plan.json`.
 - Trigger wording and reference-path inspection.

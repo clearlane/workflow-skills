@@ -50,6 +50,7 @@ This writes one destination per supported agent and can be intentionally broad; 
 - `references/structure.md` — skill contract, progressive disclosure, resources, and deployment shapes
 - `references/naming.md` — one-word and family-first hierarchical filename convention
 - `workflows/setup.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
+- `references/install.md` — agent-skill discovery, canonical install, and same-scope verification
 - `references/events.md` — event-boundary handler design
 - `references/tools.md` — MCP and external-service adapter design
 - `references/patterns.md` — dynamic coordinator patterns
@@ -59,12 +60,23 @@ This writes one destination per supported agent and can be intentionally broad; 
 - `references/absorb.md` — capability model, merge dispositions, conflict policy, and absorption artifact schemas
 - `workflows/absorb.md` — absorption workflow, coordinator entry, invariants, and rollback contract
 - `scripts/absorb.py` — absorption coordinator with durable run state, plan binding, snapshot rollback, and self-check
+- `scripts/check.py` — single entrypoint running every deterministic repository check
 - `scripts/settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
 - `scripts/names.py` — deterministic portable filename check
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
 - `workflows/design.md` — authoring and refactoring process
 - `agents/openai.yaml` — Codex UI metadata
 - `UPSTREAM.md` — absorbed-source baselines, capability map summary, and refresh procedure
+
+## Checks
+
+Run every deterministic check with one command:
+
+```bash
+python3 scripts/check.py
+```
+
+It runs the filename convention, the settings resolver and absorption coordinator self-checks, the skill contract and size budget, relative-link existence, one-canonical-section-per-document, and a runtime-neutral token scan.
 
 ## Origin and Changes
 

@@ -2,19 +2,6 @@
 
 Use event hooks as thin adapters around observable workflow boundaries.
 
-## Contents
-
-1. When to add hook
-2. Boundary classes
-3. Execution mode
-4. Handler contract
-5. Coordinator ownership
-6. Safety and input handling
-7. State, concurrency, and activation
-8. Latency and external systems
-9. Lifecycle and debugging
-10. Focused checks
-
 ## When to Add Hook
 
 Add hook when behavior must occur at host boundary regardless of normal workflow route:

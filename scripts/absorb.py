@@ -16,6 +16,11 @@ CAPABILITY_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ALLOWED_OPERATIONS = {"create", "update", "delete", "move"}
 ALLOWED_DECISIONS = {"integrate", "retain", "omit"}
 ALLOWED_RUNTIME_DECISIONS = {"generalize", "omit"}
+EXCLUDED_DIRECTORIES = {".git", ".hg", ".svn", "__pycache__", "node_modules"}
+
+
+def excluded(relative_parts):
+    return any(part in EXCLUDED_DIRECTORIES for part in relative_parts)
 
 
 def fail(message):
@@ -61,7 +66,9 @@ def relative_file_manifest(root):
         return {}
     manifest = {}
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or ".git" in path.parts:
+        if not path.is_file():
+            continue
+        if excluded(path.relative_to(root).parts):
             continue
         relative = path.relative_to(root).as_posix()
         manifest[relative] = {"sha256": file_sha256(path), "size": path.stat().st_size}
@@ -289,7 +296,12 @@ def create_rollback_snapshot(root, state, inventory):
     if target["exists"] != inventory["target"]["exists"] or target["sha256"] != inventory["target"]["sha256"]:
         fail("Target no longer matches run baseline")
     if target["exists"]:
-        shutil.copytree(target["path"], rollback_root / "target", symlinks=True)
+        shutil.copytree(
+            target["path"],
+            rollback_root / "target",
+            symlinks=True,
+            ignore=shutil.ignore_patterns(*EXCLUDED_DIRECTORIES),
+        )
         snapshot = inspect_skill(rollback_root / "target")
         if snapshot["sha256"] != target["sha256"]:
             fail("Rollback snapshot does not match target baseline")
@@ -302,15 +314,40 @@ def create_rollback_snapshot(root, state, inventory):
     state["rollback_scope"] = "baseline"
 
 
+def restore_tracked_files(snapshot_root, target, target_existed):
+    """Restore only snapshot-tracked files.
+
+    Version-control directories and other excluded paths are never captured, so
+    they must never be deleted. Restoring file-by-file keeps unrelated worktree
+    state intact while still returning every tracked path to its baseline.
+    """
+    if not target_existed:
+        remove_path(target)
+        return
+    expected = relative_file_manifest(snapshot_root)
+    for relative in expected:
+        source = snapshot_root / relative
+        destination = target / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        remove_path(destination)
+        shutil.copy2(source, destination, follow_symlinks=False)
+    for relative in relative_file_manifest(target):
+        if relative not in expected:
+            remove_path(target / relative)
+    for directory in sorted(target.rglob("*"), reverse=True):
+        if not directory.is_dir() or excluded(directory.relative_to(target).parts):
+            continue
+        if not any(directory.iterdir()):
+            directory.rmdir()
+
+
 def rollback_target(root, state, inventory, reason):
     rollback_root = root / "rollback"
     snapshot = read_json(rollback_root / "snapshot.json")
     if snapshot.get("plan_sha256") != state.get("execution_plan_sha256"):
         fail("Rollback snapshot does not match bound plan")
     target = Path(inventory["target"]["path"])
-    remove_path(target)
-    if snapshot.get("target_exists"):
-        shutil.copytree(rollback_root / "target", target, symlinks=True)
+    restore_tracked_files(rollback_root / "target", target, snapshot.get("target_exists"))
     restored = inspect_skill(target, allow_missing=True)
     if restored["exists"] != snapshot.get("target_exists") or restored["sha256"] != snapshot.get("target_sha256"):
         fail("Automatic rollback could not restore target baseline")
@@ -625,6 +662,21 @@ def command_self_check(_args):
         assert read_json(run / "state.json")["phase"] == "rolled-back"
         assert (target / "SKILL.md").read_text() == baseline
         assert not (target / "EXTRA.md").exists()
+
+        target, _sources, run, baseline, plan_hash = prepare_run("vcs")
+        vcs = target / ".git"
+        vcs.mkdir()
+        (vcs / "HEAD").write_text("ref: refs/heads/main\n")
+        assert inspect_skill(target)["sha256"] == read_json(run / "inventory.json")["target"]["sha256"]
+        (target / "SKILL.md").write_text("changed\n")
+        (target / "EXTRA.md").write_text("outside plan\n")
+        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["EXTRA.md", "SKILL.md"], "deleted_files": [], "notes": []})
+        result = execute("advance", "--run-dir", run, check=False)
+        assert result.returncode != 0 and "target rolled back" in result.stderr
+        assert (target / "SKILL.md").read_text() == baseline
+        assert not (target / "EXTRA.md").exists()
+        assert (vcs / "HEAD").read_text() == "ref: refs/heads/main\n"
+        assert not (run / "rollback" / "target" / ".git").exists()
 
         target, _sources, run, baseline, plan_hash = prepare_run("bounded", max_attempts=1)
         (target / "SKILL.md").write_text("changed\n")

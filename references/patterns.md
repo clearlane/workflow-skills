@@ -25,7 +25,9 @@ results = pipeline(items, processItem, concurrency = runtimeLimit)
 
 Track status per item: pending, running, completed, or failed. Persist result after each item. Retry only failed retryable items.
 
-Prefer one worker per item when runtime bounds concurrency. Batch only for shared setup, bulk APIs, rate limits, or runtimes without concurrency controls.
+Prefer one worker per item when the runtime bounds concurrency and persists progress. This preserves item-level status and avoids losing a whole batch on one failure. Batch only when setup cost dominates item work, an external API imposes bulk or rate-limit constraints, items need shared context for a correct result, or the runtime has no concurrency control.
+
+Set concurrency in runtime configuration. Never encode a universal batch size such as 10–20 items.
 
 Failure policy options:
 

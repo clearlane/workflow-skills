@@ -178,7 +178,7 @@ Write `plan.json`:
     }
   ],
   "risks": ["risk requiring review"],
-  "validation_commands": ["python3 scripts/absorb.py self-check"]
+  "validation_commands": ["python3 scripts/check.py"]
 }
 ```
 

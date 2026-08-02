@@ -2,18 +2,6 @@
 
 Integrate MCP servers and external services through typed adapters. Keep protocol and host syntax outside coordinator logic.
 
-## Contents
-
-1. Integration contract
-2. Adapter and transport selection
-3. Portable configuration
-4. Authentication and secrets
-5. Capability discovery and permissions
-6. Coordinator call patterns
-7. Failure, retry, and partial success
-8. Performance and lifecycle
-9. Testing and documentation
-
 ## Integration Contract
 
 Define before configuration:
