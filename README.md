@@ -7,6 +7,7 @@ Runtime-neutral agent skill for designing reliable multi-step workflows with exe
 - Routing and dispatch tables
 - Parallel item pipelines with bounded concurrency
 - Runtime-neutral skill structure and progressive disclosure
+- Explicit idempotent setup and route-specific pre-flight readiness workflows
 - Typed user-local and project-local skill settings with precedence and provenance
 - Event-triggered guards and lifecycle reactions
 - MCP and external-tool integration contracts
@@ -36,6 +37,7 @@ Start a new Codex session after installation.
 
 - `SKILL.md` — activation and core workflow-design rules
 - `references/skill-structure.md` — skill contract, progressive disclosure, resources, and deployment shapes
+- `workflows/setup-preflight.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
 - `references/event-hooks.md` — event-boundary handler design
 - `references/external-tools.md` — MCP and external-service adapter design
 - `references/workflow-patterns.md` — dynamic coordinator patterns

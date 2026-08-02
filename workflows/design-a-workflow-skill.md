@@ -16,6 +16,7 @@ Write down:
 - MCP servers or external services, schemas, authentication, and side effects.
 - Whether any task is bounded and independent enough for delegated worker.
 - Whether workflow needs explicit command entrypoint, declared arguments, or manual-only invocation.
+- Whether prerequisites require explicit setup and which readiness conditions need pre-flight checks.
 - Whether users need stable skill settings, which scopes exist, and whether any values are secrets.
 
 Stop if task is simple enough for one direct skill instruction. Do not create coordinator without resume, branching, concurrency, retry, safety, or repeated-use need.
@@ -86,7 +87,20 @@ Define:
 
 Use one worker per independent item when runtime bounds concurrency. Batch only for concrete setup or service constraints.
 
-## 7. Place Safety and Checks
+## 7. Design Setup and Pre-flight
+
+When prerequisites exist:
+
+1. Derive requirements from validated invocation, selected route, effective settings, and target environment.
+2. Keep setup as an explicit, idempotent, version-aware entrypoint; preview and approve privileged or material changes.
+3. Make pre-flight side-effect-free and return structured ready, blocked, approval-required, and warning results with remediation.
+4. Run pre-flight before creating mutable run state or dispatching workers. Re-run it after setup from fresh observations.
+5. Cache expensive observations only with environment identity, relevant digests, capability version, and bounded expiry.
+6. Revalidate volatile credentials, permissions, locks, target identity, and destructive scope immediately before use.
+
+See [setup-preflight.md](setup-preflight.md).
+
+## 8. Place Safety and Checks
 
 Put validation at relevant boundary:
 
@@ -99,7 +113,7 @@ Put approval immediately before destructive action. Bind approval to exact propo
 
 Do not add generic final verification phase when no deterministic check exists.
 
-## 8. Design Skill Settings
+## 9. Design Skill Settings
 
 When behavior is configurable:
 
@@ -112,7 +126,7 @@ When behavior is configurable:
 
 See [skill-settings.md](../references/skill-settings.md).
 
-## 9. Design Event Hooks
+## 10. Design Event Hooks
 
 For each required boundary:
 
@@ -124,7 +138,7 @@ For each required boundary:
 
 See [event-hooks.md](../references/event-hooks.md).
 
-## 10. Design External Tools
+## 11. Design External Tools
 
 For each MCP or service adapter:
 
@@ -136,7 +150,7 @@ For each MCP or service adapter:
 
 See [external-tools.md](../references/external-tools.md).
 
-## 11. Design Delegated Workers
+## 12. Design Delegated Workers
 
 For each delegated task, define:
 
@@ -148,7 +162,7 @@ For each delegated task, define:
 
 Keep global phases, dependencies, retries, progress, approvals, rollback, and durable state in coordinator. See [delegated-workers.md](../references/delegated-workers.md).
 
-## 12. Design Command Entrypoint
+## 13. Design Command Entrypoint
 
 When explicit command surface is needed, implement thin runtime adapter:
 
@@ -160,7 +174,7 @@ When explicit command surface is needed, implement thin runtime adapter:
 
 Keep exact registration, metadata, context, and interaction syntax outside core workflow guidance. Never splice raw arguments into shell text. See [command-entrypoints.md](../references/command-entrypoints.md).
 
-## 13. Write Skill Adapter
+## 14. Write Skill Adapter
 
 Keep `SKILL.md` small. Include:
 
@@ -173,10 +187,14 @@ Keep `SKILL.md` small. Include:
 
 Keep activation metadata specific and core instructions lean. Use repository-native initializer, validator, discovery, and packaging when available.
 
-## 14. Exercise Activation, Adapters, Settings, and Resume
+## 15. Exercise Setup, Pre-flight, Activation, Adapters, Settings, and Resume
 
 Run representative checks:
 
+- Already-ready environment where setup is a no-op and pre-flight succeeds.
+- Missing provisionable and non-provisionable prerequisites with exact remediation.
+- Setup followed by fresh pre-flight rather than assumed readiness.
+- Stale pre-flight cache and volatile condition changed before action.
 - Fresh successful run.
 - Interrupted run resumed from persisted state.
 - One item failure in parallel pipeline.

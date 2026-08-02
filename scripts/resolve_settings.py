@@ -105,7 +105,7 @@ def self_check():
 
 def main():
     parser = argparse.ArgumentParser(description="Resolve layered JSON skill settings with provenance.")
-    parser.add_argument("--defaults", type=Path, required=True)
+    parser.add_argument("--defaults", type=Path)
     parser.add_argument("--user", type=Path)
     parser.add_argument("--project", type=Path)
     parser.add_argument("--override", help="Invocation override as JSON object")
@@ -118,6 +118,9 @@ def main():
         self_check()
         print("self-check passed")
         return
+
+    if arguments.defaults is None:
+        parser.error("--defaults is required unless --self-check is used")
 
     layers = [("default", read_object(arguments.defaults))]
     layers.extend(

@@ -7,6 +7,27 @@ description: Design or refactor runtime-neutral workflow skills whose multi-step
 
 Put workflow control in executable orchestration. Keep core instructions focused on activation, inputs, invariants, safety boundaries, coordinator entry, and direct links to needed resources.
 
+## When to Use
+
+Use this skill when creating or refactoring a reusable skill whose behavior needs one or more of:
+
+- Branching, bounded concurrency, retries, dependencies, loops, checkpoints, or resume.
+- Durable state or partial-failure recovery across multiple work items.
+- Approval immediately before destructive or irreversible actions.
+- Runtime-neutral setup and pre-flight checks, or adapters for events, external tools, delegated workers, commands, or layered settings.
+- Progressive disclosure across core instructions, references, scripts, examples, and output assets.
+
+## When Not to Use
+
+Do not use this skill for:
+
+- A single direct task with no reusable workflow contract.
+- Simple instructions whose order does not branch, retry, resume, or coordinate independent work.
+- Generic skill copy-editing, one-time skill review, or host-specific syntax lookup without workflow design.
+- Application orchestration that is not being packaged as an agent skill.
+
+For borderline cases, start with direct instructions. Add executable coordination only after a concrete need for branching, resume, bounded retry, concurrency, safety gates, or repeated invocation appears.
+
 ## Core Architecture
 
 Separate ten concerns:
@@ -20,7 +41,8 @@ Separate ten concerns:
 7. **Entrypoint adapters** — Parse and validate explicit invocation, then call coordinator without owning workflow logic.
 8. **Settings adapters** — Resolve validated user and project preferences without storing mutable workflow progress.
 9. **Bundled resources** — Route deterministic logic, detailed knowledge, runnable examples, and output materials by use.
-10. **Checks** — Run existing validators, tests, schemas, or build targets at relevant boundaries.
+10. **Setup and pre-flight** — Provision explicit prerequisites separately from side-effect-free readiness checks.
+11. **Checks** — Run existing validators, tests, schemas, or build targets at relevant boundaries.
 
 The coordinator is the workflow source of truth. Prose may explain why a transition exists, but must not duplicate executable control flow.
 
@@ -39,6 +61,7 @@ The coordinator is the workflow source of truth. Prose may explain why a transit
 - Treat command arguments, paths, and referenced resources as untrusted inputs. Parse and validate them before coordinator invocation.
 - Keep user settings separate from mutable workflow state. Resolve typed defaults, user settings, project settings, and invocation overrides into one immutable effective configuration with provenance.
 - Keep secrets out of ordinary settings files. Treat settings content and configured paths as untrusted input.
+- Keep setup explicit and idempotent. Run route-specific pre-flight before creating run state or dispatching work, then revalidate volatile safety conditions at the action boundary.
 - Keep skill, settings, event, external-tool, worker, and command discovery, metadata, context loading, invocation, and interaction syntax in runtime adapters. Never copy runtime-specific syntax into core workflow guidance.
 
 ## Pattern Selection
@@ -56,8 +79,11 @@ The coordinator is the workflow source of truth. Prose may explain why a transit
 | Perform irreversible work | Approval gate around the action |
 | Expose explicit reusable invocation | Thin command entrypoint adapter |
 | Make skill behavior configurable | Validated skill-settings adapter |
+| Provision prerequisites or prove readiness | Separate setup entrypoint and pre-flight report |
 
 Read [workflow-patterns.md](references/workflow-patterns.md) for concrete structures and failure policies.
+
+Follow [setup-preflight.md](workflows/setup-preflight.md) when workflow needs environment provisioning, capability checks, credentials, service health, resource checks, or resume compatibility before execution.
 
 Read [skill-structure.md](references/skill-structure.md) for activation, progressive disclosure, resources, deployment shapes, and skill checks.
 
@@ -137,6 +163,14 @@ Batch only when one of these is true:
 
 Set concurrency in runtime configuration. Never encode a universal batch size such as 10–20 items.
 
+## Setup and Pre-flight
+
+Separate environment mutation from readiness observation. Setup must be an explicit, idempotent entrypoint that plans and records installations, initialization, registration, or migration. Never run setup merely because the skill activated.
+
+Before creating mutable run state or dispatching work, derive route-specific requirements and produce a structured pre-flight report. Check only prerequisites needed by the selected invocation. Classify findings as blocking, approval-requiring, or warnings, and include concrete remediation without exposing secrets.
+
+Cache expensive observations only with environment, input, settings, capability-version, and expiry keys. Re-run pre-flight after setup. Revalidate volatile credentials, permissions, locks, target identity, and destructive scope immediately before use; pre-flight never replaces an action-local safety gate. See [setup-preflight.md](workflows/setup-preflight.md).
+
 ## Validation Placement
 
 Do not append a generic "verification phase" to every workflow. Put checks where failure becomes actionable:
@@ -195,5 +229,8 @@ When reviewing upstream sources or refreshing absorbed guidance, use [UPSTREAM.m
 - Are settings typed, validated, precedence-defined, and separate from mutable workflow state?
 - Does one adapter own settings discovery, parsing, migration, reload, and provenance?
 - Are arguments and paths validated before use without raw shell interpolation?
+- Is setup explicit, idempotent, version-aware, and separate from normal activation?
+- Does route-specific pre-flight run before mutable state or work dispatch and return actionable blockers?
+- Are volatile permissions, target identity, locks, and destructive scope revalidated at point of use?
 - Could exact command syntax be deleted in favor of host documentation?
 - Could unused scaffolding, duplicated prose, or host syntax be deleted?

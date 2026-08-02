@@ -191,6 +191,23 @@ Settings adapter owns schema, locations, parsing, migration, precedence, reload,
 
 Commands, event handlers, workers, and external-tool adapters consume same validated effective snapshot. Secrets arrive through separate protected boundary. See [skill-settings.md](skill-settings.md) for full contract and checks.
 
+## 12. Setup and Pre-flight
+
+Use setup to provision or migrate prerequisites and pre-flight to observe readiness for one validated invocation.
+
+```text
+request = validateInvocation(rawInput)
+settings = resolveSettings(request)
+requirements = deriveRequirements(request, settings)
+report = preflight(request, settings, requirements)
+requireReady(report)
+result = coordinator(request, settings, report)
+```
+
+Keep setup explicit, idempotent, version-aware, and separate from normal activation. Run route-specific pre-flight before mutable run state or worker dispatch. Re-run pre-flight after setup, and revalidate volatile conditions at point of use.
+
+See [setup-preflight.md](../workflows/setup-preflight.md) for contracts, check classes, remediation, freshness, and focused checks.
+
 ## Combining Patterns
 
 Compose patterns in code, not copied prose. Common combinations:
@@ -204,6 +221,7 @@ Compose patterns in code, not copied prose. Common combinations:
 - Event hook guarding safety gate or invoking coordinator entrypoint.
 - Pipeline or dependency graph issuing typed external-tool calls.
 - Command entrypoint applying validated invocation overrides before coordinator start.
+- Explicit setup entrypoint followed by fresh route-specific pre-flight.
 
 Keep nesting shallow. If coordinator becomes difficult to inspect, split handlers or phases into named functions while preserving one state owner.
 
