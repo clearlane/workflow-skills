@@ -1,4 +1,4 @@
 interface:
   display_name: "Designing Workflow Skills"
-  short_description: "Design configurable workflow skills and safe adapters"
-  default_prompt: "Use $designing-workflow-skills to design a runtime-neutral workflow skill with executable coordination, validated skill settings, progressive disclosure, safe event and external-tool adapters, bounded workers, and thin command entrypoints."
+  short_description: "Design, refactor, and merge runtime-neutral workflow skills"
+  default_prompt: "Use $designing-workflow-skills to design a runtime-neutral workflow skill with executable coordination, validated skill settings, progressive disclosure, safe event and external-tool adapters, bounded workers, and thin command entrypoints, or to absorb one or many skills into one target with evidence-bound planning, bounded validation, and automatic rollback."

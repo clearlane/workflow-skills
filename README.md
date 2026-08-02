@@ -1,6 +1,6 @@
 # Designing Workflow Skills
 
-Runtime-neutral agent skill for designing reliable multi-step workflows with executable orchestration instead of prose-held state.
+Runtime-neutral agent skill for designing, refactoring, and merging reliable multi-step workflows with executable orchestration instead of prose-held state.
 
 ## What It Covers
 
@@ -18,6 +18,7 @@ Runtime-neutral agent skill for designing reliable multi-step workflows with exe
 - Approval gates for destructive actions
 - Validator-backed checks at actionable boundaries
 - Thin explicit command entrypoints with validated arguments
+- Evidence-bound absorption of one or many skills into one target, with bounded validation and automatic rollback
 - Runtime-neutral command metadata, interaction, failure, and adapter testing contracts
 - Runtime-neutral worker metadata, capability, output, failure, and adapter contracts
 - Runtime-neutral transport, authentication, schema, lifecycle, partial-success, and hook contracts
@@ -55,6 +56,9 @@ This writes one destination per supported agent and can be intentionally broad; 
 - `references/workers.md` — bounded runtime-neutral worker design
 - `references/commands.md` — safe runtime-neutral command adapter design
 - `references/settings.md` — validated skill preferences, scopes, precedence, lifecycle, and security
+- `references/absorb.md` — capability model, merge dispositions, conflict policy, and absorption artifact schemas
+- `workflows/absorb.md` — absorption workflow, coordinator entry, invariants, and rollback contract
+- `scripts/absorb.py` — absorption coordinator with durable run state, plan binding, snapshot rollback, and self-check
 - `scripts/settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
 - `scripts/names.py` — deterministic portable filename check
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
@@ -81,6 +85,8 @@ Delegated-worker guidance independently re-expresses generic concepts from proje
 Skill-structure, event-hook, and external-tool guidance independently re-express generic concepts from project-local `skill-development`, `hook-development`, and `mcp-integration` sources. No runtime-specific syntax, shell utilities, templates, examples, or validator code were copied.
 
 Skill-settings guidance independently re-expresses generic concepts from project-local `plugin-settings` source. It separates preferences from mutable workflow state and excludes vendor paths, metadata, reload claims, shell parsers, templates, and examples.
+
+Absorption guidance and its coordinator come from the project-local `absorb-skills` source, absorbed through its own run. Host path interpolation and skill-mention syntax were dropped, its resources were renamed to this repository's filename convention, its separate host metadata file was merged into the existing one, and its legacy approval-run migration path was removed as unreachable here.
 
 See [`UPSTREAM.md`](UPSTREAM.md) for source baselines, absorbed coverage, deliberate exclusions, monitoring procedure, and changelog.
 

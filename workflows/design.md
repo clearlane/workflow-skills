@@ -21,6 +21,8 @@ Write down:
 
 Stop if task is simple enough for one direct skill instruction. Do not create coordinator without resume, branching, concurrency, retry, safety, or repeated-use need.
 
+When the work merges existing skills rather than designing new behavior, follow [absorb.md](absorb.md) instead of restarting the contract from scratch. Absorb first, then continue this process for whatever the merged contract still lacks.
+
 ## 2. Choose Coordinator Shape
 
 Select smallest pattern from [patterns.md](../references/patterns.md):

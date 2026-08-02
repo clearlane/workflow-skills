@@ -1,6 +1,6 @@
 ---
 name: designing-workflow-skills
-description: Design or refactor runtime-neutral workflow skills whose multi-step behavior spans executable coordination, validated skill settings, event-triggered guards, MCP or external-tool services, delegated workers, and explicit command entrypoints. Use when workflows need routing, phases, concurrency, dependencies, resume, bounded loops, configurable behavior, safety gates, progressive disclosure, validated adapters, or durable failure recovery without copying host-specific syntax into core guidance.
+description: Design, refactor, or merge runtime-neutral workflow skills whose multi-step behavior spans executable coordination, validated skill settings, event-triggered guards, MCP or external-tool services, delegated workers, and explicit command entrypoints. Use when workflows need routing, phases, concurrency, dependencies, resume, bounded loops, configurable behavior, safety gates, progressive disclosure, validated adapters, or durable failure recovery, and when absorbing or consolidating one or many skills into one target without losing capabilities or copying host-specific syntax into core guidance.
 ---
 
 # Designing Workflow Skills
@@ -16,6 +16,7 @@ Use this skill when creating or refactoring a reusable skill whose behavior need
 - Approval immediately before destructive or irreversible actions.
 - Runtime-neutral setup and pre-flight checks, or adapters for events, external tools, delegated workers, commands, or layered settings.
 - Progressive disclosure across core instructions, references, scripts, examples, and output assets.
+- Merging or consolidating several skills, or folding an upstream skill into an existing one, without losing capability coverage.
 
 ## When Not to Use
 
@@ -80,6 +81,7 @@ The coordinator is the workflow source of truth. Prose may explain why a transit
 | Expose explicit reusable invocation | Thin command entrypoint adapter |
 | Make skill behavior configurable | Validated skill-settings adapter |
 | Provision prerequisites or prove readiness | Separate setup entrypoint and pre-flight report |
+| Merge many skills into one target | Evidence-bound absorption run with snapshot rollback |
 
 Read [patterns.md](references/patterns.md) for concrete structures and failure policies.
 
@@ -98,6 +100,8 @@ Read [workers.md](references/workers.md) when workflow delegates bounded work.
 Read [commands.md](references/commands.md) when workflow needs an explicit command surface.
 
 Read [settings.md](references/settings.md) when skill behavior needs user-local, project-local, or invocation-level preferences.
+
+Follow [absorb.md](workflows/absorb.md) when merging one or many source skills into one target skill.
 
 ## Skill Structure
 
@@ -198,6 +202,8 @@ Keep analysis and destructive execution separate:
 
 Approval is a runtime event, not prose such as "continue only if approved."
 
+Approval protects irreversible actions. When mutation is confined to a snapshotted scope, an equivalent gate is reversibility: bind the exact plan, snapshot the scope before mutation, reject evidence that no longer matches the bound plan, and restore the snapshot automatically on unsafe or exhausted execution. Use this shape only when the snapshot provably restores the pre-mutation state.
+
 ## Fallback Without a Workflow Runtime
 
 When host lacks dynamic workflows:
@@ -208,6 +214,12 @@ When host lacks dynamic workflows:
 4. Keep `SKILL.md` as adapter telling agent when and how to invoke script.
 
 Use prose-only sequencing only for short, low-risk workflows that do not need resume, concurrency, retry, or partial-failure handling.
+
+## Absorbing Skills
+
+Merge skills semantically, never by concatenation. Keep sources read-only, store run progress in a durable directory outside every skill, and give every capability and runtime dependency an explicit disposition so nothing is dropped silently. Organize the result by canonical job shape rather than by absorbed-source name.
+
+Follow the absorption workflow in [absorb.md](workflows/absorb.md), and use its capability, conflict, and artifact rules in [absorb.md](references/absorb.md).
 
 ## Design Workflow
 
@@ -240,3 +252,4 @@ When reviewing upstream sources or refreshing absorbed guidance, use [UPSTREAM.m
 - Are volatile permissions, target identity, locks, and destructive scope revalidated at point of use?
 - Could exact command syntax be deleted in favor of host documentation?
 - Could unused scaffolding, duplicated prose, or host syntax be deleted?
+- Does absorbed material land in canonical destinations instead of source-named folders, with every capability and runtime dependency explicitly dispositioned?

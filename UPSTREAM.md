@@ -13,6 +13,7 @@ Track absorbed sources here so later upstream changes can be reviewed for useful
 | MCP Integration | [`anthropics/claude-code/plugins/plugin-dev/skills/mcp-integration`](https://github.com/anthropics/claude-code/tree/main/plugins/plugin-dev/skills/mcp-integration) | Installed `main` snapshot tree SHA-256 `03902fea89d355516383adf9f1cd782f064ab75b2bd0f030f8719975feb88d0f` | 2026-08-01 | `a87ac90c76030720444618424c48ae45e2b8dd68b018a22006bfa7fa99ab8b82` |
 | Skill Development | [`anthropics/claude-code/plugins/plugin-dev/skills/skill-development`](https://github.com/anthropics/claude-code/tree/main/plugins/plugin-dev/skills/skill-development) | Installed `main` snapshot tree SHA-256 `f3547dd4fc0acee7f502f492a9cb61e743e3247ffd36956be79e9b92a8f265d5` | 2026-08-01 | `a87ac90c76030720444618424c48ae45e2b8dd68b018a22006bfa7fa99ab8b82` |
 | Plugin Settings | [`anthropics/claude-code/plugins/plugin-dev/skills/plugin-settings`](https://github.com/anthropics/claude-code/tree/main/plugins/plugin-dev/skills/plugin-settings) | Installed `main` snapshot tree SHA-256 `67546a58c6562768b175670b5aed1c2f9a304899167d875959736fc2acd2eae3` | 2026-08-01 | `7817f599855e36a227c7df70b0f1e11361546909bb38513fd17e29120427559b` |
+| Absorb Skills | Project-local skill `absorb-skills`, previously vendored at `.agents/skills/absorb-skills/` | Snapshot tree SHA-256 `e39465db1fe44d4085944150065c9500e91fefd5408cc7819cbd5097d20d2666` | 2026-08-02 | `06a4b90b9236dec20bfcb0aa7cf4d2310513f3e5a182a12c038c901870453d50` |
 
 Anthropic baselines above are local skill-tree digests recorded by absorption runs, not upstream commit IDs. Future refreshes should record exact upstream commit SHA when available because `main` is mutable.
 
@@ -143,6 +144,32 @@ Canonical destinations:
 - `workflows/design.md`
 - `SKILL.md`
 
+### Absorb Skills
+
+Absorbed:
+
+- Absorption contract, durable run initialization, status and resume, and read-only source guarantees.
+- Bounded per-source analysis with stable capability IDs, evidence paths, triggers, overlaps, conflicts, risks, and runtime dependencies.
+- Capability model, merge dispositions with preference order, conflict classification, and scalable non-source-shaped target structure.
+- Synthesis plan with complete capability and runtime-dependency coverage, internal plan binding, pre-mutation snapshot, merge evidence, bounded validation, automatic rollback, and plan revision.
+- Executable coordinator with its own deterministic self-check.
+
+Reworked or excluded:
+
+- Renamed resources to this repository's one-word filename convention: `workflows/absorb.md`, `references/absorb.md`, and `scripts/absorb.py`.
+- Removed the legacy approval-phase run migration command, its status field, and its guard, because no legacy runs exist here and the path was unreachable.
+- Replaced the source's separate host metadata file with the existing single metadata adapter, and removed host path interpolation and skill-mention syntax.
+- Expressed the named skill validator by role as repository-native or host-native validation.
+- Framed the no-pause execution model as reversibility-based safety in `SKILL.md` rather than an exception to the approval rule.
+- Deleted the project-local source tree and its generated cache after the run; run artifacts retain inventory, analyses, plan, rollback baseline, and validation evidence.
+
+Canonical destinations:
+
+- `workflows/absorb.md`
+- `references/absorb.md`
+- `scripts/absorb.py`
+- `SKILL.md`
+
 ## Upstream Review Procedure
 
 When any source changes upstream:
@@ -152,7 +179,7 @@ When any source changes upstream:
 3. Classify each change as new capability, correctness or safety fix, runtime-adapter syntax, duplicate guidance, obsolete behavior, or provenance change.
 4. Prefer runtime-neutral behavior, deterministic mechanisms, current protocol semantics, and repository-native validators.
 5. Do not copy host-specific paths, tool names, model names, metadata fields, command syntax, event names, or unverified lifecycle claims into core guidance.
-6. Run `$absorb-skills` with fresh source snapshot and this skill as target. Let coordinator produce complete capability and runtime-dependency maps.
+6. Run the absorption workflow in [workflows/absorb.md](workflows/absorb.md) with a fresh source snapshot and this skill as target. Let the coordinator produce complete capability and runtime-dependency maps.
 7. Update this registry with new baseline commit or tree digest, absorption date, plan hash, retained changes, and explicit omissions.
 8. Run skill validator, link check, runtime-neutral token scan, native discovery, focused script checks, and `git diff --check`.
 
@@ -162,6 +189,7 @@ Review upstream releases or source-path changes periodically even when changelog
 
 ### 2026-08-02
 
+- Absorbed the `absorb-skills` source into this skill as the `absorb` workflow, adding an evidence-bound absorption coordinator, workflow route, and reference.
 - Added one-word and family-first hierarchical resource filename guidance.
 - Added a deterministic filename checker and renamed the settings resolver to `scripts/settings.py` to follow the convention.
 

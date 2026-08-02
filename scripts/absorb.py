@@ -1,0 +1,686 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+VERSION = 1
+CAPABILITY_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+ALLOWED_OPERATIONS = {"create", "update", "delete", "move"}
+ALLOWED_DECISIONS = {"integrate", "retain", "omit"}
+ALLOWED_RUNTIME_DECISIONS = {"generalize", "omit"}
+
+
+def fail(message):
+    raise SystemExit(message)
+
+
+def read_json(path):
+    try:
+        value = json.loads(path.read_text())
+    except FileNotFoundError:
+        fail(f"Missing file: {path}")
+    except json.JSONDecodeError as error:
+        fail(f"Invalid JSON in {path}: {error}")
+    if not isinstance(value, dict):
+        fail(f"Expected JSON object: {path}")
+    return value
+
+
+def write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+    temporary.replace(path)
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def json_sha256(path):
+    value = read_json(path)
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def relative_file_manifest(root):
+    root = root.resolve()
+    if not root.exists():
+        return {}
+    manifest = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or ".git" in path.parts:
+            continue
+        relative = path.relative_to(root).as_posix()
+        manifest[relative] = {"sha256": file_sha256(path), "size": path.stat().st_size}
+    return manifest
+
+
+def tree_sha256(manifest):
+    encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def inspect_skill(path, allow_missing=False):
+    resolved = path.expanduser().resolve()
+    if not resolved.exists():
+        if allow_missing:
+            return {"path": str(resolved), "exists": False, "files": {}, "sha256": None}
+        fail(f"Skill path does not exist: {resolved}")
+    if not resolved.is_dir() or not (resolved / "SKILL.md").is_file():
+        fail(f"Skill must be directory containing SKILL.md: {resolved}")
+    files = relative_file_manifest(resolved)
+    return {"path": str(resolved), "exists": True, "files": files, "sha256": tree_sha256(files)}
+
+
+def slug(value):
+    normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return normalized or "skill"
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def load_run(run_dir):
+    root = run_dir.expanduser().resolve()
+    state = read_json(root / "state.json")
+    inventory = read_json(root / "inventory.json")
+    if state.get("version") != VERSION:
+        fail(f"Unsupported run version: {state.get('version')}")
+    return root, state, inventory
+
+
+def save_state(root, state, event):
+    state.setdefault("history", []).append({"at": now(), "event": event, "phase": state["phase"]})
+    state["updated_at"] = now()
+    write_json(root / "state.json", state)
+
+
+def require_list(value, name):
+    if not isinstance(value, list):
+        fail(f"{name} must be list")
+
+
+def require_text(value, name):
+    if not isinstance(value, str) or not value.strip():
+        fail(f"{name} must be non-empty string")
+
+
+def safe_relative_path(value, name):
+    require_text(value, name)
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts or value in {".", ""}:
+        fail(f"{name} must stay inside target: {value}")
+    return path.as_posix()
+
+
+def paths_overlap(first, second):
+    return first == second or first in second.parents or second in first.parents
+
+
+def remove_path(path):
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def validate_analysis(path, expected_source_id):
+    value = read_json(path)
+    if value.get("source_id") != expected_source_id:
+        fail(f"{path}: source_id must be {expected_source_id}")
+    require_text(value.get("summary"), f"{path}: summary")
+    for field in ("capabilities", "triggers", "resources", "overlaps", "conflicts", "risks", "runtime_dependencies"):
+        require_list(value.get(field), f"{path}: {field}")
+    if not value["capabilities"]:
+        fail(f"{path}: capabilities must not be empty")
+    seen = set()
+    for index, capability in enumerate(value["capabilities"]):
+        if not isinstance(capability, dict):
+            fail(f"{path}: capabilities[{index}] must be object")
+        capability_id = capability.get("id")
+        if not isinstance(capability_id, str) or not CAPABILITY_ID.fullmatch(capability_id):
+            fail(f"{path}: invalid capability id {capability_id!r}")
+        if capability_id in seen:
+            fail(f"{path}: duplicate capability id {capability_id}")
+        seen.add(capability_id)
+        require_text(capability.get("purpose"), f"{path}: capability {capability_id} purpose")
+        require_list(capability.get("evidence"), f"{path}: capability {capability_id} evidence")
+        if not capability["evidence"]:
+            fail(f"{path}: capability {capability_id} needs evidence")
+    runtime_ids = set()
+    for index, dependency in enumerate(value["runtime_dependencies"]):
+        if not isinstance(dependency, dict):
+            fail(f"{path}: runtime_dependencies[{index}] must be object")
+        dependency_id = dependency.get("id")
+        if not isinstance(dependency_id, str) or not CAPABILITY_ID.fullmatch(dependency_id):
+            fail(f"{path}: invalid runtime dependency id {dependency_id!r}")
+        if dependency_id in runtime_ids:
+            fail(f"{path}: duplicate runtime dependency id {dependency_id}")
+        runtime_ids.add(dependency_id)
+        require_text(dependency.get("symbol"), f"{path}: runtime dependency {dependency_id} symbol")
+        require_text(dependency.get("kind"), f"{path}: runtime dependency {dependency_id} kind")
+        require_list(dependency.get("evidence"), f"{path}: runtime dependency {dependency_id} evidence")
+        if not dependency["evidence"]:
+            fail(f"{path}: runtime dependency {dependency_id} needs evidence")
+    return value
+
+
+def capability_keys(root, inventory):
+    keys = []
+    items = ([{"id": "target"}] if inventory["target"]["exists"] else []) + inventory["sources"]
+    for item in items:
+        analysis = validate_analysis(root / "analyses" / f"{item['id']}.json", item["id"])
+        keys.extend(f"{item['id']}:{capability['id']}" for capability in analysis["capabilities"])
+    return keys
+
+
+def runtime_dependency_keys(root, inventory):
+    keys = []
+    items = ([{"id": "target"}] if inventory["target"]["exists"] else []) + inventory["sources"]
+    for item in items:
+        analysis = validate_analysis(root / "analyses" / f"{item['id']}.json", item["id"])
+        keys.extend(f"{item['id']}:{dependency['id']}" for dependency in analysis["runtime_dependencies"])
+    return keys
+
+
+def validate_plan(root, inventory):
+    path = root / "plan.json"
+    value = read_json(path)
+    contract = value.get("target_contract")
+    if not isinstance(contract, dict):
+        fail(f"{path}: target_contract must be object")
+    require_text(contract.get("name"), f"{path}: target_contract.name")
+    require_text(contract.get("description"), f"{path}: target_contract.description")
+    if contract.get("runtime_policy") != "runtime-neutral":
+        fail(f"{path}: target_contract.runtime_policy must be runtime-neutral")
+    require_list(contract.get("scope"), f"{path}: target_contract.scope")
+    require_list(contract.get("non_goals"), f"{path}: target_contract.non_goals")
+    for field in ("capability_map", "runtime_adapter_map", "decisions", "file_operations", "omitted_items", "risks", "validation_commands"):
+        require_list(value.get(field), f"{path}: {field}")
+
+    expected = capability_keys(root, inventory)
+    actual = []
+    for index, item in enumerate(value["capability_map"]):
+        if not isinstance(item, dict):
+            fail(f"{path}: capability_map[{index}] must be object")
+        key = item.get("key")
+        require_text(key, f"{path}: capability_map[{index}].key")
+        actual.append(key)
+        decision = item.get("decision")
+        if decision not in ALLOWED_DECISIONS:
+            fail(f"{path}: invalid decision for {key}: {decision}")
+        if decision == "omit":
+            require_text(item.get("reason"), f"{path}: omitted {key} reason")
+        else:
+            safe_relative_path(item.get("destination"), f"{path}: {key} destination")
+    if len(actual) != len(set(actual)):
+        fail(f"{path}: duplicate capability_map keys")
+    missing = sorted(set(expected) - set(actual))
+    unknown = sorted(set(actual) - set(expected))
+    if missing or unknown:
+        fail(f"{path}: capability coverage mismatch; missing={missing}, unknown={unknown}")
+
+    expected_runtime = runtime_dependency_keys(root, inventory)
+    actual_runtime = []
+    for index, item in enumerate(value["runtime_adapter_map"]):
+        if not isinstance(item, dict):
+            fail(f"{path}: runtime_adapter_map[{index}] must be object")
+        key = item.get("key")
+        require_text(key, f"{path}: runtime_adapter_map[{index}].key")
+        actual_runtime.append(key)
+        decision = item.get("decision")
+        if decision not in ALLOWED_RUNTIME_DECISIONS:
+            fail(f"{path}: invalid runtime decision for {key}: {decision}")
+        require_text(item.get("reason"), f"{path}: runtime decision {key} reason")
+        if decision == "generalize":
+            safe_relative_path(item.get("destination"), f"{path}: {key} destination")
+    if len(actual_runtime) != len(set(actual_runtime)):
+        fail(f"{path}: duplicate runtime_adapter_map keys")
+    missing_runtime = sorted(set(expected_runtime) - set(actual_runtime))
+    unknown_runtime = sorted(set(actual_runtime) - set(expected_runtime))
+    if missing_runtime or unknown_runtime:
+        fail(f"{path}: runtime dependency coverage mismatch; missing={missing_runtime}, unknown={unknown_runtime}")
+
+    planned_paths = set()
+    for index, operation in enumerate(value["file_operations"]):
+        if not isinstance(operation, dict):
+            fail(f"{path}: file_operations[{index}] must be object")
+        if operation.get("op") not in ALLOWED_OPERATIONS:
+            fail(f"{path}: invalid file operation {operation.get('op')}")
+        planned_paths.add(safe_relative_path(operation.get("path"), f"{path}: file operation path"))
+        if operation.get("op") == "move" and operation.get("from") is not None:
+            planned_paths.add(safe_relative_path(operation["from"], f"{path}: move source"))
+    return value, planned_paths
+
+
+def validate_sources_unchanged(inventory):
+    for source in inventory["sources"]:
+        current = inspect_skill(Path(source["path"]))
+        if current["sha256"] != source["sha256"]:
+            fail(f"Source skill changed during absorption: {source['path']}")
+
+
+def validate_target_baseline(inventory):
+    expected = inventory["target"]
+    current = inspect_skill(Path(expected["path"]), allow_missing=True)
+    if current["exists"] != expected["exists"] or current["sha256"] != expected["sha256"]:
+        fail("Target changed after run initialization; start a new run")
+
+
+def create_rollback_snapshot(root, state, inventory):
+    rollback_root = root / "rollback"
+    remove_path(rollback_root)
+    rollback_root.mkdir()
+    target = inspect_skill(Path(inventory["target"]["path"]), allow_missing=True)
+    if target["exists"] != inventory["target"]["exists"] or target["sha256"] != inventory["target"]["sha256"]:
+        fail("Target no longer matches run baseline")
+    if target["exists"]:
+        shutil.copytree(target["path"], rollback_root / "target", symlinks=True)
+        snapshot = inspect_skill(rollback_root / "target")
+        if snapshot["sha256"] != target["sha256"]:
+            fail("Rollback snapshot does not match target baseline")
+    write_json(rollback_root / "snapshot.json", {
+        "plan_sha256": state["execution_plan_sha256"],
+        "target_exists": target["exists"],
+        "target_sha256": target["sha256"],
+        "scope": "baseline",
+    })
+    state["rollback_scope"] = "baseline"
+
+
+def rollback_target(root, state, inventory, reason):
+    rollback_root = root / "rollback"
+    snapshot = read_json(rollback_root / "snapshot.json")
+    if snapshot.get("plan_sha256") != state.get("execution_plan_sha256"):
+        fail("Rollback snapshot does not match bound plan")
+    target = Path(inventory["target"]["path"])
+    remove_path(target)
+    if snapshot.get("target_exists"):
+        shutil.copytree(rollback_root / "target", target, symlinks=True)
+    restored = inspect_skill(target, allow_missing=True)
+    if restored["exists"] != snapshot.get("target_exists") or restored["sha256"] != snapshot.get("target_sha256"):
+        fail("Automatic rollback could not restore target baseline")
+    state["phase"] = "rolled-back"
+    state["rollback_reason"] = reason
+    save_state(root, state, "target-rolled-back")
+
+
+def rollback_after_error(root, state, inventory, error):
+    message = str(error)
+    rollback_target(root, state, inventory, message)
+    fail(f"{message}; target rolled back")
+
+
+def target_diff(inventory):
+    original = inventory["target"]["files"]
+    current_skill = inspect_skill(Path(inventory["target"]["path"]))
+    current = current_skill["files"]
+    changed = sorted(path for path, metadata in current.items() if original.get(path) != metadata)
+    deleted = sorted(set(original) - set(current))
+    return changed, deleted, current_skill
+
+
+def validate_apply(root, state, inventory):
+    path = root / "apply.json"
+    value = read_json(path)
+    current_plan_hash = json_sha256(root / "plan.json")
+    if current_plan_hash != state.get("execution_plan_sha256"):
+        fail("plan.json changed after binding; run revise-plan")
+    if value.get("plan_sha256") != current_plan_hash:
+        fail(f"{path}: plan_sha256 does not match bound plan")
+    for field in ("changed_files", "deleted_files", "notes"):
+        require_list(value.get(field), f"{path}: {field}")
+    declared_changed = sorted(safe_relative_path(item, f"{path}: changed_files") for item in value["changed_files"])
+    declared_deleted = sorted(safe_relative_path(item, f"{path}: deleted_files") for item in value["deleted_files"])
+    changed, deleted, current_skill = target_diff(inventory)
+    if declared_changed != changed or declared_deleted != deleted:
+        fail(f"{path}: target diff mismatch; actual changed={changed}, actual deleted={deleted}")
+    _, planned_paths = validate_plan(root, inventory)
+    outside_plan = sorted((set(changed) | set(deleted)) - planned_paths)
+    if outside_plan:
+        fail(f"{path}: changed paths outside bound plan: {outside_plan}")
+    validate_sources_unchanged(inventory)
+    write_json(root / "target-after-merge.json", current_skill)
+
+
+def validate_validation(root, state):
+    path = root / "validation.json"
+    value = read_json(path)
+    if value.get("plan_sha256") != state.get("execution_plan_sha256"):
+        fail(f"{path}: plan_sha256 does not match bound plan")
+    if not isinstance(value.get("passed"), bool):
+        fail(f"{path}: passed must be boolean")
+    for field in ("checks", "remaining_gaps", "notes"):
+        require_list(value.get(field), f"{path}: {field}")
+    if not value["checks"]:
+        fail(f"{path}: checks must not be empty")
+    for index, check in enumerate(value["checks"]):
+        if not isinstance(check, dict):
+            fail(f"{path}: checks[{index}] must be object")
+        require_text(check.get("name"), f"{path}: checks[{index}].name")
+        require_text(check.get("command"), f"{path}: checks[{index}].command")
+        if not isinstance(check.get("exit_code"), int):
+            fail(f"{path}: checks[{index}].exit_code must be integer")
+    if value["passed"] and (value["remaining_gaps"] or any(item["exit_code"] != 0 for item in value["checks"])):
+        fail(f"{path}: passed validation cannot contain failed checks or remaining gaps")
+    return value
+
+
+def next_action(phase):
+    return {
+        "analysis": "Write analyses/<source-id>.json for every source, then run advance.",
+        "plan": "Write plan.json with complete capability coverage, then run advance.",
+        "merge": "Edit target only, write apply.json, then run advance.",
+        "validation": "Run relevant checks, write validation.json, then run advance.",
+        "complete": "Run complete. Keep artifacts for audit or remove them explicitly.",
+        "rolled-back": "Target restored after unsafe or exhausted execution. Revise plan or start new run.",
+    }[phase]
+
+
+def print_status(root, state, inventory):
+    output = {
+        "run_dir": str(root),
+        "phase": state["phase"],
+        "target": inventory["target"]["path"],
+        "source_count": len(inventory["sources"]),
+        "validation_attempts": state["validation_attempts"],
+        "max_validation_attempts": state["max_validation_attempts"],
+        "plan_sha256": state.get("plan_sha256"),
+        "execution_plan_sha256": state.get("execution_plan_sha256"),
+        "rollback_scope": state.get("rollback_scope"),
+        "rollback_reason": state.get("rollback_reason"),
+        "next_action": next_action(state["phase"]),
+    }
+    print(json.dumps(output, indent=2, sort_keys=True))
+
+
+def command_init(args):
+    root = args.run_dir.expanduser().resolve()
+    if root.exists() and any(root.iterdir()):
+        fail(f"Run directory must be absent or empty: {root}")
+    target = inspect_skill(args.target, allow_missing=args.new_target)
+    if not target["exists"] and not args.new_target:
+        fail("Missing target requires --new-target")
+    target_path = Path(target["path"])
+    if paths_overlap(root, target_path):
+        fail("Run directory must not overlap target skill")
+    sources = []
+    seen = set()
+    for index, source_path in enumerate(args.source, 1):
+        source = inspect_skill(source_path)
+        resolved_source = Path(source["path"])
+        if paths_overlap(target_path, resolved_source):
+            fail("Target and source skills must not overlap")
+        if paths_overlap(root, resolved_source):
+            fail("Run directory must not overlap source skills")
+        if source["path"] in seen:
+            fail(f"Duplicate source: {source['path']}")
+        if any(paths_overlap(resolved_source, Path(item["path"])) for item in sources):
+            fail("Source skills must not overlap")
+        seen.add(source["path"])
+        source["id"] = f"{index:03d}-{slug(Path(source['path']).name)}"
+        sources.append(source)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "analyses").mkdir()
+    inventory = {"version": VERSION, "created_at": now(), "target": target, "sources": sources}
+    state = {
+        "version": VERSION,
+        "phase": "analysis",
+        "validation_attempts": 0,
+        "max_validation_attempts": args.max_validation_attempts,
+        "plan_sha256": None,
+        "execution_plan_sha256": None,
+        "rollback_scope": None,
+        "rollback_reason": None,
+        "created_at": now(),
+        "updated_at": now(),
+        "history": [],
+    }
+    write_json(root / "inventory.json", inventory)
+    save_state(root, state, "initialized")
+    print_status(root, state, inventory)
+
+
+def command_status(args):
+    root, state, inventory = load_run(args.run_dir)
+    print_status(root, state, inventory)
+
+
+def command_advance(args):
+    root, state, inventory = load_run(args.run_dir)
+    phase = state["phase"]
+    if phase == "analysis":
+        capability_keys(root, inventory)
+        state["phase"] = "plan"
+        save_state(root, state, "analysis-complete")
+    elif phase == "plan":
+        validate_plan(root, inventory)
+        validate_sources_unchanged(inventory)
+        validate_target_baseline(inventory)
+        state["plan_sha256"] = json_sha256(root / "plan.json")
+        state["execution_plan_sha256"] = state["plan_sha256"]
+        state["rollback_reason"] = None
+        create_rollback_snapshot(root, state, inventory)
+        state["phase"] = "merge"
+        save_state(root, state, "plan-bound")
+    elif phase == "merge":
+        try:
+            validate_apply(root, state, inventory)
+        except SystemExit as error:
+            rollback_after_error(root, state, inventory, error)
+        state["phase"] = "validation"
+        save_state(root, state, "merge-recorded")
+    elif phase == "validation":
+        try:
+            validate_apply(root, state, inventory)
+            value = validate_validation(root, state)
+        except SystemExit as error:
+            rollback_after_error(root, state, inventory, error)
+        state["validation_attempts"] += 1
+        attempt = state["validation_attempts"]
+        attempts = root / "attempts"
+        attempts.mkdir(exist_ok=True)
+        shutil.copy2(root / "validation.json", attempts / f"{attempt:02d}-validation.json")
+        shutil.copy2(root / "apply.json", attempts / f"{attempt:02d}-apply.json")
+        if value["passed"]:
+            state["phase"] = "complete"
+            save_state(root, state, "validation-passed")
+        elif attempt >= state["max_validation_attempts"]:
+            rollback_target(root, state, inventory, "validation attempt bound reached")
+        else:
+            state["phase"] = "merge"
+            save_state(root, state, "validation-failed")
+    else:
+        fail(f"Cannot advance phase: {phase}")
+    print_status(root, state, inventory)
+
+
+def command_revise_plan(args):
+    root, state, inventory = load_run(args.run_dir)
+    if state["phase"] not in {"merge", "validation", "rolled-back"}:
+        fail(f"Cannot revise plan during phase: {state['phase']}")
+    if state["phase"] in {"merge", "validation"}:
+        rollback_target(root, state, inventory, "plan revision requested")
+    revisions = root / "revisions"
+    revisions.mkdir(exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    for name in ("plan.json", "apply.json", "validation.json"):
+        path = root / name
+        if path.exists():
+            shutil.copy2(path, revisions / f"{stamp}-{name}")
+    state["phase"] = "plan"
+    state["plan_sha256"] = None
+    state["execution_plan_sha256"] = None
+    state["rollback_scope"] = None
+    state["rollback_reason"] = None
+    remove_path(root / "rollback")
+    save_state(root, state, "plan-revision-requested")
+    print_status(root, state, inventory)
+
+
+def command_self_check(_args):
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        executable = Path(__file__).resolve()
+
+        def execute(*arguments, check=True):
+            return subprocess.run([sys.executable, str(executable), *map(str, arguments)], check=check, capture_output=True, text=True)
+
+        def create_skill(path, name):
+            path.mkdir()
+            content = f"---\nname: {name}\ndescription: {name} skill.\n---\n\n# {name.title()}\n"
+            (path / "SKILL.md").write_text(content)
+            return content
+
+        def prepare_run(name, source_count=1, max_attempts=2):
+            target = root / f"{name}-target"
+            sources = [root / f"{name}-source-{index:02d}" for index in range(1, source_count + 1)]
+            run = root / f"{name}-run"
+            baseline = create_skill(target, f"{name}-target")
+            for index, source in enumerate(sources, 1):
+                create_skill(source, f"{name}-source-{index:02d}")
+            init_arguments = ["init", "--target", target, "--run-dir", run, "--max-validation-attempts", max_attempts]
+            for source in sources:
+                init_arguments.extend(("--source", source))
+            execute(*init_arguments)
+            source_ids = [item["id"] for item in read_json(run / "inventory.json")["sources"]]
+            write_json(run / "analyses" / "target.json", {
+                "source_id": "target", "summary": "Existing target behavior",
+                "capabilities": [{"id": "target-baseline", "purpose": "Preserve target behavior", "evidence": ["SKILL.md"]}],
+                "triggers": [], "resources": [], "overlaps": [], "conflicts": [], "risks": [], "runtime_dependencies": [],
+            })
+            for index, source_id in enumerate(source_ids):
+                runtime_dependencies = []
+                if index == 0:
+                    runtime_dependencies = [{"id": "vendor-tool", "symbol": "VendorTool", "kind": "tool", "evidence": ["SKILL.md"]}]
+                write_json(run / "analyses" / f"{source_id}.json", {
+                    "source_id": source_id, "summary": "Adds source behavior",
+                    "capabilities": [{"id": "source-behavior", "purpose": "Provide behavior", "evidence": ["SKILL.md"]}],
+                    "triggers": [], "resources": [], "overlaps": [], "conflicts": [], "risks": [], "runtime_dependencies": runtime_dependencies,
+                })
+            execute("advance", "--run-dir", run)
+            capability_map = [{"key": "target:target-baseline", "decision": "retain", "destination": "SKILL.md", "reason": "Preserve target behavior"}]
+            capability_map.extend({"key": f"{source_id}:source-behavior", "decision": "integrate", "destination": "SKILL.md", "reason": "Core behavior"} for source_id in source_ids)
+            write_json(run / "plan.json", {
+                "target_contract": {"name": f"{name}-target", "description": "Combined target skill.", "runtime_policy": "runtime-neutral", "scope": ["behavior"], "non_goals": []},
+                "capability_map": capability_map,
+                "runtime_adapter_map": [{"key": f"{source_ids[0]}:vendor-tool", "decision": "generalize", "destination": "SKILL.md", "reason": "Use runtime-neutral host capability"}],
+                "decisions": [],
+                "file_operations": [{"op": "update", "path": "SKILL.md", "purpose": "Absorb behavior", "sources": source_ids}],
+                "omitted_items": [], "risks": [], "validation_commands": ["self-check"],
+            })
+            execute("advance", "--run-dir", run)
+            state = read_json(run / "state.json")
+            assert state["phase"] == "merge"
+            assert state["execution_plan_sha256"] == state["plan_sha256"] == json_sha256(run / "plan.json")
+            assert (run / "rollback" / "snapshot.json").is_file()
+            return target, sources, run, baseline, state["plan_sha256"]
+
+        target, sources, run, _baseline, plan_hash = prepare_run("success", source_count=10)
+        (target / "SKILL.md").write_text("---\nname: target\ndescription: Combined target skill.\n---\n\n# Target\n\nCombined.\n")
+        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": []})
+        execute("advance", "--run-dir", run)
+        write_json(run / "validation.json", {
+            "plan_sha256": plan_hash,
+            "passed": False,
+            "checks": [{"name": "first pass", "command": "self-check", "exit_code": 1}],
+            "remaining_gaps": ["Needs repair"], "notes": [],
+        })
+        execute("advance", "--run-dir", run)
+        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": ["Repaired"]})
+        execute("advance", "--run-dir", run)
+        write_json(run / "validation.json", {
+            "plan_sha256": plan_hash,
+            "passed": True,
+            "checks": [{"name": "second pass", "command": "self-check", "exit_code": 0}],
+            "remaining_gaps": [], "notes": [],
+        })
+        execute("advance", "--run-dir", run)
+        state = read_json(run / "state.json")
+        assert state["phase"] == "complete"
+        assert state["validation_attempts"] == 2
+        for source in sources:
+            assert inspect_skill(source)["sha256"] == next(item["sha256"] for item in read_json(run / "inventory.json")["sources"] if item["path"] == str(source.resolve()))
+
+        target, _sources, run, baseline, plan_hash = prepare_run("scope")
+        (target / "SKILL.md").write_text("changed\n")
+        (target / "EXTRA.md").write_text("outside plan\n")
+        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["EXTRA.md", "SKILL.md"], "deleted_files": [], "notes": []})
+        result = execute("advance", "--run-dir", run, check=False)
+        assert result.returncode != 0 and "target rolled back" in result.stderr
+        assert read_json(run / "state.json")["phase"] == "rolled-back"
+        assert (target / "SKILL.md").read_text() == baseline
+        assert not (target / "EXTRA.md").exists()
+
+        target, _sources, run, baseline, plan_hash = prepare_run("bounded", max_attempts=1)
+        (target / "SKILL.md").write_text("changed\n")
+        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": []})
+        execute("advance", "--run-dir", run)
+        write_json(run / "validation.json", {
+            "plan_sha256": plan_hash, "passed": False,
+            "checks": [{"name": "bounded failure", "command": "self-check", "exit_code": 1}],
+            "remaining_gaps": ["Cannot complete safely"], "notes": [],
+        })
+        execute("advance", "--run-dir", run)
+        assert read_json(run / "state.json")["phase"] == "rolled-back"
+        assert (target / "SKILL.md").read_text() == baseline
+
+        target, _sources, run, baseline, plan_hash = prepare_run("revision")
+        (target / "SKILL.md").write_text("partially merged target\n")
+        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": []})
+        execute("advance", "--run-dir", run)
+        execute("revise-plan", "--run-dir", run)
+        state = read_json(run / "state.json")
+        assert state["phase"] == "plan"
+        assert state["execution_plan_sha256"] is None
+        assert (target / "SKILL.md").read_text() == baseline
+        assert not (run / "rollback").exists()
+        assert any(path.name.endswith("-plan.json") for path in (run / "revisions").iterdir())
+    print("self-check passed")
+
+
+def parser():
+    root = argparse.ArgumentParser(description="Coordinate semantic absorption of many skills into one target.")
+    commands = root.add_subparsers(dest="command", required=True)
+
+    initialize = commands.add_parser("init")
+    initialize.add_argument("--target", type=Path, required=True)
+    initialize.add_argument("--source", type=Path, action="append", required=True)
+    initialize.add_argument("--run-dir", type=Path, required=True)
+    initialize.add_argument("--new-target", action="store_true")
+    initialize.add_argument("--max-validation-attempts", type=int, default=3)
+    initialize.set_defaults(handler=command_init)
+
+    for name, handler in (("status", command_status), ("advance", command_advance), ("revise-plan", command_revise_plan)):
+        command = commands.add_parser(name)
+        command.add_argument("--run-dir", type=Path, required=True)
+        command.set_defaults(handler=handler)
+
+    self_check = commands.add_parser("self-check")
+    self_check.set_defaults(handler=command_self_check)
+    return root
+
+
+def main():
+    args = parser().parse_args()
+    if getattr(args, "max_validation_attempts", 1) < 1:
+        fail("--max-validation-attempts must be at least 1")
+    args.handler(args)
+
+
+if __name__ == "__main__":
+    main()
