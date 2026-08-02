@@ -14,6 +14,7 @@ EXACT_NAMES = {
     "LICENSE.md",
     "Makefile",
     "README.md",
+    "SECURITY.md",
     "SKILL.md",
     "UPSTREAM.md",
 }

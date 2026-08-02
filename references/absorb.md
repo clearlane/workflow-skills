@@ -187,3 +187,15 @@ For `omit`, `reason` is required and `destination` may be absent. For `integrate
 ## Merge Evidence
 
 `apply.json` records the bound `plan_sha256`, cumulative `changed_files`, cumulative `deleted_files`, and `notes`. `validation.json` records the bound `plan_sha256`, `passed`, a non-empty `checks` list of `name`, `command`, and `exit_code`, plus `remaining_gaps` and `notes`. A passing validation cannot contain a failed check or a remaining gap.
+
+## Orchestrator Feedback
+
+Absorption is the one workflow that runs itself against unfamiliar material every time, so each run is the best available test of the coordinator. Treat friction as a finding rather than an obstacle to work around:
+
+- A coordinator crash, an unhelpful rejection, or evidence the schema cannot express is a defect. Record it and prefer fixing it in the same run.
+- A rule the run had to violate to make progress is either a wrong rule or a missing capability. Do not silently bypass it.
+- Repeated manual steps between phases belong in the coordinator.
+
+`feedback.json` records `observations` and `improvements`. Each observation needs `issue`, `evidence`, and a `disposition` of `fixed`, `deferred`, or `accepted`. A `fixed` observation must name the `changed_files` carrying the fix, so the claim is checkable against the diff. A `deferred` or `accepted` observation must state its `reason`.
+
+Coordinator fixes are target edits like any other: bind them through `revise-plan` rather than widening the diff beyond the bound plan.

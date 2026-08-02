@@ -14,6 +14,7 @@ Track absorbed sources here so later upstream changes can be reviewed for useful
 | Skill Development | [`anthropics/claude-code/plugins/plugin-dev/skills/skill-development`](https://github.com/anthropics/claude-code/tree/main/plugins/plugin-dev/skills/skill-development) | Installed `main` snapshot tree SHA-256 `f3547dd4fc0acee7f502f492a9cb61e743e3247ffd36956be79e9b92a8f265d5` | 2026-08-01 | `a87ac90c76030720444618424c48ae45e2b8dd68b018a22006bfa7fa99ab8b82` |
 | Plugin Settings | [`anthropics/claude-code/plugins/plugin-dev/skills/plugin-settings`](https://github.com/anthropics/claude-code/tree/main/plugins/plugin-dev/skills/plugin-settings) | Installed `main` snapshot tree SHA-256 `67546a58c6562768b175670b5aed1c2f9a304899167d875959736fc2acd2eae3` | 2026-08-01 | `7817f599855e36a227c7df70b0f1e11361546909bb38513fd17e29120427559b` |
 | Absorb Skills | Project-local skill `absorb-skills`, previously vendored at `.agents/skills/absorb-skills/` | Snapshot tree SHA-256 `e39465db1fe44d4085944150065c9500e91fefd5408cc7819cbd5097d20d2666` | 2026-08-02 | `06a4b90b9236dec20bfcb0aa7cf4d2310513f3e5a182a12c038c901870453d50` |
+| Plugin Structure | Project-local skill `plugin-structure`, previously vendored at `.agents/skills/plugin-structure/` | Snapshot tree SHA-256 `2ee40187a7a59dab446b2dcfc86c3def0c3c3af987a9fdc17a824abd7876136b` | 2026-08-02 | `31df13de9ab55a174fe90901edba9fcf53286c7c0041e08e178b798423c06430` |
 
 Anthropic baselines above are local skill-tree digests recorded by absorption runs, not upstream commit IDs. Future refreshes should record exact upstream commit SHA when available because `main` is mutable.
 
@@ -170,6 +171,32 @@ Canonical destinations:
 - `scripts/absorb.py`
 - `SKILL.md`
 
+### Plugin Structure
+
+Absorbed:
+
+- Bundle contract: identity, manifest location, component kinds, version, distribution metadata, and documentation.
+- Discovery by convention, custom paths supplementing defaults, registration versus activation, and cross-bundle name-conflict policy.
+- Portable intra-bundle path references, and rejection of absolute, home, working-directory-relative, and traversal paths.
+- Layout selection by component count, shared internal library layering, and minimal-bundle shape.
+- Manifest validation, semantic versioning, deprecation policy, cross-platform verification, and discovery troubleshooting.
+- Skill-as-directory layout inside a bundle, and descriptive spelled-out component names.
+
+Reworked or excluded:
+
+- Generalized the vendor manifest path, bundle-root variable, manifest field names, invocation mapping, and external-tool configuration filename into runtime-neutral contracts; omitted vendor event names, worker metadata schema, and shell example code.
+- Excluded the three worked example bundles, whose reusable shape is covered by layout and minimal-bundle rules, and whose remaining content is unrelated domain material.
+- Excluded build-step handler merging, nested bundle families, and unverified load-time performance and restart claims; kept only the actionable stale-session check.
+- Retained the target's route-based progressive disclosure and one-word-first filename convention over the source's word counts and fixed trees.
+- Registered packaging as a selectable capability phase in the design coordinator rather than prose-only guidance.
+
+Canonical destinations:
+
+- `references/packaging.md`
+- `references/structure.md`
+- `references/naming.md`
+- `scripts/design.py`
+
 ## Upstream Review Procedure
 
 When any source changes upstream:
@@ -188,6 +215,12 @@ Run `python3 scripts/check.py` for the deterministic portion of step 8.
 Review upstream releases or source-path changes periodically even when changelog does not name these skills. Useful fixes may arrive through repository-wide sweeps.
 
 ## Changelog
+
+### 2026-08-02 (later)
+
+- Absorbed `plugin-structure` as `references/packaging.md`, adding a runtime-neutral bundle packaging, discovery, portable-path, and distribution contract, and made packaging a derivable design capability.
+- Fixed three absorption-coordinator defects the run exposed: snapshots crashed on non-regular files, digests included repository-ignored local state, and plan revision discarded correct in-progress merge work.
+- Made an explicit orchestrator verdict a completion requirement: a run cannot complete without `feedback.json`, and a `fixed` observation must name the files carrying the fix.
 
 ### 2026-08-02
 

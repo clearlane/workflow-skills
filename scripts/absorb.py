@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from state import (  # noqa: E402
-    EXCLUDED_DIRECTORIES,
+    copy_manifest_files,
     excluded,
     fail,
     file_sha256,
@@ -209,12 +209,9 @@ def create_rollback_snapshot(root, state, inventory):
     if target["exists"] != inventory["target"]["exists"] or target["sha256"] != inventory["target"]["sha256"]:
         fail("Target no longer matches run baseline")
     if target["exists"]:
-        shutil.copytree(
-            target["path"],
-            rollback_root / "target",
-            symlinks=True,
-            ignore=shutil.ignore_patterns(*EXCLUDED_DIRECTORIES),
-        )
+        snapshot_root = rollback_root / "target"
+        snapshot_root.mkdir(parents=True, exist_ok=True)
+        copy_manifest_files(Path(target["path"]), snapshot_root, target["files"])
         snapshot = inspect_skill(rollback_root / "target")
         if snapshot["sha256"] != target["sha256"]:
             fail("Rollback snapshot does not match target baseline")
@@ -252,6 +249,21 @@ def restore_tracked_files(snapshot_root, target, target_existed):
             continue
         if not any(directory.iterdir()):
             directory.rmdir()
+
+
+def preserve_target_work(root, inventory, destination):
+    """Copy current target work aside before an intentional plan revision.
+
+    Rollback exists to undo unsafe execution, but a revision is a deliberate
+    change of intent: the merge work done so far is usually still useful for
+    the next plan. Preserving it turns revision into a cheap operation instead
+    of a reason to widen the bound diff.
+    """
+    target = inspect_skill(Path(inventory["target"]["path"]), allow_missing=True)
+    if not target["exists"]:
+        return
+    destination.mkdir(parents=True, exist_ok=True)
+    copy_manifest_files(Path(target["path"]), destination, target["files"])
 
 
 def rollback_target(root, state, inventory, reason):
@@ -329,6 +341,33 @@ def validate_validation(root, state):
         fail(f"{path}: passed validation cannot contain failed checks or remaining gaps")
     return value
 
+
+def validate_feedback(root):
+    """Require an explicit orchestrator verdict before a run may complete.
+
+    Every absorption exercises this coordinator against real material, so each
+    run is also a test of the orchestrator itself. Without a recorded verdict,
+    defects observed during a run are lost when the run artifacts age out.
+    """
+    path = root / "feedback.json"
+    value = read_json(path)
+    require_list(value.get("observations"), f"{path}: observations")
+    require_list(value.get("improvements"), f"{path}: improvements")
+    for index, observation in enumerate(value["observations"]):
+        if not isinstance(observation, dict):
+            fail(f"{path}: observations[{index}] must be object")
+        require_text(observation.get("issue"), f"{path}: observations[{index}].issue")
+        require_text(observation.get("evidence"), f"{path}: observations[{index}].evidence")
+        disposition = observation.get("disposition")
+        if disposition not in {"fixed", "deferred", "accepted"}:
+            fail(f"{path}: observations[{index}].disposition must be fixed, deferred, or accepted")
+        if disposition == "fixed":
+            require_list(observation.get("changed_files"), f"{path}: observations[{index}].changed_files")
+            if not observation["changed_files"]:
+                fail(f"{path}: observations[{index}] marked fixed needs changed_files")
+        else:
+            require_text(observation.get("reason"), f"{path}: observations[{index}].reason")
+    return value
 
 def next_action(phase):
     return {
@@ -440,6 +479,10 @@ def command_advance(args):
             value = validate_validation(root, state)
         except SystemExit as error:
             rollback_after_error(root, state, inventory, error)
+        if value["passed"]:
+            # A completion requirement, not unsafe merge evidence: a missing or
+            # malformed verdict must not discard a correct merge.
+            validate_feedback(root)
         state["validation_attempts"] += 1
         attempt = state["validation_attempts"]
         attempts = root / "attempts"
@@ -463,11 +506,12 @@ def command_revise_plan(args):
     root, state, inventory = load_run(args.run_dir)
     if state["phase"] not in {"merge", "validation", "rolled-back"}:
         fail(f"Cannot revise plan during phase: {state['phase']}")
-    if state["phase"] in {"merge", "validation"}:
-        rollback_target(root, state, inventory, "plan revision requested")
     revisions = root / "revisions"
     revisions.mkdir(exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    if state["phase"] in {"merge", "validation"}:
+        preserve_target_work(root, inventory, revisions / f"{stamp}-target")
+        rollback_target(root, state, inventory, "plan revision requested")
     for name in ("plan.json", "apply.json", "validation.json"):
         path = root / name
         if path.exists():
@@ -559,6 +603,25 @@ def command_self_check(_args):
             "checks": [{"name": "second pass", "command": "self-check", "exit_code": 0}],
             "remaining_gaps": [], "notes": [],
         })
+        # A passing run cannot complete until the orchestrator verdict exists.
+        missing_feedback = execute("advance", "--run-dir", run, check=False)
+        assert missing_feedback.returncode != 0 and "feedback.json" in missing_feedback.stderr
+        write_json(run / "feedback.json", {
+            "observations": [
+                {"issue": "Observed coordinator defect", "evidence": "self-check", "disposition": "fixed", "changed_files": ["scripts/absorb.py"]},
+                {"issue": "Known limitation", "evidence": "self-check", "disposition": "accepted", "reason": "Out of scope for this run"},
+            ],
+            "improvements": ["Recorded during self-check"],
+        })
+        # A "fixed" verdict must name the files that carry the fix.
+        unproven = read_json(run / "feedback.json")
+        unproven["observations"][0].pop("changed_files")
+        write_json(run / "feedback.json", unproven)
+        unproven_result = execute("advance", "--run-dir", run, check=False)
+        assert unproven_result.returncode != 0 and "changed_files" in unproven_result.stderr
+        assert read_json(run / "state.json")["phase"] == "validation"
+        unproven["observations"][0]["changed_files"] = ["scripts/absorb.py"]
+        write_json(run / "feedback.json", unproven)
         execute("advance", "--run-dir", run)
         state = read_json(run / "state.json")
         assert state["phase"] == "complete"

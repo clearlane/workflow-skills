@@ -60,7 +60,9 @@ Use host-supported metadata grammar. Do not require one prose person, fixed phra
 
 ### Host-Managed Skill
 
-Use host discovery and packaging adapter. Adapter owns directory, metadata, namespace, installation, reload, and distribution syntax.
+Use host discovery and packaging adapter. Adapter owns directory, metadata, namespace, installation, reload, and distribution syntax. When the skill ships inside a bundle with other components, follow [packaging.md](packaging.md) for the manifest, discovery, portable-path, and distribution contract.
+
+Inside a bundle, each skill stays one self-contained directory: its required core instruction file at the directory root, with its own references, examples, scripts, and assets beneath it. Do not scatter one skill's resources across bundle-level directories shared with other components.
 
 ### Standalone Skill
 

@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,6 +18,29 @@ EXCLUDED_DIRECTORIES = {".git", ".hg", ".svn", "__pycache__", "node_modules"}
 def excluded(relative_parts):
     return any(part in EXCLUDED_DIRECTORIES for part in relative_parts)
 
+
+def ignored_prefixes(root):
+    """Paths the repository's own ignore rules exclude from tracked content.
+
+    Absorption digests and snapshots must cover skill content, not local tool
+    caches, build output, or editor state. The repository already declares that
+    boundary, so read it instead of hard-coding tool names here.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
+            cwd=str(root),
+            capture_output=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return ()
+    entries = [entry for entry in completed.stdout.decode().split("\0") if entry]
+    return tuple(entry.rstrip("/") for entry in entries)
+
+
+def ignored(relative_posix, prefixes):
+    return any(relative_posix == prefix or relative_posix.startswith(prefix + "/") for prefix in prefixes)
 
 def fail(message):
     raise SystemExit(message)
@@ -67,16 +91,30 @@ def relative_file_manifest(root):
     root = root.resolve()
     if not root.exists():
         return {}
+    prefixes = ignored_prefixes(root)
     manifest = {}
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or excluded(path.relative_to(root).parts):
+        relative = path.relative_to(root)
+        if not path.is_file() or excluded(relative.parts) or ignored(relative.as_posix(), prefixes):
             continue
-        manifest[path.relative_to(root).as_posix()] = {
+        manifest[relative.as_posix()] = {
             "sha256": file_sha256(path),
             "size": path.stat().st_size,
         }
     return manifest
 
+
+def copy_manifest_files(source_root, destination_root, manifest):
+    """Copy exactly the manifest-tracked regular files.
+
+    Copying the whole tree would also copy sockets, devices, and ignored local
+    state, which cannot be restored and would not match the recorded digest.
+    """
+    for relative in manifest:
+        source = source_root / relative
+        destination = destination_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination, follow_symlinks=False)
 
 def tree_sha256(manifest):
     encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()

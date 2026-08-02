@@ -102,9 +102,39 @@ Run the checks relevant to the changed skill:
 - Trigger wording and reference-path inspection.
 - Any target repository check named in the bound plan.
 
-Write `validation.json` with `plan_sha256`, `passed`, `checks`, `remaining_gaps`, and `notes`, then advance. Failed validation returns to merge until the configured attempt bound. Passed validation completes the run.
+Write `validation.json` with `plan_sha256`, `passed`, `checks`, `remaining_gaps`, and `notes`, then advance. Failed validation returns to merge until the configured attempt bound.
 
 Invalid merge evidence, a changed plan, a changed source, an out-of-scope diff, malformed validation evidence, or exhausted attempts restore the snapshot and end the run in `rolled-back`. When repair needs files outside the bound plan, use `revise-plan` instead of widening the diff.
+
+## 6. Orchestrator Feedback
+
+Every run is also a test of this workflow and its coordinator against real material. A passing validation does not complete the run until `feedback.json` records the verdict:
+
+```json
+{
+  "observations": [
+    {
+      "issue": "What the coordinator or workflow got wrong",
+      "evidence": "Command, phase, or artifact that exposed it",
+      "disposition": "fixed",
+      "changed_files": ["scripts/absorb.py"]
+    },
+    {
+      "issue": "Friction not addressed in this run",
+      "evidence": "Where it appeared",
+      "disposition": "deferred",
+      "reason": "Why it can wait"
+    }
+  ],
+  "improvements": ["Orchestrator change made because of this run"]
+}
+```
+
+Use `fixed` only with the files carrying the fix, and `deferred` or `accepted` with an explicit reason. Record an empty `observations` list only when the run genuinely surfaced nothing.
+
+Fixing the coordinator during a run usually needs paths outside the bound plan. Add them through `revise-plan`, which now preserves the in-progress target work under `revisions/` before restoring the baseline, so a revision costs a re-bind rather than the merge itself.
+
+This feedback is a completion requirement, not merge evidence: a missing or malformed verdict blocks completion without discarding a correct merge.
 
 ## Invariants
 
@@ -116,6 +146,7 @@ Invalid merge evidence, a changed plan, a changed source, an out-of-scope diff, 
 - Source skill digests must remain unchanged.
 - The actual target diff must match `apply.json` and the bound plan paths.
 - Validation retries remain bounded, and every run snapshots the pre-mutation target.
+- A run completes only after recording an explicit orchestrator verdict.
 
 ## Record the Absorption
 

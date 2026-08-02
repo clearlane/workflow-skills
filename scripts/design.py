@@ -37,6 +37,7 @@ CAPABILITY_PHASES = (
     ("tools", "tools", "references/tools.md"),
     ("workers", "workers", "references/workers.md"),
     ("commands", "commands", "references/commands.md"),
+    ("packaging", "packaging", "references/packaging.md"),
 )
 ALWAYS_FIRST = ("contract",)
 ALWAYS_LAST = ("resources", "checks", "review")

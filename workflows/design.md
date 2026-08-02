@@ -26,6 +26,7 @@ Then decide which capabilities the skill actually needs. Each one selects its ph
 | `tools` | The workflow calls MCP servers or external services | [tools.md](../references/tools.md) |
 | `workers` | Bounded independent tasks are delegated | [workers.md](../references/workers.md) |
 | `commands` | Users need explicit reusable invocation | [commands.md](../references/commands.md) |
+| `packaging` | The skill ships inside a bundle a host must discover and distribute | [packaging.md](../references/packaging.md) |
 
 Stop here if the task is simple enough for one direct instruction. Do not create a coordinator without a resume, branching, concurrency, retry, safety, or repeated-use need.
 
