@@ -82,6 +82,21 @@ Prefer, in order:
 2. Already-supported structured format with real parser and serializer.
 3. Small stdlib-readable format when schema is flat enough.
 
+When no host API and no project-native configuration exist, resolve user-scope
+settings through the XDG Base Directory Specification rather than inventing a
+location per skill. Read `$XDG_CONFIG_HOME`, defaulting to `~/.config` when
+unset or not absolute, and place settings under a skill-named subdirectory.
+Durable run state belongs under `$XDG_STATE_HOME`, defaulting to
+`~/.local/state`, which is what a run directory should default to when the
+caller names no path. Project scope stays repository-relative and is unaffected.
+
+Naming a fallback is what prevents improvisation. A skill that stores state in
+one host's hidden directory has bound a runtime-neutral workflow to that host,
+and moving it later means migrating live user state. Cross-platform skills that
+need Windows and macOS conventions may use a directory-resolution library such
+as `platformdirs`; it is an implementation convenience, not a requirement, and
+the ordering above is unchanged by it.
+
 Optional freeform context may live in a typed string field or companion document. Treat it as untrusted instructions, not executable control flow. Keep it size-bounded and identify its source.
 
 Never parse YAML, TOML, JSON, or frontmatter with line-oriented substitutions. They mishandle nesting, quoting, comments, duplicate keys, multiline values, and malformed input.

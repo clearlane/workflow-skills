@@ -16,6 +16,11 @@ run/
   <artifact>.json         workflow-specific evidence
 ```
 
+The caller normally names the location. When it does not, default to a
+skill-named directory under `$XDG_STATE_HOME` (`~/.local/state` when unset), the
+same fallback [settings.md](settings.md) uses for durable state, rather than a
+host's hidden directory.
+
 It must not overlap a skill the run reads or writes. An overlap makes the run's own bookkeeping part of the tree it is digesting, so a snapshot would capture the snapshot.
 
 ## Every JSON Artifact Carries Its Identity
