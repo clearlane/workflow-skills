@@ -45,6 +45,7 @@ Separate these concerns. Each row names the one owner of that concern and the re
 | Refine until a condition holds | Bounded `while` loop | [patterns.md](references/patterns.md) |
 | Persist progress outside model context | State artifacts owned by coordinator | [patterns.md](references/patterns.md) |
 | Perform irreversible work | Approval gate around the action | [patterns.md](references/patterns.md) |
+| Decide where checks and approval gates sit | Placement rules tied to actionable failure | [checks.md](references/checks.md) |
 | Guard or react at a lifecycle boundary | Thin event adapter | [events.md](references/events.md) |
 | Call MCP or an external service | Typed external-tool adapter | [tools.md](references/tools.md) |
 | Delegate one bounded independent task | Worker with explicit contract | [workers.md](references/workers.md) |
@@ -58,6 +59,7 @@ Separate these concerns. Each row names the one owner of that concern and the re
 | Fix a layout that contradicts discovery or ownership | Evidence-based audit, then approved boundary-at-a-time migration | [workflow](workflows/restructure.md), [judgment](references/layout.md), [execution](references/migration.md) |
 | Merge many skills into one target | Evidence-bound absorption run with snapshot rollback | [workflow](workflows/absorb.md), [rules](references/absorb.md) |
 | Audit an existing skill against its contracts | Evidence-gated review run with a disposition-gated verdict | [workflow](workflows/review.md), [rules](references/review.md) |
+| Close a design run against owner boundaries | Boundary questions answered from run artifacts | [closure.md](references/closure.md) |
 
 The coordinator is the workflow source of truth. Prose may explain why a transition exists, but must not duplicate executable control flow. Each adapter owns its host syntax; core guidance stays runtime-neutral.
 
@@ -73,17 +75,6 @@ These rules hold across every concern above. Each adapter's own contract lives i
 - Grant least privilege at every boundary, and keep secrets in a secret store rather than settings, logs, or workflow artifacts.
 - Keep host discovery, metadata, context loading, invocation, and interaction syntax in runtime adapters. Never copy runtime-specific syntax into core workflow guidance.
 - Do not restate a contract that the table above assigns to another resource.
-
-## Validation Placement
-
-Do not append a generic "verification phase" to every workflow. Put checks where failure becomes actionable:
-
-- Validate inputs before mutation.
-- Run schema or contract checks after producing the relevant artifact.
-- Run repository-native checks such as `make check`, tests, linters, or validators before handoff when the task changes validated surfaces.
-- Use postconditions around irreversible actions when needed for safety or data-loss prevention.
-
-Prefer existing deterministic checks. Do not restate their logic as prompt instructions.
 
 ## Safety Gates
 

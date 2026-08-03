@@ -36,7 +36,7 @@ ALWAYS_LAST = ("safety", "verdict")
 PHASE_RESOURCES = {
     "activation": "references/structure.md",
     "structure": "references/naming.md",
-    "safety": "references/patterns.md",
+    "safety": "references/patterns.md#6-safety-gate",
     "verdict": "references/review.md",
 }
 

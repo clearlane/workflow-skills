@@ -18,7 +18,7 @@ Then decide which capabilities the skill actually needs. Each one selects its ph
 | Capability | Select when | Contract |
 |---|---|---|
 | `coordinator` | Order, branching, concurrency, retries, or loops need executable control | [patterns.md](../references/patterns.md) |
-| `state` | Work must resume after interruption or partial failure | [patterns.md](../references/patterns.md) |
+| `state` | Work must resume after interruption or partial failure | [state and resume](../references/patterns.md#state-and-resume) |
 | `settings` | Users need stable preferences across runs | [settings.md](../references/settings.md) |
 | `setup` | Prerequisites need provisioning or readiness proof | [setup.md](setup.md) |
 | `install` | The workflow installs agent skills | [install.md](../references/install.md) |
@@ -76,9 +76,9 @@ python3 scripts/design.py add-capability \
 
 `resources` plans the files themselves. Route repeated deterministic logic to scripts, detailed schemas and decision tables to references, runnable samples to examples, and output-only material to assets. Keep one canonical home per rule and create no unused placeholder. Name each planned file before creating it using [naming.md](../references/naming.md).
 
-`checks` places validation where failure becomes actionable rather than as a trailing verification phase, and puts approval immediately before irreversible actions. Prefer an existing deterministic check over restating its logic.
+`checks` places validation where failure becomes actionable rather than as a trailing verification phase, and puts approval immediately before irreversible actions, following [checks.md](../references/checks.md).
 
-`review` closes the run with the questions below.
+`review` closes the run against the owner-boundary questions in [closure.md](../references/closure.md).
 
 ## Exercise the Result
 
@@ -100,21 +100,3 @@ Its document-structure checks parse markdown and YAML through `scripts/document.
 python3 scripts/document.py links .
 python3 scripts/document.py outline SKILL.md
 ```
-
-## Review Questions
-
-Each question tests one owner boundary; the owning reference holds the rule itself.
-
-- Does executable code own ordering, branching, and bounded retries, with interrupted work resumable from durable state?
-- Is concurrency set by runtime configuration rather than a fixed prose batch size?
-- Are destructive actions gated immediately before execution, or confined to a provably restorable snapshot?
-- Do checks call existing validators instead of restating their logic?
-- Does each adapter — event, external-tool, worker, command, settings — own exactly its own boundary while the coordinator retains global state?
-- Are runtime-specific names and syntax confined to adapters?
-- Is every external input validated before use, without raw shell interpolation?
-- Is setup explicit, idempotent, and separate from activation, with route-specific pre-flight before mutable state?
-- Are volatile permissions, target identity, locks, and destructive scope revalidated at point of use?
-- Does each rule have exactly one canonical home, with no duplicated prose or unused scaffolding?
-- Do new or renamed resources follow the filename convention?
-
-After real use, fix missed activation, ambiguous routes, repeated manual logic, unused resources, and broken assumptions with the smallest targeted change.

@@ -17,7 +17,6 @@ from state import (  # noqa: E402
     now,
     paths_overlap,
     read_json,
-    require_list,
     require_text,
     save_state,
     slug,
@@ -29,7 +28,7 @@ VERSION = 1
 # Capability -> phase that designs it, and the resource holding its contract.
 CAPABILITY_PHASES = (
     ("coordinator", "coordinator", "references/patterns.md"),
-    ("state", "state", "references/patterns.md"),
+    ("state", "state", "references/patterns.md#state-and-resume"),
     ("settings", "settings", "references/settings.md"),
     ("setup", "setup", "workflows/setup.md"),
     ("install", "install", "references/install.md"),
@@ -44,8 +43,8 @@ ALWAYS_LAST = ("resources", "checks", "review")
 PHASE_RESOURCES = {
     "contract": "references/structure.md",
     "resources": "references/naming.md",
-    "checks": "SKILL.md",
-    "review": "workflows/design.md",
+    "checks": "references/checks.md",
+    "review": "references/closure.md",
 }
 CAPABILITIES = tuple(name for name, _, _ in CAPABILITY_PHASES)
 
