@@ -310,6 +310,31 @@ def rollback_target(root, state, inventory, reason):
     if snapshot.get("plan_sha256") != state.get("execution_plan_sha256"):
         fail("Rollback snapshot does not match bound plan", EX_DATAERR)
     target = Path(inventory["target"]["path"])
+
+    # Verify the snapshot before trusting it to overwrite the target. It was
+    # checked when written, but a restore reads it back much later, and
+    # restore_tracked_files deletes every tracked path the snapshot does not
+    # list. A snapshot that lost its files therefore reads as "the baseline had
+    # no files" and empties the target, destroying the very work rollback
+    # exists to protect. Refusing here leaves the target untouched, which is
+    # always recoverable; the alternative is not.
+    if snapshot.get("target_exists"):
+        # inspect_skill rejects a directory with no SKILL.md, which a damaged
+        # snapshot is exactly one instance of. Catching it here turns every
+        # kind of damage into the same refusal rather than an unrelated error
+        # about a malformed skill, which would not say the target was spared.
+        try:
+            held = inspect_skill(rollback_root / "target", allow_missing=True)
+            intact = held["exists"] and held["sha256"] == snapshot.get("target_sha256")
+        except SystemExit:
+            intact = False
+        if not intact:
+            fail(
+                "Rollback snapshot is damaged; target left untouched. "
+                f"Restore the baseline by hand from {rollback_root / 'target'}",
+                EX_DATAERR,
+            )
+
     # Restoring the baseline is safe but lossy: an out-of-scope path or a failed
     # attempt would otherwise destroy correct merge work. Keep a copy first so a
     # rollback costs a re-bind rather than the whole merge.
@@ -942,6 +967,30 @@ def command_self_check(_args):
         assert len(preserved) == 1, preserved
         assert (preserved[0] / "SKILL.md").read_text() == "changed\n"
         assert (preserved[0] / "EXTRA.md").read_text() == "outside plan\n"
+
+        # A snapshot that lost its files must never be treated as a baseline
+        # with no files: restoring from it would delete every tracked path and
+        # leave the target empty, which is the one outcome rollback exists to
+        # prevent. Refusing keeps the damaged merge, which is still recoverable.
+        for damage in ("removed", "emptied", "tampered"):
+            target, _sources, run, _baseline, plan_hash = prepare_run(f"damaged-{damage}")
+            snapshot_target = run / "rollback" / "target"
+            if damage == "removed":
+                shutil.rmtree(snapshot_target)
+            elif damage == "emptied":
+                for path in snapshot_target.rglob("*"):
+                    if path.is_file():
+                        path.unlink()
+            else:
+                (snapshot_target / "SKILL.md").write_text("tampered\n")
+            (target / "SKILL.md").write_text("changed\n")
+            write_apply(run, plan_hash, ["EXTRA.md", "SKILL.md"])
+            result = advance(run, check=False)
+            assert result.returncode != 0, damage
+            assert "Rollback snapshot is damaged" in result.stderr, (damage, result.stderr)
+            # The target keeps the merge attempt rather than being emptied.
+            assert (target / "SKILL.md").read_text() == "changed\n", damage
+            assert read_json(run / "state.json")["phase"] == "merge", damage
 
         # Malformed evidence is a reporting mistake, not unsafe execution: the
         # merge survives, the phase holds, and a corrected file advances the run.
