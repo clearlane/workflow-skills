@@ -50,6 +50,8 @@ The script only observes: it never writes inside the scope, follows no symlinks,
 
 **Propose.** Write `manifest.json` in the run directory: every path-level `move`, `rename`, `create`, `delete`, and `keep` decision with its reason, and the reference surfaces each one affects. Record keeps as well as changes, so a reader can tell a considered decision from an overlooked file. Present alongside it the detected shape and its evidence, the confirmed problems and deliberate exceptions, the current and proposed trees, and the baseline commands, conflict handling, and rollback method.
 
+A schema-valid example is in [examples/restructure-run/manifest.json](../examples/restructure-run/manifest.json).
+
 ```bash
 python3 scripts/restructure.py propose --run-dir <run-directory>
 ```

@@ -320,6 +320,39 @@ def check_workflow_dispatch(root):
     return failures
 
 
+def check_examples_validate(root):
+    """Every JSON example must satisfy the schema it claims.
+
+    An example is the shape an agent copies when prose is ambiguous, so a stale
+    one teaches the wrong thing more effectively than no example at all. Two of
+    these were wrong when first written, and only validation caught it.
+
+    A self-describing artifact carries its schema, so nothing here maps
+    filenames to schemas: an example that omits the stamp fails for that reason,
+    which is the same failure a run would hit reading it.
+    """
+    failures = []
+    for path in sorted((root / "examples").rglob("*.json")):
+        name = path.relative_to(root)
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            failures.append(f"{name}: is not valid JSON: {error}")
+            continue
+        declared = value.get("schema") if isinstance(value, dict) else None
+        if not declared:
+            # Settings fixtures are the input to a resolver, not run artifacts,
+            # so they carry no stamp and have no schema of their own.
+            continue
+        schema = str(declared).rsplit("/", 1)[-1]
+        if not (root / "schemas" / schema).is_file():
+            failures.append(f"{name}: claims unknown schema {schema}")
+            continue
+        for error in state.schema_errors(schema, value):
+            failures.append(f"{name}: {error}")
+    return failures
+
+
 def check_reference_skeleton(root):
     """Every reference routes the same way, ending under one name for its checks.
 
@@ -765,6 +798,7 @@ def main():
         ("shared runtime", lambda: check_shared_runtime(ROOT)),
         ("reference skeleton", lambda: check_reference_skeleton(ROOT)),
         ("workflow dispatch", lambda: check_workflow_dispatch(ROOT)),
+        ("examples validate", lambda: check_examples_validate(ROOT)),
         ("phase owners", lambda: check_phase_owners(ROOT)),
         ("documented capabilities", lambda: check_capability_rows(ROOT)),
         ("documented review phases", lambda: check_review_phases(ROOT)),

@@ -1,0 +1,38 @@
+{
+  "created_at": "2026-08-03T17:01:00.981425Z",
+  "operations": [
+    {
+      "action": "move",
+      "destination": "references/helpers.md",
+      "path": "helpers.md",
+      "reason": "Detailed domain knowledge routes to references/",
+      "references": [
+        "SKILL.md links it",
+        "workflows/run.md links it"
+      ]
+    },
+    {
+      "action": "rename",
+      "destination": "references/naming.md",
+      "path": "references/misc.md",
+      "reason": "Named by function rather than as a dumping ground",
+      "references": [
+        "references/structure.md links it"
+      ]
+    },
+    {
+      "action": "create",
+      "path": "references/README.md",
+      "reason": "The directory needs an index once it holds more than three files"
+    },
+    {
+      "action": "keep",
+      "path": "SKILL.md",
+      "reason": "Host discovery resolves the skill by this exact path"
+    }
+  ],
+  "rationale": "Reference material and coordinator scripts shared one directory, so a reader could not predict where a new resource belonged.",
+  "schema": "https://clearlane.github.io/workflow-skills/schemas/manifest.schema.json",
+  "scope": "/path/to/skill",
+  "version": 2
+}

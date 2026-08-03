@@ -147,6 +147,8 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `schemas/` — one JSON Schema per run-artifact kind, with shared definitions in `common.schema.json`
 - `schemas/vendor/` — third-party schemas vendored so validation stays offline, pinned by digest
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
+- `examples/absorb-run/` — one schema-valid example of every agent-authored absorption artifact
+- `examples/restructure-run/` — a schema-valid operation manifest for a restructure run
 - `agents/openai.yaml` — Codex UI metadata
 - `pyproject.toml` — the single source of truth for dependency versions, the supported Python floor, and lint rules
 - `requirements.txt` — a pointer to `pyproject.toml`, kept because CI caches on it

@@ -92,6 +92,11 @@ Avoid folders named after each absorbed source unless source identity affects ru
 | `validation.json` | `validation.schema.json` | agent |
 | `feedback.json` | `feedback.schema.json` | agent |
 
+A complete, schema-valid example of each is in
+[examples/absorb-run/](../examples/absorb-run/). They are validated by the
+repository's own checks, so an example that drifts from its schema fails rather
+than quietly teaching the wrong shape.
+
 ### Rules Beyond the Schema
 
 A schema checks one document against itself. These constraints span documents, so the coordinator checks them:

@@ -1,0 +1,15 @@
+{
+  "checks": [
+    {
+      "command": "python3 scripts/check.py",
+      "exit_code": 0,
+      "name": "repository checks"
+    }
+  ],
+  "notes": [],
+  "passed": true,
+  "plan_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "remaining_gaps": [],
+  "schema": "https://clearlane.github.io/workflow-skills/schemas/validation.schema.json",
+  "version": 2
+}

@@ -1,0 +1,60 @@
+{
+  "capability_map": [
+    {
+      "decision": "integrate",
+      "destination": "references/events.md",
+      "key": "001-hook-development:boundary-classes",
+      "reason": "Extends the existing adapter contract"
+    },
+    {
+      "decision": "integrate",
+      "destination": "references/events.md",
+      "key": "001-hook-development:handler-contract",
+      "reason": "Same canonical owner"
+    }
+  ],
+  "decisions": [],
+  "file_operations": [
+    {
+      "op": "update",
+      "path": "references/events.md",
+      "purpose": "Absorb boundary classes and handler contract",
+      "sources": [
+        "001-hook-development"
+      ]
+    }
+  ],
+  "omitted_items": [
+    {
+      "item": "Vendor hook registration snippets",
+      "reason": "Host syntax belongs in an adapter, not core guidance"
+    }
+  ],
+  "risks": [
+    "Payload guidance must stay envelope-neutral"
+  ],
+  "runtime_adapter_map": [
+    {
+      "decision": "generalize",
+      "destination": "references/events.md",
+      "key": "001-hook-development:host-hook-registry",
+      "reason": "Name the capability, let the adapter own registration"
+    }
+  ],
+  "schema": "https://clearlane.github.io/workflow-skills/schemas/plan.schema.json",
+  "target_contract": {
+    "description": "Design runtime-neutral workflow skills with executable coordination.",
+    "name": "designing-workflow-skills",
+    "non_goals": [
+      "Host-specific registration syntax"
+    ],
+    "runtime_policy": "runtime-neutral",
+    "scope": [
+      "event-hook design"
+    ]
+  },
+  "validation_commands": [
+    "python3 scripts/check.py"
+  ],
+  "version": 2
+}

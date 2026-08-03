@@ -1,0 +1,12 @@
+{
+  "changed_files": [
+    "references/events.md"
+  ],
+  "deleted_files": [],
+  "notes": [
+    "Merged both capabilities into the existing Handler Contract section"
+  ],
+  "plan_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "schema": "https://clearlane.github.io/workflow-skills/schemas/apply.schema.json",
+  "version": 2
+}

@@ -1,0 +1,23 @@
+{
+  "improvements": [
+    "Name the offending field in binding failures"
+  ],
+  "observations": [
+    {
+      "changed_files": [
+        "scripts/absorb.py"
+      ],
+      "disposition": "fixed",
+      "evidence": "Run stderr",
+      "issue": "Plan binding rejected a whitespace-only reason without naming the field"
+    },
+    {
+      "disposition": "accepted",
+      "evidence": "Observed during merge",
+      "issue": "Analyses directory sorts by id, which assumes ordinal prefixes",
+      "reason": "Prefixes are enforced by the inventory schema"
+    }
+  ],
+  "schema": "https://clearlane.github.io/workflow-skills/schemas/feedback.schema.json",
+  "version": 2
+}

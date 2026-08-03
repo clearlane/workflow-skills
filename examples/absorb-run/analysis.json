@@ -1,0 +1,50 @@
+{
+  "capabilities": [
+    {
+      "evidence": [
+        "SKILL.md",
+        "references/hooks.md"
+      ],
+      "id": "boundary-classes",
+      "purpose": "Classify where a handler may attach"
+    },
+    {
+      "evidence": [
+        "references/hooks.md"
+      ],
+      "id": "handler-contract",
+      "purpose": "Define typed input, outcome, and error channel"
+    }
+  ],
+  "conflicts": [],
+  "overlaps": [
+    {
+      "relationship": "duplicate",
+      "topic": "Bounded retry policy",
+      "with": "target"
+    }
+  ],
+  "resources": [
+    "references/hooks.md"
+  ],
+  "risks": [
+    "Payload shape is host-specific and must not leak into core guidance"
+  ],
+  "runtime_dependencies": [
+    {
+      "evidence": [
+        "SKILL.md"
+      ],
+      "id": "host-hook-registry",
+      "kind": "tool",
+      "symbol": "HookRegistry"
+    }
+  ],
+  "schema": "https://clearlane.github.io/workflow-skills/schemas/analysis.schema.json",
+  "source_id": "001-hook-development",
+  "summary": "Event-hook design guidance: boundary classes, handler contract, and safety rules for untrusted payloads.",
+  "triggers": [
+    "Skill needs to react to a host event"
+  ],
+  "version": 2
+}
