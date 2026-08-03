@@ -31,11 +31,12 @@ from cli import (
 )
 from state import (
     VERSION,
-    check_version,
     copy_manifest_files,
+    create_run,
     excluded,
     json_sha256,
     now,
+    open_run,
     paths_overlap,
     read_history,
     read_json,
@@ -95,14 +96,6 @@ def inspect_skill(path, allow_missing=False):
         fail(f"Skill must be directory containing SKILL.md: {resolved}")
     files = relative_file_manifest(resolved)
     return {"path": str(resolved), "exists": True, "files": files, "sha256": tree_sha256(files)}
-
-
-def load_run(run_dir):
-    root = run_dir.expanduser().resolve()
-    state = read_json(root / "state.json")
-    inventory = read_json(root / "inventory.json")
-    check_version(state)
-    return root, state, inventory
 
 
 def validate_analysis(path, expected_source_id):
@@ -482,15 +475,11 @@ def print_status(root, state, inventory):
 
 
 def command_init(args):
-    root = args.run_dir.expanduser().resolve()
-    if root.exists() and any(root.iterdir()):
-        fail(f"Run directory must be absent or empty: {root}")
     target = inspect_skill(args.target, allow_missing=args.new_target)
     if not target["exists"] and not args.new_target:
         fail("Missing target requires --new-target")
     target_path = Path(target["path"])
-    if paths_overlap(root, target_path):
-        fail("Run directory must not overlap target skill")
+    root = create_run(args.run_dir, (target_path, "target skill"))
     sources = []
     seen = set()
     for index, source_path in enumerate(args.source, 1):
@@ -529,7 +518,7 @@ def command_init(args):
 
 
 def command_status(args):
-    root, state, inventory = load_run(args.run_dir)
+    root, state, inventory = open_run(args.run_dir, "inventory.json")
     if args.history:
         print(json.dumps(read_history(root), indent=2, sort_keys=True))
         return
@@ -537,7 +526,7 @@ def command_status(args):
 
 
 def command_complete_phase(args):
-    root, state, inventory = load_run(args.run_dir)
+    root, state, inventory = open_run(args.run_dir, "inventory.json")
     phase = state["phase"]
     # Asserted rather than inferred. Inferring the phase makes a resumed run
     # easy to advance by mistake, because the caller's belief about where the
@@ -622,7 +611,7 @@ def command_extend_scope(args):
     expensive one. Extensions are additive, reasoned, and still confined to the
     pre-mutation snapshot, so reversibility is unchanged.
     """
-    root, state, inventory = load_run(args.run_dir)
+    root, state, inventory = open_run(args.run_dir, "inventory.json")
     if state["phase"] not in {"merge", "validation"}:
         fail(f"Cannot extend scope during phase: {state['phase']}")
     reason = args.reason.strip()
@@ -641,7 +630,7 @@ def command_extend_scope(args):
 
 
 def command_revise_plan(args):
-    root, state, inventory = load_run(args.run_dir)
+    root, state, inventory = open_run(args.run_dir, "inventory.json")
     if state["phase"] not in {"merge", "validation", "rolled-back"}:
         fail(f"Cannot revise plan during phase: {state['phase']}")
     revisions = root / "revisions"

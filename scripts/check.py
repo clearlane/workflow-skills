@@ -48,6 +48,9 @@ CHECKER = "check.py"
 # as another and a wrapper does not need to know which it is holding.
 COORDINATORS = ("design.py", "review.py", "absorb.py")
 CORE_VERBS = ("init", "status", "complete-phase", "self-check")
+# Run-lifecycle functions state.py owns. A coordinator defining one of these
+# has forked the lifecycle rather than composed it.
+RUNTIME_OWNED = ("load_run", "open_run", "create_run", "current_phase", "pending_phase")
 README_SECTION = "Structure"
 ARTIFACT_REFERENCE = "references/artifacts.md"
 # common holds shared definitions and skill is reached through inventory, so
@@ -136,6 +139,23 @@ def check_duplicate_headings(root):
             if heading.text in seen:
                 failures.append(f"{parsed.path.relative_to(root)}:{heading.line}: duplicate section {heading.text!r}")
             seen.add(heading.text)
+    return failures
+
+
+def check_shared_runtime(root):
+    """The run lifecycle has one owner, so a coordinator cannot re-grow its own.
+
+    These were three byte-identical copies before state.py owned them. The
+    failure mode is not the duplication itself: it is that a fix to one copy
+    silently leaves the other two wrong, which is invisible until a run resumes
+    under the coordinator that was not fixed.
+    """
+    failures = []
+    for name in COORDINATORS:
+        source = (root / "scripts" / name).read_text(encoding="utf-8")
+        for owned in RUNTIME_OWNED:
+            if f"def {owned}(" in source:
+                failures.append(f"scripts/{name}: defines {owned}, which state.py owns")
     return failures
 
 
@@ -680,6 +700,7 @@ def main():
         ("resource reachability", lambda: check_reachability(ROOT)),
         ("canonical sections", lambda: check_duplicate_headings(ROOT)),
         ("coordinator verbs", lambda: check_coordinator_verbs(ROOT)),
+        ("shared runtime", lambda: check_shared_runtime(ROOT)),
         ("phase owners", lambda: check_phase_owners(ROOT)),
         ("documented capabilities", lambda: check_capability_rows(ROOT)),
         ("documented review phases", lambda: check_review_phases(ROOT)),

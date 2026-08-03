@@ -401,6 +401,51 @@ def check_version(state):
     )
 
 
+def open_run(run_dir, *artifacts):
+    """Open an existing run and refuse one this coordinator cannot resume.
+
+    Every coordinator resolved the path, read state.json, and checked the
+    version itself, which is three copies of the one rule that decides whether a
+    run directory is safe to touch. Extra artifact names are read alongside the
+    state, since a coordinator that needs its inventory needs it every time.
+    """
+    root = run_dir.expanduser().resolve()
+    state = read_json(root / "state.json")
+    check_version(state)
+    if not artifacts:
+        return root, state
+    return root, state, *(read_json(root / name) for name in artifacts)
+
+
+def create_run(run_dir, *conflicts):
+    """Resolve a new run directory, refusing one that would corrupt its own inputs.
+
+    A run directory that already holds files would mix a previous run's evidence
+    into this one, and one that overlaps a skill the run reads or writes makes
+    the run's bookkeeping part of the tree it is digesting, so a snapshot would
+    capture the snapshot.
+    """
+    root = run_dir.expanduser().resolve()
+    if root.exists() and any(root.iterdir()):
+        fail(f"Run directory must be absent or empty: {root}")
+    for path, description in conflicts:
+        if paths_overlap(root, path):
+            fail(f"Run directory must not overlap {description}")
+    return root
+
+
+def pending_phase(state):
+    """The first phase not yet completed, or None when the run is done.
+
+    Derived rather than stored: a stored current phase and a stored completed
+    list can disagree, and then two fields describe one fact.
+    """
+    for phase in state["phases"]:
+        if phase not in state["completed"]:
+            return phase
+    return None
+
+
 def append_history(root, record):
     """Append one transition to the run's event log.
 

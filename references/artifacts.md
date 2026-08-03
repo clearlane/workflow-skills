@@ -103,6 +103,14 @@ Keep these imperative, and say so where the schema stops:
 
 Preserve superseded evidence rather than overwriting it. An attempt that failed is the record of why the next one differed, and a run that quietly overwrites it cannot answer what changed.
 
+## One Owner for the Run Lifecycle
+
+Opening a run, creating one, and deciding which phase is current are the same operations regardless of what the workflow does. Give them one owner and let each coordinator compose it, keeping only its own vocabulary: which phases it derives, what evidence it requires, what it binds.
+
+The cost of not doing so is not the duplication. It is that fixing one copy leaves the others wrong, and nothing reveals it until a run resumes under the coordinator that was not fixed.
+
+Derive the current phase from the completed list rather than storing both. Two fields describing one fact can disagree, and then the run's own record is ambiguous.
+
 ## Reporting Where a Run Is
 
 A coordinator's `status` is the answer to "where am I", and it is the one output a wrapper reads without knowing which coordinator it called. Give every coordinator the same envelope: the current phase, the full phase list, what is completed and remaining, the contract the current phase answers to, and the next action in one sentence.

@@ -20,9 +20,10 @@ from cli import (
 )
 from state import (
     VERSION,
-    check_version,
+    create_run,
     now,
-    paths_overlap,
+    open_run,
+    pending_phase,
     read_history,
     read_json,
     require_text,
@@ -74,22 +75,8 @@ def phase_resource(phase):
     return PHASE_RESOURCES[phase]
 
 
-def load_run(run_dir):
-    root = run_dir.expanduser().resolve()
-    state = read_json(root / "state.json")
-    check_version(state)
-    return root, state
-
-
-def current_phase(state):
-    for phase in state["phases"]:
-        if phase not in state["completed"]:
-            return phase
-    return None
-
-
 def print_status(root, state):
-    phase = current_phase(state)
+    phase = pending_phase(state)
     print_envelope(
         "design",
         root,
@@ -108,12 +95,8 @@ def print_status(root, state):
 
 
 def command_init(args):
-    root = args.run_dir.expanduser().resolve()
-    if root.exists() and any(root.iterdir()):
-        fail(f"Run directory must be absent or empty: {root}")
     skill_root = args.skill.expanduser().resolve()
-    if paths_overlap(root, skill_root):
-        fail("Run directory must not overlap the skill being designed")
+    root = create_run(args.run_dir, (skill_root, "the skill being designed"))
     require_text(args.name, "--name")
     capabilities = []
     for capability in args.capability or []:
@@ -139,7 +122,7 @@ def command_init(args):
 
 
 def command_status(args):
-    root, state = load_run(args.run_dir)
+    root, state = open_run(args.run_dir)
     if args.history:
         print(json.dumps(read_history(root), indent=2, sort_keys=True))
         return
@@ -147,8 +130,8 @@ def command_status(args):
 
 
 def command_complete_phase(args):
-    root, state = load_run(args.run_dir)
-    expected = current_phase(state)
+    root, state = open_run(args.run_dir)
+    expected = pending_phase(state)
     if expected is None:
         fail("All phases already complete")
     if args.phase != expected:
@@ -162,14 +145,14 @@ def command_complete_phase(args):
     }
     write_artifact(root / "decisions" / f"{expected}.json", "decision.schema.json", decision)
     state["completed"].append(expected)
-    state["phase"] = current_phase(state) or "complete"
+    state["phase"] = pending_phase(state) or "complete"
     save_state(root, state, f"phase-complete:{expected}")
     print_status(root, state)
 
 
 def command_add_capability(args):
     """Late discovery is normal; extend the phase list without losing progress."""
-    root, state = load_run(args.run_dir)
+    root, state = open_run(args.run_dir)
     if args.capability not in CAPABILITIES:
         fail(f"Unknown capability {args.capability!r}")
     if args.capability in state["capabilities"]:
@@ -181,7 +164,7 @@ def command_add_capability(args):
     missing = [phase for phase in state["completed"] if phase not in state["phases"]]
     if missing:
         fail(f"Refusing to drop completed phases: {missing}")
-    state["phase"] = current_phase(state) or "complete"
+    state["phase"] = pending_phase(state) or "complete"
     save_state(root, state, f"capability-added:{args.capability}")
     print_status(root, state)
 
