@@ -23,6 +23,14 @@ record here, because provenance a reader cannot resolve is not provenance.
 | `plugin-settings` | 2026-08-01 | [plugin-settings.md](plugin-settings.md) |
 | `plugin-structure` | 2026-08-02 | [plugin-structure.md](plugin-structure.md) |
 
+Moving external specifications that guidance generalizes from are tracked the
+same way, because they carry the same refresh risk as an absorbed skill: the
+source changes and nothing here notices.
+
+| Tracked specification | Revision | Record |
+|---|---|---|
+| Model Context Protocol | 2026-07-28 | [mcp-specification.md](mcp-specification.md) |
+
 Anthropic baselines are local skill-tree digests recorded by absorption runs,
 not upstream commit IDs. Future refreshes should record the exact upstream
 commit SHA when available, because `main` is mutable.

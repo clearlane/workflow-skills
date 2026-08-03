@@ -2,6 +2,15 @@
 
 Integrate MCP servers and external services through typed adapters. Keep protocol and host syntax outside coordinator logic.
 
+This guidance generalizes from the Model Context Protocol specification as of
+revision 2026-07-28. MCP is versioned by dated revision, and transport
+lifecycle, authorization, and tool annotations have all changed across
+revisions, so guidance derived from an unstated one cannot be re-checked when
+the spec moves. Verify claims here against the revision your host negotiates.
+The baseline is registered in
+[upstream/mcp-specification.md](upstream/mcp-specification.md) so a refresh has
+a starting point.
+
 ## Integration Contract
 
 Define before configuration:

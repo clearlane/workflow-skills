@@ -51,6 +51,24 @@ Define:
 
 Host adapter owns registration shape, event names, match syntax, transport envelope, exit protocol, and result serialization.
 
+## Payload Envelope
+
+Telling a handler to treat its input as untrusted is incomplete without saying
+what it validates against. When the host imposes no event shape, default to the
+CloudEvents 1.0 specification rather than inventing an envelope per skill.
+
+It supplies the three things this guidance already assumes but never named. A
+required identifier and source give the deduplication key that idempotent
+redelivery needs, so a handler can recognize a repeat instead of re-running its
+effect. A reverse-DNS type gives a stable taxonomy, so matchers select on a
+declared identity rather than a string that drifts. A declared content type
+tells the handler which parser to use before it reads any untrusted field.
+
+A host-native event shape wins where one exists. Map it to the envelope at the
+adapter, the same boundary that already owns registration and transport, and
+keep the mapping out of core guidance.
+
+
 ## Coordinator Ownership
 
 Hook may validate, normalize, signal, or record boundary fact. Coordinator still owns:
