@@ -45,6 +45,7 @@ Separate these concerns. Each row names the one owner of that concern and the re
 | Execute dependency-aware work | Explicit graph/state variables plus runtime progress | [patterns.md](references/patterns.md) |
 | Refine until a condition holds | Bounded `while` loop | [patterns.md](references/patterns.md) |
 | Persist progress outside model context | State artifacts owned by coordinator | [patterns.md](references/patterns.md) |
+| Shape what a run writes to disk | Schema-stamped artifacts in a run directory | [artifacts.md](references/artifacts.md) |
 | Perform irreversible work | Approval gate around the action | [patterns.md](references/patterns.md) |
 | Decide where checks and approval gates sit | Placement rules tied to actionable failure | [checks.md](references/checks.md) |
 | Guard or react at a lifecycle boundary | Thin event adapter | [events.md](references/events.md) |

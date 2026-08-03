@@ -8,6 +8,7 @@ file declares what must hold rather than how markdown or YAML is parsed.
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -38,6 +39,10 @@ DESIGN_WORKFLOW = "workflows/design.md"
 REVIEW_WORKFLOW = "workflows/review.md"
 README = "README.md"
 README_SECTION = "Structure"
+ARTIFACT_REFERENCE = "references/artifacts.md"
+# common holds shared definitions and skill is reached through inventory, so
+# neither is named directly by a coordinator.
+SCHEMA_INDIRECT = {"common.schema.json"}
 README_EXEMPT = {".gitignore", "LICENSE", "LICENSE-CODE", README, "skill-logic.workflow.json"}
 # The repository is dual-licensed: prose carries the upstream share-alike
 # obligation, executables are MIT so they can be vendored without it.
@@ -326,6 +331,156 @@ def check_external_links(root):
     return [line.strip() for line in result.stdout.splitlines() if "[ERROR]" in line or "[404]" in line]
 
 
+def check_schema_lint(root):
+    """Validate the schemas as schemas, which jsonschema itself does not do.
+
+    `jsonschema` validates instances against a schema and assumes the schema is
+    correct, so a structurally invalid schema is only discovered when a run
+    trips over it. `--check-metaschema` catches that class of fault.
+    Skipped when check-jsonschema is absent, like the other external tools.
+    """
+    executable = shutil.which("check-jsonschema")
+    if executable is None:
+        return []
+    schemas = sorted((root / "schemas").glob("*.schema.json"))
+    if not schemas:
+        return ["schemas/: no schema files found"]
+    result = subprocess.run(
+        [executable, "--check-metaschema", *[str(path) for path in schemas]],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return []
+    output = f"{result.stdout}\n{result.stderr}"
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+# JSON Schema 2020-12 keywords this repository's schemas are allowed to use.
+SCHEMA_KEYWORDS = frozenset(
+    {
+        "$schema",
+        "$id",
+        "$ref",
+        "$defs",
+        "$comment",
+        "title",
+        "description",
+        "type",
+        "enum",
+        "const",
+        "format",
+        "properties",
+        "required",
+        "additionalProperties",
+        "patternProperties",
+        "propertyNames",
+        "items",
+        "prefixItems",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
+        "contains",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "minLength",
+        "maxLength",
+        "pattern",
+        "minProperties",
+        "maxProperties",
+        "allOf",
+        "anyOf",
+        "oneOf",
+        "not",
+        "if",
+        "then",
+        "else",
+        "default",
+        "examples",
+        "deprecated",
+    }
+)
+
+# Keys under these keywords are user-chosen names, not schema keywords.
+SCHEMA_NAMED_MAPS = ("properties", "patternProperties", "$defs")
+
+# Values of these keywords are themselves schemas.
+SCHEMA_SUBSCHEMA_LISTS = ("allOf", "anyOf", "oneOf", "prefixItems")
+SCHEMA_SUBSCHEMA_KEYS = (
+    "items",
+    "not",
+    "if",
+    "then",
+    "else",
+    "contains",
+    "additionalProperties",
+    "propertyNames",
+)
+
+
+def _walk_schema(node, path, failures):
+    """Report keys sitting in schema position that are not known keywords.
+
+    A misspelled keyword is valid JSON Schema: unknown keywords are annotations
+    and are ignored, so `tpye` asserts nothing and the metaschema accepts it.
+    The constraint silently stops being enforced, which is the failure mode a
+    schema exists to prevent.
+    """
+    if not isinstance(node, dict):
+        return
+    for key, value in node.items():
+        here = f"{path}.{key}" if path else key
+        if key not in SCHEMA_KEYWORDS:
+            failures.append(f"{here}: unknown schema keyword {key!r}")
+            continue
+        if key in SCHEMA_NAMED_MAPS and isinstance(value, dict):
+            for name, subschema in value.items():
+                _walk_schema(subschema, f"{here}.{name}", failures)
+        elif key in SCHEMA_SUBSCHEMA_LISTS and isinstance(value, list):
+            for index, subschema in enumerate(value):
+                _walk_schema(subschema, f"{here}[{index}]", failures)
+        elif key in SCHEMA_SUBSCHEMA_KEYS:
+            _walk_schema(value, here, failures)
+
+
+def check_schema_keywords(root):
+    """Catch misspelled keywords, which the metaschema accepts as annotations."""
+    failures = []
+    for path in sorted((root / "schemas").glob("*.schema.json")):
+        document = json.loads(path.read_text(encoding="utf-8"))
+        found = []
+        _walk_schema(document, "", found)
+        failures.extend(f"schemas/{path.name}: {failure}" for failure in found)
+    return failures
+
+
+def check_schema_coverage(root):
+    """Every schema must be documented, reachable, and actually used.
+
+    A schema nothing writes against is a contract with no party to it, and a
+    schema no document names cannot be found by the agent that has to satisfy
+    it. Both failures look like a healthy directory listing.
+    """
+    failures = []
+    schemas = sorted(path.name for path in (root / "schemas").glob("*.schema.json"))
+    if not schemas:
+        return ["schemas/: no schema files found"]
+    sources = "\n".join(path.read_text(encoding="utf-8") for path in sorted((root / "scripts").glob("*.py")))
+    contract = (root / ARTIFACT_REFERENCE).read_text(encoding="utf-8")
+    for name in schemas:
+        if name not in contract:
+            failures.append(f"{ARTIFACT_REFERENCE}: does not document {name}")
+        # common holds shared definitions and skill is referenced by inventory,
+        # so neither is named directly by a coordinator.
+        if name not in sources and name not in SCHEMA_INDIRECT:
+            failures.append(f"schemas/{name}: no script writes or validates against it")
+    return failures
+
+
 def check_licence_headers(root):
     """Every executable file must name the licence that covers it.
 
@@ -446,6 +601,9 @@ def main():
         ("executable bits", lambda: check_executable_bits(ROOT)),
         ("runtime-neutral tokens", lambda: check_vendor_tokens(ROOT)),
         ("licence headers", lambda: check_licence_headers(ROOT)),
+        ("schema coverage", lambda: check_schema_coverage(ROOT)),
+        ("schema lint", lambda: check_schema_lint(ROOT)),
+        ("schema keywords", lambda: check_schema_keywords(ROOT)),
         ("python lint", lambda: check_lint(ROOT)),
         ("python format", lambda: check_format(ROOT)),
         ("external links", lambda: check_external_links(ROOT)),
