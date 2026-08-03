@@ -111,7 +111,7 @@ Return actionable remediation without exposing credentials or raw internal paylo
 - Record connection readiness, capability discovery, call duration, rate-limit state, and terminal errors.
 - Define behavior for startup, lazy connection, reconnect, shutdown, and unavailable service in adapter; do not assume one host lifecycle.
 
-## Testing and Documentation
+## Checks
 
 Run focused checks for:
 

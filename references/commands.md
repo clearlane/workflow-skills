@@ -92,7 +92,7 @@ Translate failures without taking control from coordinator:
 
 Do not invent retry, rollback, or resume behavior in adapter. Render coordinator result.
 
-## Focused Checks
+## Checks
 
 Test adapter boundary, not prose formatting:
 

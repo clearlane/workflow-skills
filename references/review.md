@@ -90,6 +90,6 @@ The review phase becomes the `ruleId`, so results group by the concern that foun
 
 An `accepted` or `deferred` finding is emitted as a suppressed result, never omitted. Dropping it would report the review as having found nothing at that location, which is the opposite of what the disposition recorded.
 
-## Reviewing the Result
+## Checks
 
 A review passes when a reader who was not present can act on `report.md`: each finding names a place, a contract, and a consequence. If a phase closed with no finding and no note explaining what held, the phase was not reviewed.

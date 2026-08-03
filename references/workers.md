@@ -104,7 +104,7 @@ Return structured result with:
 
 Coordinator records result before retrying, rescheduling, rolling back, or continuing.
 
-## Focused Checks
+## Checks
 
 - Selection scenarios cover positive, negative, overlap, and missing-input cases.
 - Worker cannot mutate outside declared ownership.

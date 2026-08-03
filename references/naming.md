@@ -37,7 +37,7 @@ For every new resource:
 | `schema-v2.json` | `new-schema.json` | Stable subject precedes the version subtype. |
 | `sign_document.py` | `sign-document.py` | PEP 8 carve-out: a hyphenated Python module cannot be imported. |
 
-## Review
+## Checks
 
 The deterministic check can reject invalid characters and separators, but it cannot prove that one word was possible or that a hierarchy is semantically correct. Review multiword stems manually:
 

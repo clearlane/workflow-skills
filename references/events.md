@@ -121,7 +121,7 @@ Adapter documents registration load, reload, startup validation, active-handler 
 
 Persist only observable input, normalized outcome, duration, artifact identifiers, and errors. Do not persist hidden reasoning.
 
-## Focused Checks
+## Checks
 
 - Registration passes current host schema validator.
 - Selection matches intended positive and negative boundaries.

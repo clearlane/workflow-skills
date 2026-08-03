@@ -45,7 +45,7 @@ Preserve history with a version-control-native move when the tool supports it. U
 - **Public import or package paths**: a move can be an API break; plan the migration explicitly.
 - **Dirty worktree**: separate user edits from the reorganization. Stop when overlap makes attribution unsafe.
 
-## Verify the Result
+## Checks
 
 - Re-run the baseline commands in an equivalent environment and compare against the retained baseline.
 - Run focused checks per moved boundary, then the complete quality stack before handoff.

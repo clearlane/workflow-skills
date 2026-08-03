@@ -80,7 +80,7 @@ Use repository-native initializer or minimum required layout. Validate before pa
 
 Never assume one directory tree, archive type, or CLI across runtimes.
 
-## Validation and Activation Tests
+## Checks
 
 Run available executable checks for:
 
