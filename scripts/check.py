@@ -8,6 +8,7 @@ file declares what must hold rather than how markdown or YAML is parsed.
 """
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -15,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from functools import partial
 from pathlib import Path
 
@@ -757,6 +759,33 @@ def discovered_self_checks(root):
     return checks
 
 
+def self_checks_assert_something(root):
+    """Require each self-check to contain assertions, not just the token.
+
+    run_script demands the script print "self-check passed", which catches a
+    self-check that stays silent. It does not catch one that prints the line
+    and checks nothing: a stub whose whole body is that print passes the suite
+    while proving nothing about the script it belongs to.
+
+    Assertions are the structural difference between the two, so they are what
+    is counted. The bar is deliberately low; the point is that zero is a
+    mistake, not that any particular number is enough.
+    """
+    failures = []
+    for path in sorted((root / "scripts").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        functions = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and "self_check" in node.name]
+        if not functions:
+            failures.append(f"scripts/{path.name}: no self-check function")
+            continue
+        asserts = sum(1 for function in functions for node in ast.walk(function) if isinstance(node, ast.Assert))
+        if not asserts:
+            failures.append(
+                f"scripts/{path.name}: self-check contains no assertions; printing the line is not checking"
+            )
+    return failures
+
+
 def self_check():
     """Verify the checks that carry their own logic actually reject bad input.
 
@@ -778,6 +807,21 @@ def self_check():
     )
     for frontmatter in rejected:
         assert frontmatter_limit_failures(frontmatter), frontmatter
+
+    # The assertion counter is the check that catches a self-check which prints
+    # the passing line and proves nothing, so it must reject exactly that stub.
+    with tempfile.TemporaryDirectory() as directory:
+        scripts = Path(directory) / "scripts"
+        scripts.mkdir()
+        (scripts / "impostor.py").write_text('def self_check():\n    print("self-check passed")\n', encoding="utf-8")
+        assert self_checks_assert_something(Path(directory)), "a stub self-check was accepted"
+        (scripts / "impostor.py").write_text(
+            'def self_check():\n    assert True\n    print("self-check passed")\n', encoding="utf-8"
+        )
+        assert self_checks_assert_something(Path(directory)) == []
+        (scripts / "impostor.py").write_text("x = 1\n", encoding="utf-8")
+        assert self_checks_assert_something(Path(directory)), "a script with no self-check was accepted"
+
     print("self-check passed")
 
 
@@ -790,6 +834,7 @@ def main():
     checks = (
         ("filenames", lambda: run_script(ROOT, "names.py", str(ROOT))),
         *discovered_self_checks(ROOT),
+        ("self-checks assert", lambda: self_checks_assert_something(ROOT)),
         ("skill contract", lambda: check_skill(ROOT)),
         ("links and anchors", lambda: document.broken_links(ROOT)),
         ("resource reachability", lambda: check_reachability(ROOT)),
