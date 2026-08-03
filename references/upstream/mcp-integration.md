@@ -5,9 +5,10 @@
 | Field | Value |
 |---|---|
 | Upstream location | [`anthropics/claude-code/plugins/plugin-dev/skills/mcp-integration`](https://github.com/anthropics/claude-code/tree/main/plugins/plugin-dev/skills/mcp-integration) |
+| Baseline kind | Local tree digest of the installed snapshot; upstream `main` is mutable, so no commit was resolvable at absorption time |
 | Absorbed baseline | Installed `main` snapshot tree SHA-256 `03902fea89d355516383adf9f1cd782f064ab75b2bd0f030f8719975feb88d0f` |
 | Absorbed on | 2026-08-01 |
-| Plan hash | `a87ac90c76030720444618424c48ae45e2b8dd68b018a22006bfa7fa99ab8b82` |
+| Plan hash | One batched run absorbed `hook-development`, `mcp-integration`, and `skill-development` together, so all three share this digest: `a87ac90c76030720444618424c48ae45e2b8dd68b018a22006bfa7fa99ab8b82` |
 
 Absorbed:
 

@@ -5,6 +5,7 @@
 | Field | Value |
 |---|---|
 | Upstream location | [`anthropics/claude-code/plugins/plugin-dev/skills/plugin-settings`](https://github.com/anthropics/claude-code/tree/main/plugins/plugin-dev/skills/plugin-settings) |
+| Baseline kind | Local tree digest of the installed snapshot; upstream `main` is mutable, so no commit was resolvable at absorption time |
 | Absorbed baseline | Installed `main` snapshot tree SHA-256 `67546a58c6562768b175670b5aed1c2f9a304899167d875959736fc2acd2eae3` |
 | Absorbed on | 2026-08-01 |
 | Plan hash | `7817f599855e36a227c7df70b0f1e11361546909bb38513fd17e29120427559b` |

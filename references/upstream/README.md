@@ -31,9 +31,17 @@ source changes and nothing here notices.
 |---|---|---|
 | Model Context Protocol | 2026-07-28 | [mcp-specification.md](mcp-specification.md) |
 
-Anthropic baselines are local skill-tree digests recorded by absorption runs,
-not upstream commit IDs. Future refreshes should record the exact upstream
-commit SHA when available, because `main` is mutable.
+Every record states its baseline kind, because a commit SHA and a local tree
+digest are both hex strings and mean entirely different things: one resolves
+upstream, the other only against a snapshot this repository took. Reading a
+local digest as a commit sends a refresh looking for a revision that does not
+exist. Future refreshes should record the exact upstream commit when available,
+because `main` is mutable.
+
+A completing absorption run writes `provenance.json` in its run directory with
+these same fields, so the record added here is transcribed from the run rather
+than reconstructed later. Sources absorbed in one run share a plan digest and a
+run id; a repeated digest is a batched run, not a mistake.
 
 Absorption history and coordinator changes live in
 [UPSTREAM.md](../../UPSTREAM.md).

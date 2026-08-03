@@ -5,6 +5,7 @@
 | Field | Value |
 |---|---|
 | Upstream location | [`trailofbits/skills`](https://github.com/trailofbits/skills), removed path `plugins/workflow-skill-design/` |
+| Baseline kind | Local tree digest of the installed snapshot |
 | Absorbed baseline | Commit [`09dfbd91537b888136c9203dca4ffdee5a595c69`](https://github.com/trailofbits/skills/commit/09dfbd91537b888136c9203dca4ffdee5a595c69) |
 | Absorbed on | 2026-08-01 |
 | Plan hash | Initial adaptation; no absorption run |

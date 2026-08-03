@@ -31,6 +31,7 @@ from cli import (
 )
 from state import (
     VERSION,
+    canonical_sha256,
     copy_manifest_files,
     create_run,
     excluded,
@@ -330,6 +331,34 @@ def rollback_after_error(root, state, inventory, error):
     fail(f"{message}; target rolled back", error.code)
 
 
+def write_provenance(root, state, inventory):
+    """Record what this run absorbed, in the form the registry publishes.
+
+    The run is what knows the baselines and the bound plan digest, and a human
+    transcribing them into a table produces a second copy that can disagree
+    with the run that produced it. Sources absorbed together share a plan digest
+    and a run id, so a repeated digest reads as one batched run rather than as
+    a copy-paste error.
+    """
+    records = []
+    for source in inventory["sources"]:
+        records.append(
+            {
+                "source": source["id"].split("-", 1)[-1],
+                "baseline_kind": "local_tree_digest",
+                "baseline": source["sha256"],
+                "absorbed_on": now()[:10],
+                "plan_sha256": state.get("execution_plan_sha256"),
+                "run_id": state["run_id"],
+            }
+        )
+    write_artifact(
+        root / "provenance.json",
+        "provenance.schema.json",
+        {"records": records},
+    )
+
+
 def target_diff(inventory):
     original = inventory["target"]["files"]
     current_skill = inspect_skill(Path(inventory["target"]["path"]))
@@ -501,6 +530,10 @@ def command_init(args):
     inventory = {"created_at": now(), "target": target, "sources": sources}
     state = {
         "version": VERSION,
+        # Identifies this run in provenance records. Sources absorbed together
+        # share it, which is what distinguishes one batched run from several
+        # runs that coincidentally recorded the same plan digest.
+        "run_id": canonical_sha256(inventory)[:16],
         "phase": "analysis",
         "validation_attempts": 0,
         "max_validation_attempts": args.max_validation_attempts,
@@ -578,6 +611,7 @@ def command_complete_phase(args):
         shutil.copy2(root / "apply.json", attempts / f"{attempt:02d}-apply.json")
         if value["passed"]:
             state["phase"] = "complete"
+            write_provenance(root, state, inventory)
             save_state(root, state, "validation-passed")
         elif attempt >= state["max_validation_attempts"]:
             rollback_target(root, state, inventory, "validation attempt bound reached")
@@ -878,6 +912,17 @@ def command_self_check(_args):
         state = read_json(run / "state.json")
         assert state["phase"] == "complete"
         assert state["validation_attempts"] == 2
+
+        # A completed run records its own provenance, so the registry is a view
+        # of what the run knew rather than a hand-transcribed second copy.
+        provenance = read_json(run / "provenance.json")
+        assert len(provenance["records"]) == len(read_json(run / "inventory.json")["sources"])
+        assert {record["run_id"] for record in provenance["records"]} == {state["run_id"]}
+        assert {record["plan_sha256"] for record in provenance["records"]} == {state["execution_plan_sha256"]}, (
+            "sources absorbed in one run share its bound plan digest"
+        )
+        for record in provenance["records"]:
+            assert record["baseline_kind"] == "local_tree_digest", record
         for source in sources:
             recorded = read_json(run / "inventory.json")["sources"]
             expected = next(item["sha256"] for item in recorded if item["path"] == str(source.resolve()))
