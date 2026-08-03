@@ -81,6 +81,20 @@ install_skill() {
   return 1
 }
 
+# The CLI treats a project's own `skills/` directory as an agent target and
+# links the shared set into it. That directory is the project's published
+# source, so remove the injected links; the agent directories already cover
+# discovery. Only ever removes a symlink, never project content.
+clean_source_dir() {
+  local project="$1" skill link
+  [ -d "$project/skills" ] || return 0
+  for skill in "${REMOTE_SKILLS[@]##*:}" "$LINK_NAME"; do
+    link="$project/skills/$skill"
+    [ -L "$link" ] && rm "$link"
+  done
+  return 0
+}
+
 # Trust the resulting tree, not the installer's exit code.
 verify_project() {
   local project="$1" skill missing=""
@@ -90,6 +104,7 @@ verify_project() {
     fi
     [ -e "$project/.agents/skills/$skill/SKILL.md" ] || missing="$missing $skill(.agents)"
     [ -e "$project/.claude/skills/$skill/SKILL.md" ] || missing="$missing $skill(.claude)"
+    [ -L "$project/skills/$skill" ] && missing="$missing $skill(polluted-source)"
   done
   if [ -n "$missing" ]; then
     echo "    INCOMPLETE:$missing"
@@ -114,6 +129,7 @@ while IFS= read -r project; do
     link_local_skill "$project"
   fi
 
+  clean_source_dir "$project"
   verify_project "$project" || failures=$((failures + 1))
 done < <(discover_targets)
 
