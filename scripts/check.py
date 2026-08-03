@@ -23,6 +23,11 @@ from design import CAPABILITY_PHASES
 ROOT = Path(__file__).resolve().parent.parent
 TICK = chr(96)
 SKILL_LINE_BUDGET = 500
+# Fixed by the Agent Skills format: https://agentskills.io/specification
+NAME_LIMIT = 64
+DESCRIPTION_LIMIT = 1024
+COMPATIBILITY_LIMIT = 500
+SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 REQUIRED_FRONTMATTER = ("name", "description")
 VENDOR_TOKENS = ("{baseDir}", "quick_validate", "approved_plan_sha256")
 PHASE_SECTION = "Phases the Coordinator Always Runs"
@@ -43,7 +48,13 @@ ENTRY_DOCUMENTS = (
 
 
 def check_skill(root):
-    """The core instruction file must stay discoverable and within budget."""
+    """The core instruction file must stay discoverable and within budget.
+
+    The name and description bounds come from the Agent Skills format, which
+    rejects a skill that exceeds them rather than truncating it. This skill
+    teaches those bounds in references/structure.md, so failing to hold itself
+    to them would be the loudest possible contradiction.
+    """
     failures = []
     parsed = document.parse(root / "SKILL.md")
     if parsed.frontmatter_error:
@@ -55,8 +66,27 @@ def check_skill(root):
             value = parsed.frontmatter.get(key)
             if not isinstance(value, str) or not value.strip():
                 failures.append(f"SKILL.md: frontmatter missing non-empty {key}")
+        failures.extend(frontmatter_limit_failures(parsed.frontmatter))
     if parsed.line_count > SKILL_LINE_BUDGET:
         failures.append(f"SKILL.md: {parsed.line_count} lines exceeds budget {SKILL_LINE_BUDGET}")
+    return failures
+
+
+def frontmatter_limit_failures(frontmatter):
+    """Bounds the Agent Skills format fixes for every host."""
+    failures = []
+    name = frontmatter.get("name")
+    if isinstance(name, str) and name.strip():
+        if len(name) > NAME_LIMIT:
+            failures.append(f"SKILL.md: name is {len(name)} characters, over the {NAME_LIMIT} limit")
+        if not SKILL_NAME.fullmatch(name):
+            failures.append(
+                f"SKILL.md: name {name!r} must be lowercase letters, digits, and inner hyphens"
+            )
+    for key, limit in (("description", DESCRIPTION_LIMIT), ("compatibility", COMPATIBILITY_LIMIT)):
+        value = frontmatter.get(key)
+        if isinstance(value, str) and len(value) > limit:
+            failures.append(f"SKILL.md: {key} is {len(value)} characters, over the {limit} limit")
     return failures
 
 
@@ -332,10 +362,39 @@ def run_script(root, name, *arguments):
     return []
 
 
+def self_check():
+    """Verify the checks that carry their own logic actually reject bad input.
+
+    Most checks here delegate to a script that self-checks, or assert a fact
+    about the repository that is visible when it breaks. The frontmatter bounds
+    are different: while this repository stays well inside them, a check that
+    silently stopped rejecting anything would look identical to a passing one.
+    """
+    valid = {"name": "ok-skill", "description": "d", "compatibility": "c" * COMPATIBILITY_LIMIT}
+    assert frontmatter_limit_failures(valid) == []
+    assert frontmatter_limit_failures({"name": "ok", "description": "d" * DESCRIPTION_LIMIT}) == []
+    rejected = (
+        {"name": "x" * (NAME_LIMIT + 1), "description": "d"},
+        {"name": "Bad_Name", "description": "d"},
+        {"name": "-leading", "description": "d"},
+        {"name": "trailing-", "description": "d"},
+        {"name": "ok", "description": "d" * (DESCRIPTION_LIMIT + 1)},
+        {"name": "ok", "description": "d", "compatibility": "c" * (COMPATIBILITY_LIMIT + 1)},
+    )
+    for frontmatter in rejected:
+        assert frontmatter_limit_failures(frontmatter), frontmatter
+    print("self-check passed")
+
+
 def main():
-    argparse.ArgumentParser(description="Run every deterministic repository check.").parse_args()
+    parser = argparse.ArgumentParser(description="Run every deterministic repository check.")
+    parser.add_argument("--self-check", action="store_true", help="verify checker logic and exit")
+    if parser.parse_args().self_check:
+        self_check()
+        return
     checks = (
         ("filenames", lambda: run_script(ROOT, "names.py", str(ROOT))),
+        ("checker logic", lambda: run_script(ROOT, "check.py", "--self-check")),
         ("shared state primitives", lambda: run_script(ROOT, "state.py")),
         ("document model", lambda: run_script(ROOT, "document.py", "self-check")),
         ("settings resolver", lambda: run_script(ROOT, "settings.py", "--self-check")),

@@ -48,6 +48,16 @@ Describe observable user intent and task context:
 
 Use host-supported metadata grammar. Do not require one prose person, fixed phrase, frontmatter field, or example markup across runtimes.
 
+The Agent Skills format does fix a few limits, and a skill that exceeds them is rejected rather than degraded. Treat these as hard bounds, not style advice:
+
+| Field | Bound |
+|---|---|
+| `name` | 64 characters, lowercase letters, digits, and inner hyphens |
+| `description` | 1024 characters, non-empty |
+| `compatibility` | 500 characters when present |
+
+A description near the bound is also a design signal: it usually means one skill is carrying several activation contracts that belong to separate skills.
+
 ## Instruction Style
 
 - Use direct, action-oriented instructions.

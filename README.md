@@ -134,7 +134,7 @@ Run every deterministic check with one command:
 python3 scripts/check.py
 ```
 
-It runs the filename convention, the shared-state, document-model, settings-resolver, design, review, absorption, and inventory self-checks, the skill contract and size budget, relative-link and anchor resolution, resource reachability, one-canonical-section-per-document, phase-owner distinctness, documented capabilities and review phases, README structure coverage, shebang and executable-bit agreement, and a runtime-neutral token scan.
+It runs the filename convention, the checker's own logic, the shared-state, document-model, settings-resolver, design, review, absorption, and inventory self-checks, the skill contract including the Agent Skills name and description bounds, the size budget, relative-link and anchor resolution, resource reachability, one-canonical-section-per-document, phase-owner distinctness, documented capabilities and review phases, README structure coverage, shebang and executable-bit agreement, and a runtime-neutral token scan.
 
 The checks need Python 3.10 or later and the parsers in `requirements.txt`. Lint rules and the supported Python floor live in `pyproject.toml`, so `ruff` reports the same findings everywhere.
 
