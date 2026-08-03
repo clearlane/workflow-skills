@@ -5,6 +5,12 @@
 # to the repository rather than inherited from whatever a contributor or CI
 # runner happens to have configured.
 
+[build-system]
+# Present so `pip install .[dev]` can resolve the dependency tables above.
+# This project is never published; the build exists only to install checks.
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "workflow-skills-checks"
 version = "0"
@@ -12,6 +18,28 @@ description = "Deterministic checks for the designing-workflow-skills repository
 # scripts/document.py annotates a dataclass field with `dict | None`, which is
 # evaluated at class-creation time and needs PEP 604 unions at runtime.
 requires-python = ">=3.10"
+# The document model is the only part of the suite that needs third parties.
+# Compatible-release bounds so a major release cannot silently change what
+# `scripts/check.py` proves; the floor is the oldest version whose behaviour
+# these checks were written against.
+dependencies = [
+    "markdown-it-py~=4.0",  # CommonMark parsing: links, headings, fences
+    "mdit-py-plugins~=0.6",  # frontmatter block extraction
+    "PyYAML~=6.0",  # frontmatter parsing
+]
+
+[project.optional-dependencies]
+# Tools the checks shell out to when present. `scripts/check.py` skips each one
+# it cannot find, so a contributor running the stdlib-only subset stays able to
+# work; CI installs this extra and therefore enforces them.
+dev = [
+    "ruff==0.15.*",
+]
+
+[tool.setuptools]
+# Nothing here is importable as a package: `scripts/` is run, not installed.
+# Declared so a build backend cannot infer a package layout that does not exist.
+py-modules = []
 
 [tool.ruff]
 line-length = 120
@@ -43,3 +71,10 @@ select = [
     "UP",   # outdated syntax for the supported floor
     "W",    # pycodestyle warnings
 ]
+
+[tool.ruff.format]
+# Declared rather than left implicit so `ruff format --check` in
+# scripts/check.py and a contributor's editor cannot reach different answers.
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

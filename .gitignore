@@ -4,6 +4,9 @@
 __pycache__/
 *.html
 
+# Editable install of the check dependencies (see requirements.txt)
+*.egg-info/
+
 # Generated agent skill directories (see skills-lock.json)
 agent/
 .claude/skills/

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Clearlane
 """Coordinator for designing or refactoring a workflow skill.
 
 Phases are derived from the recorded contract, not from a fixed prose list, so
 a skill without settings never walks a settings phase. Progress persists in a
 run directory and resumes from artifacts rather than conversational memory.
 """
+
 import argparse
 import json
 import sys
@@ -204,12 +207,29 @@ def command_self_check(_args):
         # Capabilities insert exactly their own phases, in canonical order.
         run = root / "full"
         execute(
-            "init", "--name", "Full Skill", "--skill", root / "full-skill", "--run-dir", run,
-            "--capability", "commands", "--capability", "settings", "--capability", "coordinator",
+            "init",
+            "--name",
+            "Full Skill",
+            "--skill",
+            root / "full-skill",
+            "--run-dir",
+            run,
+            "--capability",
+            "commands",
+            "--capability",
+            "settings",
+            "--capability",
+            "coordinator",
         )
         state = read_json(run / "state.json")
         assert state["phases"] == [
-            "contract", "coordinator", "settings", "commands", "resources", "checks", "review",
+            "contract",
+            "coordinator",
+            "settings",
+            "commands",
+            "resources",
+            "checks",
+            "review",
         ], state["phases"]
 
         # Out-of-order completion is rejected; in-order completion persists evidence.
@@ -241,13 +261,28 @@ def command_self_check(_args):
 
         # Unknown capability and overlapping run directory are rejected at init.
         result = execute(
-            "init", "--name", "Bad", "--skill", root / "s2", "--run-dir", root / "r2",
-            "--capability", "invalid", check=False,
+            "init",
+            "--name",
+            "Bad",
+            "--skill",
+            root / "s2",
+            "--run-dir",
+            root / "r2",
+            "--capability",
+            "invalid",
+            check=False,
         )
         assert result.returncode != 0
         skill = root / "overlap"
         result = execute(
-            "init", "--name", "Bad", "--skill", skill, "--run-dir", skill / "run", check=False,
+            "init",
+            "--name",
+            "Bad",
+            "--skill",
+            skill,
+            "--run-dir",
+            skill / "run",
+            check=False,
         )
         assert result.returncode != 0 and "must not overlap" in result.stderr
 

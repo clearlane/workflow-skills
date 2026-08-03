@@ -1,0 +1,14 @@
+# Configuration for the external link check in scripts/check.py.
+#
+# Only exclusions with a stated reason belong here. A link that is genuinely
+# rotted must keep failing; this file is for URLs where a failure is evidence
+# about the checker's client rather than about the link.
+
+# GitHub serves /stargazers only to an authenticated session and returns 404 to
+# every unauthenticated client, including a well-known repository that plainly
+# exists. The badge target is correct; the status code is not evidence.
+exclude = ["^https://github\\.com/[^/]+/[^/]+/stargazers$"]
+
+# Some hosts reject the default client outright, which is a bot policy rather
+# than a broken link.
+accept = ["200", "403", "429"]

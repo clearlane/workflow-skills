@@ -1,6 +1,7 @@
 ---
 name: designing-workflow-skills
 description: Design, refactor, package, merge, or restructure runtime-neutral workflow skills whose multi-step behavior spans executable coordination, validated skill settings, event-triggered guards, MCP or external-tool services, delegated workers, and explicit command entrypoints. Use when workflows need routing, phases, concurrency, dependencies, resume, bounded loops, configurable behavior, safety gates, progressive disclosure, validated adapters, or durable failure recovery, when bundling skills and components for host discovery and distribution, when absorbing or consolidating one or many skills into one target without losing capabilities or copying host-specific syntax into core guidance, and when auditing or safely moving the files of a skill, bundle, or the repository holding them without breaking discovery, imports, builds, tests, or packaging.
+license: CC-BY-SA-4.0 AND MIT
 ---
 
 # Designing Workflow Skills

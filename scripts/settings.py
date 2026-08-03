@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Clearlane
+"""Stdlib JSON settings-layer resolver with provenance and atomic writes.
+
+Implements references/settings.md: layers merge in a fixed precedence order,
+every resolved value reports which layer produced it, and a write either lands
+whole or not at all.
+"""
+
 import argparse
 import hashlib
 import json
@@ -79,12 +88,14 @@ def atomic_write(path, value, expected_digest=None):
 
 
 def self_check():
-    resolved = resolve([
-        ("default", {"enabled": True, "mode": "standard", "max_attempts": 3}),
-        ("user", {"mode": "strict"}),
-        ("project", {"max_attempts": 5}),
-        ("invocation", {"mode": "focused"}),
-    ])
+    resolved = resolve(
+        [
+            ("default", {"enabled": True, "mode": "standard", "max_attempts": 3}),
+            ("user", {"mode": "strict"}),
+            ("project", {"max_attempts": 5}),
+            ("invocation", {"mode": "focused"}),
+        ]
+    )
     assert resolved == {
         "effective": {"enabled": True, "mode": "focused", "max_attempts": 5},
         "provenance": {"enabled": "default", "mode": "invocation", "max_attempts": "project"},

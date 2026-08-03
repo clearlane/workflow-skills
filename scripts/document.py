@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Clearlane
 """Markdown and YAML document model for this repository's checks.
 
 Checks need structure - frontmatter fields, heading hierarchy, link targets -
@@ -6,6 +8,7 @@ not text patterns. Hand-written regex parsing rediscovers fenced blocks, inline
 code, and link syntax badly, so parsing lives here once on top of a CommonMark
 parser and a YAML parser, and callers ask structural questions instead.
 """
+
 import argparse
 import re
 from dataclasses import dataclass, field
@@ -17,8 +20,7 @@ try:
     from mdit_py_plugins.front_matter import front_matter_plugin
 except ModuleNotFoundError as error:  # pragma: no cover - environment guard
     raise SystemExit(
-        f"Missing dependency {error.name!r}. Install with: "
-        "pip install markdown-it-py mdit-py-plugins PyYAML"
+        f"Missing dependency {error.name!r}. Install with: pip install markdown-it-py mdit-py-plugins PyYAML"
     ) from error
 
 EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "tel:")
@@ -85,17 +87,11 @@ class Document:
 
     def section(self, title, level=2):
         """Body lines under one heading, ending at the next same-or-higher heading."""
-        start = next(
-            (heading for heading in self.headings_at(level) if heading.text == title), None
-        )
+        start = next((heading for heading in self.headings_at(level) if heading.text == title), None)
         if start is None:
             return None
         lines = self.text.splitlines()
-        following = [
-            heading.line
-            for heading in self.headings
-            if heading.line > start.line and heading.level <= level
-        ]
+        following = [heading.line for heading in self.headings if heading.line > start.line and heading.level <= level]
         end = following[0] - 1 if following else len(lines)
         return "\n".join(lines[start.line : end])
 
@@ -128,9 +124,7 @@ def _collect_links(inline, parsed, line):
         elif child.type == "image":
             source = child.attrGet("src") or ""
             if source:
-                parsed.links.append(
-                    Link(target=source, text=child.content or "", line=line)
-                )
+                parsed.links.append(Link(target=source, text=child.content or "", line=line))
 
 
 def parse(path, text=None):
@@ -156,9 +150,7 @@ def parse(path, text=None):
             parsed.fences.append((token.info.strip(), token.content, line))
         elif token.type == "inline":
             if pending:
-                parsed.headings.append(
-                    Heading(level=pending[0], text=_inline_text(token), line=pending[1])
-                )
+                parsed.headings.append(Heading(level=pending[0], text=_inline_text(token), line=pending[1]))
                 pending = None
             _collect_links(token, parsed, line)
     return parsed
@@ -186,9 +178,7 @@ def broken_links(root):
                 continue
             if not link.path:
                 if link.fragment and link.fragment not in item.anchors():
-                    failures.append(
-                        f"{location}:{link.line}: no heading for anchor #{link.fragment}"
-                    )
+                    failures.append(f"{location}:{link.line}: no heading for anchor #{link.fragment}")
                 continue
             resolved = (item.path.parent / link.path).resolve()
             if not resolved.exists():
@@ -197,10 +187,7 @@ def broken_links(root):
             if link.fragment and resolved.suffix == ".md":
                 target = parsed.get(resolved) or parse(resolved)
                 if link.fragment not in target.anchors():
-                    failures.append(
-                        f"{location}:{link.line}: {link.path} has no heading "
-                        f"for anchor #{link.fragment}"
-                    )
+                    failures.append(f"{location}:{link.line}: {link.path} has no heading for anchor #{link.fragment}")
     return failures
 
 

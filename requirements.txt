@@ -1,6 +1,10 @@
-# Dependencies for this repository's own checks (scripts/check.py).
-# Skill guidance stays runtime-neutral; these libraries are this repo's tooling only.
-markdown-it-py>=3.0    # CommonMark parsing: links, headings, fences
-mdit-py-plugins>=0.4   # frontmatter block extraction
-PyYAML>=6.0            # frontmatter parsing
-
+# A pointer, not a second dependency list.
+#
+# pyproject.toml is the single source of truth for what these checks need and
+# which versions are supported. This file exists because CI caches on a
+# requirements file and because `pip install -r requirements.txt` is the
+# instruction most contributors reach for first.
+#
+# Skill guidance stays runtime-neutral; nothing installed here ships to a host
+# that loads SKILL.md.
+.[dev]

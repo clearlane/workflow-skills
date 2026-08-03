@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Clearlane
 """Coordinator for reviewing a workflow skill.
 
 Review phases follow the surfaces the reviewed skill actually exposes, so a
@@ -8,6 +10,7 @@ never be designable but unreviewable. Findings, dispositions, and phase notes
 persist in a run directory, and the verdict is gated on every blocking finding
 carrying an explicit disposition.
 """
+
 import argparse
 import json
 import sys
@@ -145,11 +148,7 @@ def print_status(root, state):
     findings = load_findings(root)
     blocking = unresolved_blocking(findings)
     if phase == "verdict" and blocking:
-        action = (
-            "Resolve blocking findings before the verdict: "
-            + ", ".join(blocking)
-            + " (use resolve-finding)."
-        )
+        action = "Resolve blocking findings before the verdict: " + ", ".join(blocking) + " (use resolve-finding)."
     elif phase:
         action = (
             f"Review '{phase}' against {phase_resource(phase)}, record findings, then run "
@@ -342,10 +341,11 @@ def write_report(root, state, findings):
         for item in findings:
             lines.append(
                 "| {id} | {phase} | {severity} | {summary} | {evidence} | {disposition} |".format(
-                    disposition=item["disposition"] or "open", **{
+                    disposition=item["disposition"] or "open",
+                    **{
                         key: str(item[key]).replace("|", "\\|")
                         for key in ("id", "phase", "severity", "summary", "evidence")
-                    }
+                    },
                 )
             )
     else:
@@ -414,13 +414,31 @@ def command_self_check(_args):
 
         # Findings cannot attach to a phase the run has not reached.
         assert execute(
-            "record-finding", "--run-dir", run, "--phase", "verdict",
-            "--severity", "minor", "--summary", "s", "--evidence", "e", check=False
+            "record-finding",
+            "--run-dir",
+            run,
+            "--phase",
+            "verdict",
+            "--severity",
+            "minor",
+            "--summary",
+            "s",
+            "--evidence",
+            "e",
+            check=False,
         ).returncode
         execute(
-            "record-finding", "--run-dir", run, "--phase", "structure",
-            "--severity", "blocking", "--summary", "Destructive step lacks an approval gate",
-            "--evidence", "SKILL.md:1",
+            "record-finding",
+            "--run-dir",
+            run,
+            "--phase",
+            "structure",
+            "--severity",
+            "blocking",
+            "--summary",
+            "Destructive step lacks an approval gate",
+            "--evidence",
+            "SKILL.md:1",
         )
         execute("complete-phase", "--run-dir", run, "--phase", "structure", "--note", "one canonical home")
         execute("complete-phase", "--run-dir", run, "--phase", "safety", "--note", "gate missing")

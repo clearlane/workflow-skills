@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Clearlane
+#
 # Install the shared skill set into every skill project under the parent directory.
 #
 #   - The remote skills are installed with the `skills` CLI, which writes the

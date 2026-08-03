@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Clearlane
 """Shared durable-run primitives for this repository's coordinators.
 
 Both coordinators persist phase state outside conversation context, so the
 JSON, digest, and validation helpers live here once instead of per script.
 """
+
 import hashlib
 import json
 import re
@@ -138,6 +141,7 @@ def copy_manifest_files(source_root, destination_root, manifest):
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination, follow_symlinks=False)
 
+
 def tree_sha256(manifest):
     encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -173,9 +177,7 @@ def remove_path(path):
 
 
 def save_state(root, state, event):
-    state.setdefault("history", []).append(
-        {"at": now(), "event": event, "phase": state["phase"]}
-    )
+    state.setdefault("history", []).append({"at": now(), "event": event, "phase": state["phase"]})
     state["updated_at"] = now()
     write_json(root / "state.json", state)
 

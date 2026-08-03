@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Clearlane
 """Repository check entrypoint: runs every deterministic project check.
 
 Structural questions about documents go through scripts/document.py, so this
 file declares what must hold rather than how markdown or YAML is parsed.
 """
+
 import argparse
 import os
 import re
@@ -35,7 +38,12 @@ DESIGN_WORKFLOW = "workflows/design.md"
 REVIEW_WORKFLOW = "workflows/review.md"
 README = "README.md"
 README_SECTION = "Structure"
-README_EXEMPT = {".gitignore", "LICENSE", README, "skill-logic.workflow.json"}
+README_EXEMPT = {".gitignore", "LICENSE", "LICENSE-CODE", README, "skill-logic.workflow.json"}
+# The repository is dual-licensed: prose carries the upstream share-alike
+# obligation, executables are MIT so they can be vendored without it.
+SPDX_TAG = "SPDX-License-Identifier:"
+CODE_LICENCE = "MIT"
+SKILL_LICENCE = "CC-BY-SA-4.0 AND MIT"
 DOCUMENTED_DIRECTORIES = ("references", "workflows", "scripts", "agents", "examples")
 ENTRY_DOCUMENTS = (
     "SKILL.md",
@@ -80,9 +88,7 @@ def frontmatter_limit_failures(frontmatter):
         if len(name) > NAME_LIMIT:
             failures.append(f"SKILL.md: name is {len(name)} characters, over the {NAME_LIMIT} limit")
         if not SKILL_NAME.fullmatch(name):
-            failures.append(
-                f"SKILL.md: name {name!r} must be lowercase letters, digits, and inner hyphens"
-            )
+            failures.append(f"SKILL.md: name {name!r} must be lowercase letters, digits, and inner hyphens")
     for key, limit in (("description", DESCRIPTION_LIMIT), ("compatibility", COMPATIBILITY_LIMIT)):
         value = frontmatter.get(key)
         if isinstance(value, str) and len(value) > limit:
@@ -97,9 +103,7 @@ def check_vendor_tokens(root):
         for number, line in enumerate(parsed.text.splitlines(), 1):
             for token in VENDOR_TOKENS:
                 if token in line:
-                    failures.append(
-                        f"{parsed.path.relative_to(root)}:{number}: vendor token {token}"
-                    )
+                    failures.append(f"{parsed.path.relative_to(root)}:{number}: vendor token {token}")
     return failures
 
 
@@ -110,10 +114,7 @@ def check_duplicate_headings(root):
         seen = set()
         for heading in parsed.headings_at(2):
             if heading.text in seen:
-                failures.append(
-                    f"{parsed.path.relative_to(root)}:{heading.line}: "
-                    f"duplicate section {heading.text!r}"
-                )
+                failures.append(f"{parsed.path.relative_to(root)}:{heading.line}: duplicate section {heading.text!r}")
             seen.add(heading.text)
     return failures
 
@@ -139,10 +140,7 @@ def check_phase_owners(root):
             resource = resolve(phase)
             path, _, fragment = resource.partition("#")
             if path in entry_documents:
-                failures.append(
-                    f"{label} points at entry document {resource}; "
-                    "it needs a reference of its own"
-                )
+                failures.append(f"{label} points at entry document {resource}; it needs a reference of its own")
             if not (root / path).exists():
                 failures.append(f"{label} owner {resource} does not exist")
             elif fragment and fragment not in document.parse(root / path).anchors():
@@ -162,9 +160,7 @@ def check_capability_rows(root):
     failures = []
     parsed = document.parse(root / DESIGN_WORKFLOW)
     documented = {
-        line.split("|")[1].strip().strip(TICK)
-        for line in parsed.text.splitlines()
-        if line.startswith("| " + TICK)
+        line.split("|")[1].strip().strip(TICK) for line in parsed.text.splitlines() if line.startswith("| " + TICK)
     }
     declared = {name for name, _, _ in CAPABILITY_PHASES}
     for missing in sorted(declared - documented):
@@ -173,10 +169,7 @@ def check_capability_rows(root):
             "derives a phase the workflow never explains"
         )
     for extra in sorted(documented - declared):
-        failures.append(
-            f"{DESIGN_WORKFLOW}: capability {extra!r} is documented but design.py "
-            "derives no phase for it"
-        )
+        failures.append(f"{DESIGN_WORKFLOW}: capability {extra!r} is documented but design.py derives no phase for it")
     return failures
 
 
@@ -191,8 +184,7 @@ def check_review_phases(root):
     declared = {name for name, _, _ in CAPABILITY_PHASES}
     if set(review.SURFACES) != declared:
         failures.append(
-            "scripts/review.py: surfaces "
-            f"{sorted(set(review.SURFACES) ^ declared)} diverge from design capabilities"
+            f"scripts/review.py: surfaces {sorted(set(review.SURFACES) ^ declared)} diverge from design capabilities"
         )
     parsed = document.parse(root / REVIEW_WORKFLOW)
     scope = parsed.section(PHASE_SECTION)
@@ -201,10 +193,7 @@ def check_review_phases(root):
         return failures
     for phase in review.ALWAYS_FIRST + review.ALWAYS_LAST:
         if TICK + phase + TICK not in scope:
-            failures.append(
-                f"{REVIEW_WORKFLOW}: always-run phase {phase!r} is not described "
-                f"under {PHASE_SECTION!r}"
-            )
+            failures.append(f"{REVIEW_WORKFLOW}: always-run phase {phase!r} is not described under {PHASE_SECTION!r}")
     return failures
 
 
@@ -223,9 +212,7 @@ def check_reachability(root):
     for directory in ("references", "workflows"):
         for path in sorted((root / directory).glob("*.md")):
             if path.resolve() not in linked:
-                failures.append(
-                    f"{path.relative_to(root)}: not linked from SKILL.md or any workflow"
-                )
+                failures.append(f"{path.relative_to(root)}: not linked from SKILL.md or any workflow")
     return failures
 
 
@@ -319,8 +306,16 @@ def check_external_links(root):
         return ["lychee is not installed; external link checking was requested but cannot run"]
     result = subprocess.run(
         [
-            executable, "--no-progress", "--max-concurrency", "4",
-            "--include-fragments=full", "--format", "compact", str(root),
+            executable,
+            "--no-progress",
+            "--max-concurrency",
+            "4",
+            "--include-fragments=full",
+            "--config",
+            str(root / "lychee.toml"),
+            "--format",
+            "compact",
+            str(root),
         ],
         capture_output=True,
         text=True,
@@ -331,23 +326,61 @@ def check_external_links(root):
     return [line.strip() for line in result.stdout.splitlines() if "[ERROR]" in line or "[404]" in line]
 
 
+def check_licence_headers(root):
+    """Every executable file must name the licence that covers it.
+
+    This repository is dual-licensed: prose carries the upstream share-alike
+    obligation, executables do not. That boundary is only real if it is visible
+    per file. Without a header, someone vendoring `state.py` has to reason about
+    which half of the repository it belongs to, and will guess share-alike.
+    """
+    failures = []
+    for path in sorted((root / "scripts").rglob("*")):
+        if not path.is_file() or path.suffix not in {".py", ".sh"}:
+            continue
+        head = path.read_text(encoding="utf-8").splitlines()[:5]
+        if not any(line.startswith(f"# {SPDX_TAG}") for line in head):
+            failures.append(f"{path.relative_to(root)}: missing '# {SPDX_TAG}' header")
+        elif not any(line == f"# {SPDX_TAG} {CODE_LICENCE}" for line in head):
+            failures.append(f"{path.relative_to(root)}: {SPDX_TAG} must be {CODE_LICENCE}")
+    declared = document.parse(root / "SKILL.md").frontmatter or {}
+    if declared.get("license") != SKILL_LICENCE:
+        failures.append(f"SKILL.md: frontmatter license must be {SKILL_LICENCE!r}")
+    return failures
+
+
 def check_lint(root):
     """Delegate Python correctness to ruff rather than hand-rolling AST checks.
 
     Skipped when ruff is absent so the suite stays runnable with stdlib alone.
     """
+    return run_ruff(root, "check", "--quiet", "--output-format", "concise")
+
+
+def check_format(root):
+    """Make formatting a check result rather than a reviewer's judgement.
+
+    Whitespace disagreements otherwise surface as review comments on unrelated
+    pull requests. `ruff format` owns the answer; this reports where the tree
+    disagrees with it. Skipped when ruff is absent, like the lint check.
+    """
+    return run_ruff(root, "format", "--check", "--quiet")
+
+
+def run_ruff(root, *arguments):
     executable = shutil.which("ruff")
     if executable is None:
         return []
     result = subprocess.run(
-        [executable, "check", "--quiet", "--output-format", "concise", str(root / "scripts")],
+        [executable, *arguments, str(root / "scripts")],
         capture_output=True,
         text=True,
         check=False,
     )
     if result.returncode == 0:
         return []
-    return [line for line in result.stdout.splitlines() if line.strip()]
+    output = f"{result.stdout}\n{result.stderr}"
+    return [line.strip() for line in output.splitlines() if line.strip()]
 
 
 def run_script(root, name, *arguments):
@@ -412,7 +445,9 @@ def main():
         ("README structure coverage", lambda: check_readme_structure(ROOT)),
         ("executable bits", lambda: check_executable_bits(ROOT)),
         ("runtime-neutral tokens", lambda: check_vendor_tokens(ROOT)),
+        ("licence headers", lambda: check_licence_headers(ROOT)),
         ("python lint", lambda: check_lint(ROOT)),
+        ("python format", lambda: check_format(ROOT)),
         ("external links", lambda: check_external_links(ROOT)),
     )
     failures = []

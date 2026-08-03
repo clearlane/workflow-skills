@@ -12,7 +12,7 @@
 
 [![checks](https://img.shields.io/github/actions/workflow/status/clearlane/workflow-skills/checks.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=checks)](https://github.com/clearlane/workflow-skills/actions/workflows/checks.yml)
 &nbsp;
-[![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC_BY--SA_4.0-blue?style=for-the-badge)](LICENSE)
+[![License: CC BY-SA 4.0 and MIT](https://img.shields.io/badge/License-CC_BY--SA_4.0_%2B_MIT-blue?style=for-the-badge)](#license)
 &nbsp;
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge)](CONTRIBUTING.md)
 &nbsp;
@@ -143,11 +143,15 @@ Core instructions load first; everything else is loaded on demand, which is the 
 
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
 - `agents/openai.yaml` — Codex UI metadata
-- `requirements.txt` — parser dependencies for the document-model checks
-- `pyproject.toml` — pinned lint rules and the supported Python floor for these checks
+- `pyproject.toml` — the single source of truth for dependency versions, the supported Python floor, and lint rules
+- `requirements.txt` — a pointer to `pyproject.toml`, kept because CI caches on it
+- `.editorconfig` — editor defaults so whitespace never becomes a diff
+- `lychee.toml` — external link-check exclusions, each with a stated reason
 - `skills-lock.json` — pinned skill install manifest
+- `AGENTS.md` — working contract for agents changing this repository
 - `UPSTREAM.md` — absorption history and the coordinator changes each run produced
 - `CONTRIBUTING.md` — how to run the checks and what they enforce
+- `LICENSE-CODE` — MIT terms covering `scripts/`, as described under [License](#license)
 
 ## Checks
 
@@ -190,7 +194,7 @@ The original was a prose skill: numbered steps an agent read and tried to follow
 
 ### Attribution
 
-This project began as an adaptation of Trail of Bits' `designing-workflow-skills` skill and remains licensed under the same terms. Credit for the original design belongs to [Trail of Bits](https://github.com/trailofbits). Responsibility for everything built since is this repository's, and the current design should not be read as theirs.
+This project began as an adaptation of Trail of Bits' `designing-workflow-skills` skill, and the adapted prose remains under the upstream license. Credit for the original design belongs to [Trail of Bits](https://github.com/trailofbits). Responsibility for everything built since is this repository's, and the current design should not be read as theirs.
 
 Command-entrypoint guidance independently re-expresses generic concepts from the upstream `command-development` source. No runtime-specific syntax, files, or examples were copied.
 
@@ -210,7 +214,12 @@ Pull requests are welcome. Run `python3 scripts/check.py` before opening one —
 
 ## License
 
-Licensed under [CC BY-SA 4.0](LICENSE), matching the upstream license. Adaptations are distributed under the same terms.
+Dual-licensed, because the two halves of this repository carry different obligations.
+
+- **Prose** — `SKILL.md`, `references/`, `workflows/`, and the repository's own documents: [CC BY-SA 4.0](LICENSE). This is the upstream license, and the share-alike obligation on the adapted guidance is inherited, not chosen.
+- **Code** — everything under `scripts/`: [MIT](LICENSE-CODE). These coordinators are original work, not an adaptation of upstream prose, and share-alike on 3,000 lines of Python would make vendoring a single helper a licensing decision rather than a copy-paste.
+
+Every file under `scripts/` carries an `SPDX-License-Identifier` header, so the boundary is readable per file rather than inferred from this section. `scripts/check.py` enforces that. `SKILL.md` declares `license: CC-BY-SA-4.0 AND MIT`. Copyright is held by Clearlane.
 
 ---
 

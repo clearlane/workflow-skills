@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Clearlane
+"""Absorption coordinator: merge many source skills into one target safely.
+
+Implements workflows/absorb.md. The control flow that matters lives here rather
+than in prose: a plan is bound to a digest before any mutation, the target is
+snapshotted so every failure path is reversible, retries are bounded, and each
+phase refuses to advance without the evidence its contract names.
+"""
+
 import argparse
 import json
 import re
@@ -47,6 +57,7 @@ class MalformedEvidence(SystemExit):
 
 def malformed(message):
     raise MalformedEvidence(message)
+
 
 def inspect_skill(path, allow_missing=False):
     resolved = path.expanduser().resolve()
@@ -141,8 +152,13 @@ def validate_plan(root, inventory):
     require_list(contract.get("scope"), f"{path}: target_contract.scope")
     require_list(contract.get("non_goals"), f"{path}: target_contract.non_goals")
     for field in (
-        "capability_map", "runtime_adapter_map", "decisions", "file_operations",
-        "omitted_items", "risks", "validation_commands",
+        "capability_map",
+        "runtime_adapter_map",
+        "decisions",
+        "file_operations",
+        "omitted_items",
+        "risks",
+        "validation_commands",
     ):
         require_list(value.get(field), f"{path}: {field}")
 
@@ -242,12 +258,15 @@ def create_rollback_snapshot(root, state, inventory):
         snapshot = inspect_skill(rollback_root / "target")
         if snapshot["sha256"] != target["sha256"]:
             fail("Rollback snapshot does not match target baseline")
-    write_json(rollback_root / "snapshot.json", {
-        "plan_sha256": state["execution_plan_sha256"],
-        "target_exists": target["exists"],
-        "target_sha256": target["sha256"],
-        "scope": "baseline",
-    })
+    write_json(
+        rollback_root / "snapshot.json",
+        {
+            "plan_sha256": state["execution_plan_sha256"],
+            "target_exists": target["exists"],
+            "target_sha256": target["sha256"],
+            "scope": "baseline",
+        },
+    )
     state["rollback_scope"] = "baseline"
 
 
@@ -348,10 +367,7 @@ def validate_apply(root, state, inventory):
     planned_paths = bound_paths(root, state, inventory)
     outside_plan = sorted((set(changed) | set(deleted)) - planned_paths)
     if outside_plan:
-        fail(
-            f"{path}: changed paths outside bound plan: {outside_plan}; "
-            "record them with extend-scope or revert them"
-        )
+        fail(f"{path}: changed paths outside bound plan: {outside_plan}; record them with extend-scope or revert them")
     validate_sources_unchanged(inventory)
     write_json(root / "target-after-merge.json", current_skill)
 
@@ -408,6 +424,7 @@ def validate_feedback(root):
         else:
             require_text(observation.get("reason"), f"{path}: observations[{index}].reason")
     return value
+
 
 def next_action(phase):
     return {
@@ -565,14 +582,10 @@ def command_extend_scope(args):
     already = set(planned)
     for extension in state.get("scope_extensions", []):
         already.update(extension["paths"])
-    added = sorted(
-        {safe_relative_path(item, "extend-scope path") for item in args.path} - already
-    )
+    added = sorted({safe_relative_path(item, "extend-scope path") for item in args.path} - already)
     if not added:
         fail("Every requested path is already inside the bound scope")
-    state.setdefault("scope_extensions", []).append(
-        {"paths": added, "reason": reason, "recorded_at": now()}
-    )
+    state.setdefault("scope_extensions", []).append({"paths": added, "reason": reason, "recorded_at": now()})
     save_state(root, state, "scope-extended")
     print_status(root, state, inventory)
 
@@ -611,7 +624,9 @@ def command_self_check(_args):
         def execute(*arguments, check=True):
             return subprocess.run(
                 [sys.executable, str(executable), *map(str, arguments)],
-                check=check, capture_output=True, text=True,
+                check=check,
+                capture_output=True,
+                text=True,
             )
 
         def create_skill(path, name):
@@ -632,56 +647,90 @@ def command_self_check(_args):
                 init_arguments.extend(("--source", source))
             execute(*init_arguments)
             source_ids = [item["id"] for item in read_json(run / "inventory.json")["sources"]]
-            write_json(run / "analyses" / "target.json", {
-                "source_id": "target", "summary": "Existing target behavior",
-                "capabilities": [
-                    {"id": "target-baseline", "purpose": "Preserve target behavior", "evidence": ["SKILL.md"]},
-                ],
-                "triggers": [], "resources": [], "overlaps": [], "conflicts": [], "risks": [],
-                "runtime_dependencies": [],
-            })
+            write_json(
+                run / "analyses" / "target.json",
+                {
+                    "source_id": "target",
+                    "summary": "Existing target behavior",
+                    "capabilities": [
+                        {"id": "target-baseline", "purpose": "Preserve target behavior", "evidence": ["SKILL.md"]},
+                    ],
+                    "triggers": [],
+                    "resources": [],
+                    "overlaps": [],
+                    "conflicts": [],
+                    "risks": [],
+                    "runtime_dependencies": [],
+                },
+            )
             for index, source_id in enumerate(source_ids):
                 runtime_dependencies = []
                 if index == 0:
                     runtime_dependencies = [
                         {"id": "vendor-tool", "symbol": "VendorTool", "kind": "tool", "evidence": ["SKILL.md"]},
                     ]
-                write_json(run / "analyses" / f"{source_id}.json", {
-                    "source_id": source_id, "summary": "Adds source behavior",
-                    "capabilities": [
-                        {"id": "source-behavior", "purpose": "Provide behavior", "evidence": ["SKILL.md"]},
-                    ],
-                    "triggers": [], "resources": [], "overlaps": [], "conflicts": [], "risks": [],
-                    "runtime_dependencies": runtime_dependencies,
-                })
+                write_json(
+                    run / "analyses" / f"{source_id}.json",
+                    {
+                        "source_id": source_id,
+                        "summary": "Adds source behavior",
+                        "capabilities": [
+                            {"id": "source-behavior", "purpose": "Provide behavior", "evidence": ["SKILL.md"]},
+                        ],
+                        "triggers": [],
+                        "resources": [],
+                        "overlaps": [],
+                        "conflicts": [],
+                        "risks": [],
+                        "runtime_dependencies": runtime_dependencies,
+                    },
+                )
             execute("advance", "--run-dir", run)
-            capability_map = [{
-                "key": "target:target-baseline", "decision": "retain",
-                "destination": "SKILL.md", "reason": "Preserve target behavior",
-            }]
+            capability_map = [
+                {
+                    "key": "target:target-baseline",
+                    "decision": "retain",
+                    "destination": "SKILL.md",
+                    "reason": "Preserve target behavior",
+                }
+            ]
             capability_map.extend(
                 {
-                    "key": f"{source_id}:source-behavior", "decision": "integrate",
-                    "destination": "SKILL.md", "reason": "Core behavior",
+                    "key": f"{source_id}:source-behavior",
+                    "decision": "integrate",
+                    "destination": "SKILL.md",
+                    "reason": "Core behavior",
                 }
                 for source_id in source_ids
             )
-            write_json(run / "plan.json", {
-                "target_contract": {
-                    "name": f"{name}-target", "description": "Combined target skill.",
-                    "runtime_policy": "runtime-neutral", "scope": ["behavior"], "non_goals": [],
+            write_json(
+                run / "plan.json",
+                {
+                    "target_contract": {
+                        "name": f"{name}-target",
+                        "description": "Combined target skill.",
+                        "runtime_policy": "runtime-neutral",
+                        "scope": ["behavior"],
+                        "non_goals": [],
+                    },
+                    "capability_map": capability_map,
+                    "runtime_adapter_map": [
+                        {
+                            "key": f"{source_ids[0]}:vendor-tool",
+                            "decision": "generalize",
+                            "destination": "SKILL.md",
+                            "reason": "Use runtime-neutral host capability",
+                        }
+                    ],
+                    "decisions": [],
+                    "file_operations": [
+                        {"op": "update", "path": "SKILL.md", "purpose": "Absorb behavior", "sources": source_ids},
+                    ],
+                    "omitted_items": [],
+                    "risks": [],
+                    "validation_commands": ["self-check"],
                 },
-                "capability_map": capability_map,
-                "runtime_adapter_map": [{
-                    "key": f"{source_ids[0]}:vendor-tool", "decision": "generalize",
-                    "destination": "SKILL.md", "reason": "Use runtime-neutral host capability",
-                }],
-                "decisions": [],
-                "file_operations": [
-                    {"op": "update", "path": "SKILL.md", "purpose": "Absorb behavior", "sources": source_ids},
-                ],
-                "omitted_items": [], "risks": [], "validation_commands": ["self-check"],
-            })
+            )
             execute("advance", "--run-dir", run)
             state = read_json(run / "state.json")
             assert state["phase"] == "merge"
@@ -695,12 +744,15 @@ def command_self_check(_args):
             The self-check writes this report ten times and varies only the
             changed set and the notes, so the shape lives here once.
             """
-            write_json(run / "apply.json", {
-                "plan_sha256": plan_hash,
-                "changed_files": list(changed),
-                "deleted_files": list(deleted),
-                "notes": notes if isinstance(notes, str) else list(notes),
-            })
+            write_json(
+                run / "apply.json",
+                {
+                    "plan_sha256": plan_hash,
+                    "changed_files": list(changed),
+                    "deleted_files": list(deleted),
+                    "notes": notes if isinstance(notes, str) else list(notes),
+                },
+            )
 
         target, sources, run, _baseline, plan_hash = prepare_run("success", source_count=10)
         (target / "SKILL.md").write_text(
@@ -708,37 +760,52 @@ def command_self_check(_args):
         )
         write_apply(run, plan_hash, ["SKILL.md"])
         execute("advance", "--run-dir", run)
-        write_json(run / "validation.json", {
-            "plan_sha256": plan_hash,
-            "passed": False,
-            "checks": [{"name": "first pass", "command": "self-check", "exit_code": 1}],
-            "remaining_gaps": ["Needs repair"], "notes": [],
-        })
+        write_json(
+            run / "validation.json",
+            {
+                "plan_sha256": plan_hash,
+                "passed": False,
+                "checks": [{"name": "first pass", "command": "self-check", "exit_code": 1}],
+                "remaining_gaps": ["Needs repair"],
+                "notes": [],
+            },
+        )
         execute("advance", "--run-dir", run)
         write_apply(run, plan_hash, ["SKILL.md"], notes=["Repaired"])
         execute("advance", "--run-dir", run)
-        write_json(run / "validation.json", {
-            "plan_sha256": plan_hash,
-            "passed": True,
-            "checks": [{"name": "second pass", "command": "self-check", "exit_code": 0}],
-            "remaining_gaps": [], "notes": [],
-        })
+        write_json(
+            run / "validation.json",
+            {
+                "plan_sha256": plan_hash,
+                "passed": True,
+                "checks": [{"name": "second pass", "command": "self-check", "exit_code": 0}],
+                "remaining_gaps": [],
+                "notes": [],
+            },
+        )
         # A passing run cannot complete until the orchestrator verdict exists.
         missing_feedback = execute("advance", "--run-dir", run, check=False)
         assert missing_feedback.returncode != 0 and "feedback.json" in missing_feedback.stderr
-        write_json(run / "feedback.json", {
-            "observations": [
-                {
-                    "issue": "Observed coordinator defect", "evidence": "self-check",
-                    "disposition": "fixed", "changed_files": ["scripts/absorb.py"],
-                },
-                {
-                    "issue": "Known limitation", "evidence": "self-check",
-                    "disposition": "accepted", "reason": "Out of scope for this run",
-                },
-            ],
-            "improvements": ["Recorded during self-check"],
-        })
+        write_json(
+            run / "feedback.json",
+            {
+                "observations": [
+                    {
+                        "issue": "Observed coordinator defect",
+                        "evidence": "self-check",
+                        "disposition": "fixed",
+                        "changed_files": ["scripts/absorb.py"],
+                    },
+                    {
+                        "issue": "Known limitation",
+                        "evidence": "self-check",
+                        "disposition": "accepted",
+                        "reason": "Out of scope for this run",
+                    },
+                ],
+                "improvements": ["Recorded during self-check"],
+            },
+        )
         # A "fixed" verdict must name the files that carry the fix.
         unproven = read_json(run / "feedback.json")
         unproven["observations"][0].pop("changed_files")
@@ -786,10 +853,16 @@ def command_self_check(_args):
         write_apply(run, plan_hash, ["SKILL.md"])
         execute("advance", "--run-dir", run)
         assert read_json(run / "state.json")["phase"] == "validation"
-        write_json(run / "validation.json", {
-            "plan_sha256": plan_hash, "passed": "yes",
-            "checks": [], "remaining_gaps": [], "notes": [],
-        })
+        write_json(
+            run / "validation.json",
+            {
+                "plan_sha256": plan_hash,
+                "passed": "yes",
+                "checks": [],
+                "remaining_gaps": [],
+                "notes": [],
+            },
+        )
         result = execute("advance", "--run-dir", run, check=False)
         assert result.returncode != 0 and "rolled back" not in result.stderr
         assert read_json(run / "state.json")["phase"] == "validation"
@@ -810,25 +883,39 @@ def command_self_check(_args):
         (target / "helper.py").write_text("fix\n")
         write_apply(run, plan_hash, ["SKILL.md", "helper.py"])
         execute(
-            "extend-scope", "--run-dir", run, "--path", "helper.py",
-            "--reason", "Coordinator fix found during merge",
+            "extend-scope",
+            "--run-dir",
+            run,
+            "--path",
+            "helper.py",
+            "--reason",
+            "Coordinator fix found during merge",
         )
         recorded = read_json(run / "state.json")["scope_extensions"]
         assert recorded and recorded[0]["paths"] == ["helper.py"] and recorded[0]["reason"]
         # An empty or duplicate extension is rejected rather than silently recorded.
-        assert execute(
-            "extend-scope", "--run-dir", run, "--path", "helper.py", "--reason", "again", check=False
-        ).returncode != 0
-        assert execute(
-            "extend-scope", "--run-dir", run, "--path", "other.py", "--reason", " ", check=False
-        ).returncode != 0
+        assert (
+            execute(
+                "extend-scope", "--run-dir", run, "--path", "helper.py", "--reason", "again", check=False
+            ).returncode
+            != 0
+        )
+        assert (
+            execute("extend-scope", "--run-dir", run, "--path", "other.py", "--reason", " ", check=False).returncode
+            != 0
+        )
         execute("advance", "--run-dir", run)
         assert read_json(run / "state.json")["phase"] == "validation"
-        write_json(run / "validation.json", {
-            "plan_sha256": plan_hash, "passed": False,
-            "checks": [{"name": "fails", "command": "self-check", "exit_code": 1}],
-            "remaining_gaps": ["unresolved"], "notes": [],
-        })
+        write_json(
+            run / "validation.json",
+            {
+                "plan_sha256": plan_hash,
+                "passed": False,
+                "checks": [{"name": "fails", "command": "self-check", "exit_code": 1}],
+                "remaining_gaps": ["unresolved"],
+                "notes": [],
+            },
+        )
         execute("advance", "--run-dir", run)
         assert read_json(run / "state.json")["phase"] == "rolled-back"
         # The extended path is snapshot-covered, so rollback removes it too.
@@ -854,11 +941,16 @@ def command_self_check(_args):
         (target / "SKILL.md").write_text("changed\n")
         write_apply(run, plan_hash, ["SKILL.md"])
         execute("advance", "--run-dir", run)
-        write_json(run / "validation.json", {
-            "plan_sha256": plan_hash, "passed": False,
-            "checks": [{"name": "bounded failure", "command": "self-check", "exit_code": 1}],
-            "remaining_gaps": ["Cannot complete safely"], "notes": [],
-        })
+        write_json(
+            run / "validation.json",
+            {
+                "plan_sha256": plan_hash,
+                "passed": False,
+                "checks": [{"name": "bounded failure", "command": "self-check", "exit_code": 1}],
+                "remaining_gaps": ["Cannot complete safely"],
+                "notes": [],
+            },
+        )
         execute("advance", "--run-dir", run)
         assert read_json(run / "state.json")["phase"] == "rolled-back"
         assert (target / "SKILL.md").read_text() == baseline
@@ -890,7 +982,9 @@ def parser():
     initialize.set_defaults(handler=command_init)
 
     for name, handler in (
-        ("status", command_status), ("advance", command_advance), ("revise-plan", command_revise_plan),
+        ("status", command_status),
+        ("advance", command_advance),
+        ("revise-plan", command_revise_plan),
     ):
         command = commands.add_parser(name)
         command.add_argument("--run-dir", type=Path, required=True)

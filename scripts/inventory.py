@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Clearlane
 """Produce a bounded, side-effect-free structural inventory of a development project."""
-
-from __future__ import annotations
 
 import argparse
 import json
@@ -115,12 +115,8 @@ def scan(scope: Path, excluded: set[str], max_files: int) -> dict[str, object]:
                 target = os.readlink(path)
             except OSError as exc:
                 target = f"<unreadable: {exc}>"
-            symlinks.append(
-                {"path": path.relative_to(scope).as_posix(), "target": target, "directory": True}
-            )
-        dirnames[:] = sorted(
-            name for name in dirnames if name not in excluded and name not in set(linked)
-        )
+            symlinks.append({"path": path.relative_to(scope).as_posix(), "target": target, "directory": True})
+        dirnames[:] = sorted(name for name in dirnames if name not in excluded and name not in set(linked))
         for name in sorted(filenames):
             path = current_path / name
             relative = path.relative_to(scope).as_posix()
