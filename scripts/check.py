@@ -5,14 +5,18 @@ Structural questions about documents go through scripts/document.py, so this
 file declares what must hold rather than how markdown or YAML is parsed.
 """
 import argparse
+import os
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import design  # noqa: E402
 import document  # noqa: E402
-from design import ALWAYS_FIRST, ALWAYS_LAST, CAPABILITY_PHASES  # noqa: E402
+from design import CAPABILITY_PHASES  # noqa: E402
 import review  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,6 +27,10 @@ VENDOR_TOKENS = ("{baseDir}", "quick_validate", "approved_plan_sha256")
 PHASE_SECTION = "Phases the Coordinator Always Runs"
 DESIGN_WORKFLOW = "workflows/design.md"
 REVIEW_WORKFLOW = "workflows/review.md"
+README = "README.md"
+README_SECTION = "Structure"
+README_EXEMPT = {".gitignore", "LICENSE", README, "skill-logic.workflow.json"}
+DOCUMENTED_DIRECTORIES = ("references", "workflows", "scripts", "agents", "examples")
 ENTRY_DOCUMENTS = (
     "SKILL.md",
     "workflows/design.md",
@@ -79,12 +87,47 @@ def check_duplicate_headings(root):
     return failures
 
 
-def check_phase_drift(root):
-    """Documented phases must match the phases the coordinator actually derives.
+def check_phase_owners(root):
+    """Every derived phase must resolve to a distinct owning contract that exists.
 
-    Prose cannot enforce order, but it can go stale. Renaming or adding a phase
-    in design.py without updating the workflow would otherwise pass silently.
+    A phase whose resource is the document that dispatched the coordinator
+    answers "what do I read now?" with "the file you came from". Requiring a
+    distinct existing owner is a stronger guarantee than scanning prose for
+    phase names, and it fails the moment a phase is added without a contract.
     """
+    failures = []
+    entry_documents = {DESIGN_WORKFLOW, REVIEW_WORKFLOW, "SKILL.md"}
+    coordinators = (
+        ("design", design.derive_phases(design.CAPABILITIES), design.phase_resource),
+        ("review", review.derive_phases(review.SURFACES), review.phase_resource),
+    )
+    owners = {}
+    for coordinator, phases, resolve in coordinators:
+        for phase in phases:
+            label = f"scripts/{coordinator}.py: phase {phase!r}"
+            resource = resolve(phase)
+            path, _, fragment = resource.partition("#")
+            if path in entry_documents:
+                failures.append(
+                    f"{label} points at entry document {resource}; "
+                    "it needs a reference of its own"
+                )
+            if not (root / path).exists():
+                failures.append(f"{label} owner {resource} does not exist")
+            elif fragment and fragment not in document.parse(root / path).anchors():
+                failures.append(f"{label} owner {resource} has no such heading")
+            owners.setdefault((coordinator, resource), []).append(phase)
+    for (coordinator, resource), sharing in sorted(owners.items()):
+        if len(sharing) > 1:
+            failures.append(
+                f"scripts/{coordinator}.py: phases {sorted(sharing)} share owner "
+                f"{resource}; each phase needs one canonical contract"
+            )
+    return failures
+
+
+def check_capability_rows(root):
+    """Each derived capability phase must be explained in the design workflow."""
     failures = []
     parsed = document.parse(root / DESIGN_WORKFLOW)
     documented = {
@@ -103,16 +146,6 @@ def check_phase_drift(root):
             f"{DESIGN_WORKFLOW}: capability {extra!r} is documented but design.py "
             "derives no phase for it"
         )
-    scope = parsed.section(PHASE_SECTION)
-    if scope is None:
-        failures.append(f"{DESIGN_WORKFLOW}: missing section {PHASE_SECTION!r}")
-        return failures
-    for phase in ALWAYS_FIRST + ALWAYS_LAST:
-        if TICK + phase + TICK not in scope:
-            failures.append(
-                f"{DESIGN_WORKFLOW}: always-run phase {phase!r} is not described "
-                f"under {PHASE_SECTION!r}"
-            )
     return failures
 
 
@@ -165,6 +198,83 @@ def check_reachability(root):
     return failures
 
 
+def check_readme_structure(root):
+    """Every shipped resource must appear in the README structure list.
+
+    The list is the only human map of the repository, so an unlisted file is a
+    resource a reader cannot find and a listed-but-absent file is a dead map
+    entry. Both were true before this check existed.
+    """
+    failures = []
+    parsed = document.parse(root / README)
+    scope = parsed.section(README_SECTION)
+    if scope is None:
+        return [f"{README}: missing section {README_SECTION!r}"]
+    listed = set(re.findall(r"^- " + TICK + r"([^" + TICK + r"]+)" + TICK, scope, re.M))
+    for entry in sorted(listed):
+        if not (root / entry).exists():
+            failures.append(f"{README}: lists {entry}, which does not exist")
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(root)
+        parts = relative.parts
+        if any(part.startswith(".") for part in parts) or "__pycache__" in parts:
+            continue
+        if len(parts) > 1 and parts[0] not in DOCUMENTED_DIRECTORIES:
+            continue
+        name = relative.as_posix()
+        if name in README_EXEMPT or name in listed:
+            continue
+        if any(entry.endswith("/") and name.startswith(entry) for entry in listed):
+            continue
+        failures.append(f"{README}: {name} is not listed under {README_SECTION!r}")
+    return failures
+
+
+def check_external_links(root):
+    """Verify external URLs with lychee, which owns network link checking.
+
+    Provenance and attribution URLs are claims that rot silently; nothing else
+    in this suite touches the network. Opt-in via CHECK_EXTERNAL_LINKS=1 so the
+    default run stays offline and deterministic.
+    """
+    if os.environ.get("CHECK_EXTERNAL_LINKS") != "1":
+        return []
+    executable = shutil.which("lychee")
+    if executable is None:
+        return ["lychee is not installed; external link checking was requested but cannot run"]
+    result = subprocess.run(
+        [
+            executable, "--no-progress", "--max-concurrency", "4",
+            "--include-fragments=full", "--format", "compact", str(root),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if "[ERROR]" in line or "[404]" in line]
+
+
+def check_lint(root):
+    """Delegate Python correctness to ruff rather than hand-rolling AST checks.
+
+    Skipped when ruff is absent so the suite stays runnable with stdlib alone.
+    """
+    executable = shutil.which("ruff")
+    if executable is None:
+        return []
+    result = subprocess.run(
+        [executable, "check", "--quiet", "--output-format", "concise", str(root / "scripts")],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return []
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
 def run_script(root, name, *arguments):
     result = subprocess.run(
         [sys.executable, str(root / "scripts" / name), *arguments],
@@ -191,9 +301,13 @@ def main():
         ("links and anchors", lambda: document.broken_links(ROOT)),
         ("resource reachability", lambda: check_reachability(ROOT)),
         ("canonical sections", lambda: check_duplicate_headings(ROOT)),
-        ("documented phases", lambda: check_phase_drift(ROOT)),
+        ("phase owners", lambda: check_phase_owners(ROOT)),
+        ("documented capabilities", lambda: check_capability_rows(ROOT)),
         ("documented review phases", lambda: check_review_phases(ROOT)),
+        ("README structure coverage", lambda: check_readme_structure(ROOT)),
         ("runtime-neutral tokens", lambda: check_vendor_tokens(ROOT)),
+        ("python lint", lambda: check_lint(ROOT)),
+        ("external links", lambda: check_external_links(ROOT)),
     )
     failures = []
     for name, run in checks:

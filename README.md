@@ -49,6 +49,8 @@ This writes one destination per supported agent and can be intentionally broad; 
 - `SKILL.md` — activation and core workflow-design rules
 - `references/structure.md` — skill contract, progressive disclosure, resources, and deployment shapes
 - `references/naming.md` — one-word and family-first hierarchical filename convention
+- `references/checks.md` — where checks and approval gates belong so failure stays actionable
+- `references/closure.md` — owner-boundary questions that close a design run
 - `workflows/setup.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
 - `references/install.md` — agent-skill discovery, canonical install, and same-scope verification
 - `references/events.md` — event-boundary handler design
@@ -57,17 +59,28 @@ This writes one destination per supported agent and can be intentionally broad; 
 - `references/workers.md` — bounded runtime-neutral worker design
 - `references/commands.md` — safe runtime-neutral command adapter design
 - `references/settings.md` — validated skill preferences, scopes, precedence, lifecycle, and security
+- `references/packaging.md` — bundle manifest, component discovery, and portable-path contract
+- `references/layout.md` — evidence rules deciding when a layout is actually wrong
+- `references/migration.md` — boundary-at-a-time move execution and reference repair
+- `references/review.md` — review evidence, severity, and disposition rules
 - `references/absorb.md` — capability model, merge dispositions, conflict policy, and absorption artifact schemas
 - `workflows/absorb.md` — absorption workflow, coordinator entry, invariants, and rollback contract
+- `workflows/restructure.md` — audit-then-approve layout restructuring workflow
+- `workflows/review.md` — evidence-gated skill review workflow
 - `scripts/absorb.py` — absorption coordinator with durable run state, plan binding, snapshot rollback, and self-check
 - `scripts/design.py` — design coordinator deriving phases from the recorded contract, with durable decisions and resume
+- `scripts/review.py` — review coordinator deriving phases from detected surfaces, with a disposition-gated verdict
 - `scripts/state.py` — shared durable-run primitives used by both coordinators
+- `scripts/document.py` — markdown and YAML document model backing the structural checks
+- `scripts/inventory.py` — deterministic structural inventory for layout audits
 - `scripts/check.py` — single entrypoint running every deterministic repository check
 - `scripts/settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
 - `scripts/names.py` — deterministic portable filename check
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
 - `workflows/design.md` — authoring and refactoring process
 - `agents/openai.yaml` — Codex UI metadata
+- `requirements.txt` — parser dependencies for the document-model checks
+- `skills-lock.json` — pinned skill install manifest
 - `UPSTREAM.md` — absorbed-source baselines, capability map summary, and refresh procedure
 
 ## Checks
@@ -78,7 +91,16 @@ Run every deterministic check with one command:
 python3 scripts/check.py
 ```
 
-It runs the filename convention, the settings resolver and absorption coordinator self-checks, the skill contract and size budget, relative-link existence, one-canonical-section-per-document, and a runtime-neutral token scan.
+It runs the filename convention, the shared-state, document-model, settings-resolver, design, review, absorption, and inventory self-checks, the skill contract and size budget, relative-link and anchor resolution, resource reachability, one-canonical-section-per-document, phase-owner distinctness, documented capabilities and review phases, README structure coverage, and a runtime-neutral token scan.
+
+Two checks delegate to external tools and skip silently when the tool is absent, so the default run needs only the Python dependencies above:
+
+- `ruff` reports Python lint errors in `scripts/`.
+- `lychee` verifies external URLs, including the provenance links in this file and `UPSTREAM.md`. Network checking is opt-in, so the default run stays offline and deterministic:
+
+```bash
+CHECK_EXTERNAL_LINKS=1 python3 scripts/check.py
+```
 
 ## Origin and Changes
 

@@ -125,6 +125,12 @@ def _collect_links(inline, parsed, line):
                 parsed.links.append(Link(target=target, text="".join(text), line=line))
         elif depth and child.type in {"text", "code_inline"}:
             text.append(child.content)
+        elif child.type == "image":
+            source = child.attrGet("src") or ""
+            if source:
+                parsed.links.append(
+                    Link(target=source, text=child.content or "", line=line)
+                )
 
 
 def parse(path, text=None):
@@ -218,6 +224,8 @@ SELF_CHECK_SOURCE = "\n".join(
         "",
         "Self [anchor](#deep-section) and [external](https://example.com/x.md).",
         "",
+        "![shot](img/shot.png)",
+        "",
     ]
 )
 
@@ -238,6 +246,7 @@ def self_check():
         "other.md#deep-section",
         "#deep-section",
         "https://example.com/x.md",
+        "img/shot.png",
     ], targets
     assert parsed.links[1].path == "other.md" and parsed.links[1].fragment == "deep-section"
     assert parsed.links[3].external and not parsed.links[0].external
@@ -256,6 +265,8 @@ def self_check():
         root = Path(temporary)
         (root / "other.md").write_text("# Deep Section\n")
         (root / "demo.md").write_text(SELF_CHECK_SOURCE)
+        (root / "img").mkdir()
+        (root / "img" / "shot.png").write_bytes(b"")
         (root / ".hidden").mkdir()
         (root / ".hidden" / "skip.md").write_text("[gone](nowhere.md)\n")
         assert broken_links(root) == []
@@ -266,6 +277,10 @@ def self_check():
         assert len(failures) == 3, failures
         assert "no heading for anchor #absent" in failures[0]
         assert "broken link gone.md" in failures[1]
+
+        # An image whose file is missing is a broken link like any other.
+        (root / "shot.md").write_text("![missing](img/absent.png)\n")
+        assert any("img/absent.png" in failure for failure in broken_links(root))
     print("self-check passed")
 
 
@@ -299,4 +314,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

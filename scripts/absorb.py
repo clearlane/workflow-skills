@@ -15,7 +15,6 @@ from state import (  # noqa: E402
     copy_manifest_files,
     excluded,
     fail,
-    file_sha256,
     json_sha256,
     now,
     paths_overlap,
