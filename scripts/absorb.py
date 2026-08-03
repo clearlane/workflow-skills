@@ -30,6 +30,7 @@ from cli import (
     fail,
 )
 from state import (
+    TERMINAL_PHASES,
     VERSION,
     canonical_sha256,
     copy_manifest_files,
@@ -434,11 +435,10 @@ PHASE_RESOURCES = {
     "rolled-back": "references/absorb.md#conflict-policy",
 }
 PHASES = tuple(PHASE_RESOURCES)
-# The ordered walk, ending in whichever terminal state the run reached. A run
-# that rolled back did not pass through `complete`, and saying otherwise would
-# report a discarded merge as a finished one.
+# The ordered walk, ending in whichever terminal state the run reached. Which
+# names count as terminal is owned by state.py, because open_run validates a
+# resumed run's phase against them.
 WORKING_PHASES = ("analysis", "plan", "merge", "validation")
-TERMINAL_PHASES = ("complete", "rolled-back")
 
 
 def derive_phases(_capabilities=None):

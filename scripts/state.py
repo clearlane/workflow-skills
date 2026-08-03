@@ -48,6 +48,28 @@ SCHEMA_BASE = "https://clearlane.github.io/workflow-skills/schemas/"
 VERSION = 2
 HISTORY_FILE = "history.jsonl"
 
+# The transition log is the durable record of which phases actually finished,
+# so the name a completion is written under is a contract between the
+# coordinator that appends it and any reader that verifies against it. It was a
+# literal in three coordinators, which is one rename away from a log that
+# cannot be checked.
+PHASE_COMPLETE_PREFIX = "phase-complete:"
+
+# The phase a run holds once no working phase is pending. It is not a member of
+# any coordinator's phase list, because it is where a run ends rather than
+# something to work, which is exactly why a reader validating `phase` against
+# that list has to know the name.
+COMPLETE_PHASE = "complete"
+
+# Where a run can legitimately end. absorb adds a discarded outcome, because a
+# run that rolled back did not pass through `complete` and reporting it as
+# finished would describe a discarded merge as a successful one.
+TERMINAL_PHASES = (COMPLETE_PHASE, "rolled-back")
+
+
+def phase_complete_event(phase):
+    return f"{PHASE_COMPLETE_PREFIX}{phase}"
+
 
 def excluded(relative_parts):
     return any(part in EXCLUDED_DIRECTORIES for part in relative_parts)
@@ -455,10 +477,65 @@ def open_run(run_dir, *artifacts):
     version itself, which is three copies of the one rule that decides whether a
     run directory is safe to touch. Extra artifact names are read alongside the
     state, since a coordinator that needs its inventory needs it every time.
+
+    The state is validated against the schema it was written under, not merely
+    parsed as JSON. Writes always went through that schema and reads did not,
+    so a state edited by hand or left behind by an older build was trusted on
+    the way in and only failed later, at whichever field first surprised a
+    coordinator.
     """
     root = run_dir.expanduser().resolve()
     state = read_json(root / "state.json")
     check_version(state)
+    errors = schema_errors("state.schema.json", state)
+    if errors:
+        detail = "\n  ".join(errors)
+        fail(
+            f"{root / 'state.json'}: does not satisfy state.schema.json:\n  {detail}",
+            EX_DATAERR,
+            root / "state.json",
+        )
+    # The schema types `phase` as text because the phase names differ per
+    # coordinator. Only the state knows its own list, so the cross-field rule
+    # that `phase` is one of `phases` has to be checked here.
+    phases = state.get("phases") or []
+    # A finished run holds a phase that is deliberately not in its own list, so
+    # the membership rule has to admit the terminal names alongside it.
+    if phases and state.get("phase") not in [*phases, *TERMINAL_PHASES]:
+        fail(
+            f"{root / 'state.json'}: phase {state.get('phase')!r} is not one of {phases}",
+            EX_DATAERR,
+            root / "state.json",
+        )
+    unknown = [name for name in state.get("completed", []) if name not in phases] if phases else []
+    if unknown:
+        fail(
+            f"{root / 'state.json'}: completed names phases that do not exist: {unknown}",
+            EX_DATAERR,
+            root / "state.json",
+        )
+    # history.jsonl is the durable record: it is appended before the state is
+    # written and survives losing it entirely. Every phase added to `completed`
+    # goes through one save_state, so a state claiming more completions than
+    # the log has transitions was edited after the fact, and trusting it would
+    # let a run skip a phase's actual work.
+    #
+    # Counting rather than matching event names, because a coordinator may
+    # record a completion under a domain-specific event that carries more
+    # information, such as the digest a proposal was bound to.
+    #
+    # The initialising record is not a transition, so it is discounted. An
+    # empty log means the history was lost rather than that nothing happened,
+    # which read_history already reports, so only a present log is compared.
+    history = read_history(root)
+    completed = state.get("completed", [])
+    if history and len(completed) > len(history) - 1:
+        fail(
+            f"{root / 'state.json'}: completed lists {len(completed)} phases "
+            f"but the history records only {max(len(history) - 1, 0)} transitions",
+            EX_DATAERR,
+            root / "state.json",
+        )
     if not artifacts:
         return root, state
     return root, state, *(read_json(root / name) for name in artifacts)
@@ -583,6 +660,85 @@ def check_history_survives_state_loss(root):
     assert len(read_history(root)) == 2
 
 
+def check_open_run_rejects_edited_state(root):
+    """A resumed run must not trust a state document that was edited.
+
+    Writes always went through the schema and reads did not, so the way in was
+    the unguarded direction: a state edited by hand, or left by an older build,
+    was accepted and only failed later at whichever field first surprised a
+    coordinator. These are the three shapes that reached a coordinator intact.
+    """
+    phases = ["first", "second"]
+
+    def build(**overrides):
+        remove_path(root)
+        state = {
+            "version": VERSION,
+            "phase": "first",
+            "phases": phases,
+            "completed": [],
+            "created_at": now(),
+            "updated_at": now(),
+        }
+        save_state(root, state, "initialized")
+        state.update(overrides)
+        write_json(root / "state.json", stamp("state.schema.json", state))
+        return state
+
+    build()
+    assert open_run(root)[1]["phase"] == "first"
+
+    # A field whose type the schema forbids. Only the schema rejects this: the
+    # cross-field rules below read `phases` and `completed` without asserting
+    # what they are, so an edited state reached a coordinator intact.
+    build(completed="not-a-list")
+    try:
+        open_run(root)
+    except Failure as error:
+        assert error.code == EX_DATAERR, error.code
+        assert "state.schema.json" in error.message, error.message
+    else:
+        raise AssertionError("accepted a state that violates its own schema")
+
+    # A phase outside the run's own list: status would report a derived phase
+    # and silently disagree with the document it read.
+    build(phase="not-a-phase")
+    try:
+        open_run(root)
+    except Failure as error:
+        assert error.code == EX_DATAERR, error.code
+    else:
+        raise AssertionError("accepted a phase outside the declared list")
+
+    # The terminal phase is deliberately not a member, so it must be allowed.
+    # Recorded through save_state so the log matches the completion it claims,
+    # which is the state a genuinely finished run is in.
+    remove_path(root)
+    finished = {
+        "version": VERSION,
+        "phase": "first",
+        "phases": phases,
+        "completed": [],
+        "created_at": now(),
+        "updated_at": now(),
+    }
+    save_state(root, finished, "initialized")
+    finished["completed"] = ["first"]
+    finished["phase"] = COMPLETE_PHASE
+    save_state(root, finished, phase_complete_event("first"))
+    assert open_run(root)[1]["phase"] == COMPLETE_PHASE
+
+    # More completions than the log has transitions: the log is appended first
+    # and survives losing the state, so the state is the document that is wrong.
+    build(completed=list(phases))
+    try:
+        open_run(root)
+    except Failure as error:
+        assert error.code == EX_DATAERR, error.code
+    else:
+        raise AssertionError("accepted more completions than the history records")
+
+
 def self_check():
     import tempfile
 
@@ -619,6 +775,7 @@ def self_check():
             assert produced
         check_canonical_digests(root)
         check_history_survives_state_loss(root / "run")
+        check_open_run_rejects_edited_state(root / "edited")
         # Outside a repository there is nothing to ship, so callers must be told
         # to fall back rather than be handed an empty set they would read as
         # "this project ships no files".

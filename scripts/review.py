@@ -29,6 +29,7 @@ from state import (
     now,
     open_run,
     pending_phase,
+    phase_complete_event,
     read_history,
     read_json,
     read_status,
@@ -297,7 +298,7 @@ def command_complete_phase(args):
     )
     state["completed"].append(expected)
     state["phase"] = pending_phase(state) or "complete"
-    save_state(root, state, f"phase-complete:{expected}")
+    save_state(root, state, phase_complete_event(expected))
     if state["phase"] == "complete":
         write_report(root, state, findings)
     print_status(root, state)

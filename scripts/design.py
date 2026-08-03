@@ -24,6 +24,7 @@ from state import (
     now,
     open_run,
     pending_phase,
+    phase_complete_event,
     read_history,
     read_json,
     require_text,
@@ -146,7 +147,7 @@ def command_complete_phase(args):
     write_artifact(root / "decisions" / f"{expected}.json", "decision.schema.json", decision)
     state["completed"].append(expected)
     state["phase"] = pending_phase(state) or "complete"
-    save_state(root, state, f"phase-complete:{expected}")
+    save_state(root, state, phase_complete_event(expected))
     print_status(root, state)
 
 

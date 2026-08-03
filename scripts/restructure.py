@@ -31,6 +31,7 @@ from state import (
     json_sha256,
     now,
     open_run,
+    phase_complete_event,
     read_history,
     read_json,
     require_text,
@@ -257,7 +258,7 @@ def record_decision(root, phase, note):
 def advance(root, state, phase, event=None):
     state["completed"].append(phase)
     state["phase"] = pending(state) or "complete"
-    save_state(root, state, event or f"phase-complete:{phase}")
+    save_state(root, state, event or phase_complete_event(phase))
 
 
 def command_propose(args):
