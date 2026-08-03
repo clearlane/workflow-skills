@@ -76,3 +76,9 @@ Prefer moving an existing file over recreating it. Avoid deep nesting and generi
 5. Cosmetic consistency.
 
 Do not execute priority 5 alone unless the user explicitly asks for stylistic normalization.
+
+## Checks
+
+- `scripts/inventory.py` reports the observed tree without mutating it, which is the evidence a proposal must cite.
+- Discovery survival is deterministic and belongs in the repository's own checks: build inputs, test collection, publication sets, and host discovery all still resolve after a move. [migration.md](migration.md) owns the ordering that keeps them resolvable.
+- The eight questions above are judgements a parser cannot make. Answer them against recorded evidence rather than intuition, and record the answer with the proposal so a later reader can see which one justified the structure.

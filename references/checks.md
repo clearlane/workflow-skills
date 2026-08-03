@@ -30,3 +30,8 @@ Revalidate volatile facts at the point of use: permissions, target identity, loc
 | Silent drift between code and its documentation | Deterministic check in the repository's own checker |
 
 Add a new checker only when no repository-native validator already answers the question.
+
+## Checks
+
+- `scripts/check.py` proves placement rules that are structural: an approval gate that is prose rather than a bound runtime event, and a check appended as a generic trailing phase rather than placed where failure becomes actionable.
+- Whether a check sits at the right boundary is a design judgement no parser makes. Review it by asking what a reader would have to do differently on failure, and moving the check to where that action is still possible.

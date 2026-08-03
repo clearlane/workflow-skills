@@ -47,6 +47,9 @@ CHECKER = "check.py"
 # The commands every coordinator must expose, so one run is driven the same way
 # as another and a wrapper does not need to know which it is holding.
 COORDINATORS = ("design.py", "review.py", "absorb.py")
+# Canonical name for a reference's closing section. references/structure.md
+# owns the skeleton; this is the one part of it a parser can confirm.
+REFERENCE_CLOSING = "Checks"
 CORE_VERBS = ("init", "status", "complete-phase", "self-check")
 # Run-lifecycle functions state.py owns. A coordinator defining one of these
 # has forked the lifecycle rather than composed it.
@@ -279,6 +282,30 @@ def check_reachability(root):
         for path in sorted((root / directory).glob("*.md")):
             if path.resolve() not in linked:
                 failures.append(f"{path.relative_to(root)}: not linked from SKILL.md or any workflow")
+    return failures
+
+
+def check_reference_skeleton(root):
+    """Every reference routes the same way, ending under one name for its checks.
+
+    Eight references named this section eight different things, so finding how
+    a violation is detected meant reading each document's ending to learn that
+    document's word for it. The closing section drifts because every author has
+    a preferred name for it, and prose asking for consistency did not hold.
+    """
+    failures = []
+    for path in sorted((root / "references").glob("*.md")):
+        parsed = document.parse(path)
+        name = path.relative_to(root)
+        titles = [heading.text for heading in parsed.headings_at(2)]
+        if not parsed.headings_at(1):
+            failures.append(f"{name}: no title heading")
+        if REFERENCE_CLOSING not in titles:
+            near = [title for title in titles if "check" in title.lower() or "test" in title.lower()]
+            hint = f"; found {near[0]!r}" if near else ""
+            failures.append(f"{name}: no '## {REFERENCE_CLOSING}' section{hint}")
+        elif titles[-1] != REFERENCE_CLOSING:
+            failures.append(f"{name}: '{REFERENCE_CLOSING}' must be last, found {titles[-1]!r} after it")
     return failures
 
 
@@ -701,6 +728,7 @@ def main():
         ("canonical sections", lambda: check_duplicate_headings(ROOT)),
         ("coordinator verbs", lambda: check_coordinator_verbs(ROOT)),
         ("shared runtime", lambda: check_shared_runtime(ROOT)),
+        ("reference skeleton", lambda: check_reference_skeleton(ROOT)),
         ("phase owners", lambda: check_phase_owners(ROOT)),
         ("documented capabilities", lambda: check_capability_rows(ROOT)),
         ("documented review phases", lambda: check_review_phases(ROOT)),

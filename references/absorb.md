@@ -129,3 +129,9 @@ Absorption is the one workflow that runs itself against unfamiliar material ever
 `feedback.schema.json` owns its shape. Each observation needs `issue`, `evidence`, and a `disposition` of `fixed`, `deferred`, or `accepted`. A `fixed` observation must name the `changed_files` carrying the fix, so the claim is checkable against the diff. A `deferred` or `accepted` observation must state its `reason`.
 
 Coordinator fixes are target edits like any other, so they stay inside a recorded scope. Record the extra paths with `extend-scope` and a reason, which keeps the correct merge and still confines mutation to the pre-mutation snapshot. Reserve `revise-plan` for a change of intent. Never widen a diff silently: an unrecorded out-of-scope path is still unsafe evidence and still rolls the run back.
+
+## Checks
+
+- `scripts/absorb.py` enforces the mechanical parts: evidence bound to a digest, a plan that no longer matches its evidence rejected, a snapshot restored on unsafe execution.
+- The target's own checks prove the merge did not break it, and run after every merged capability rather than once at the end.
+- Whether a capability was genuinely absorbed rather than copied is a judgement. Test it by deleting the source and asking whether the target still answers the question the source answered.

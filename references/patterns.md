@@ -253,3 +253,9 @@ Keep runtime-specific details at coordinator edge:
 - Settings locations, formats, precedence, reload, and migration semantics.
 
 Core workflow logic should remain understandable without one vendor's terminology.
+
+## Checks
+
+Each pattern's contract is proved by the reference that owns it, and that reference's own `## Checks` section says how. This document owns the selection between patterns, and choosing the wrong one is a design error no parser detects.
+
+Test a choice against its own failure mode: a routing pattern that never branches, a parallel pipeline whose items are ordered, a feedback loop with no bound, or a safety gate whose approval is not bound to what was approved. Each is the shape being used where a simpler or a stricter one was needed.

@@ -26,6 +26,32 @@ Do not create skill when direct instruction, existing project command, or curren
 
 Create only resources that task needs. Delete generated placeholders and empty scaffolding.
 
+Give every reference the same shape, so a reader routes by position instead of
+by reading each document's ending to learn what that document called things:
+
+1. `# Title`.
+2. An opening paragraph naming what this reference owns and what owns the
+   neighbouring concern instead.
+3. Topic sections carrying the contract.
+4. `## Iteration
+
+After real use, record:
+
+- Missed or over-broad activation.
+- Missing context, ambiguous route, or duplicated guidance.
+- Repeated manual logic suitable for script.
+- Resource never loaded or loaded unnecessarily.
+- Broken assumptions, edge cases, and validation gaps.
+
+Make smallest change that fixes observed behavior. Re-run activation and focused task checks.
+
+## Checks`, always under that name, saying how a violation is detected.
+
+The closing section is the one most likely to drift, because every author has a
+preferred word for it. A reference with no detectable violation states that
+explicitly rather than omitting the section, since a silent omission and a
+deliberate one are indistinguishable to the next reader.
+
 ## Progressive Disclosure
 
 - Keep activation metadata concise and specific.
@@ -94,15 +120,3 @@ Run available executable checks for:
 - Representative task proving skill improves outcome, not only that it loads.
 
 Use repository-native validator before adding another checker.
-
-## Iteration
-
-After real use, record:
-
-- Missed or over-broad activation.
-- Missing context, ambiguous route, or duplicated guidance.
-- Repeated manual logic suitable for script.
-- Resource never loaded or loaded unnecessarily.
-- Broken assumptions, edge cases, and validation gaps.
-
-Make smallest change that fixes observed behavior. Re-run activation and focused task checks.

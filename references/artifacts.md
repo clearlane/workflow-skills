@@ -149,3 +149,9 @@ Emit failures as [RFC 9457 problem details](https://www.rfc-editor.org/rfc/rfc94
 A wrong field type means the run cannot read the evidence yet. Proof that a mutation went outside its bounds means the run did something it should not have.
 
 Treating the two the same destroys correct work over a typo. Reject malformed evidence and hold the phase; reserve rollback for evidence that execution was actually unsafe.
+
+## Checks
+
+- `scripts/check.py` validates every schema in `schemas/` against its metaschema, and every artifact a coordinator writes against its schema, so a shape violation fails before a reader depends on it.
+- Each coordinator's `self-check` exercises its own artifacts end to end, which is what proves the writer and the schema agree rather than merely both existing.
+- That an artifact is *sufficient* evidence for its phase is a judgement no schema makes. Test it by asking whether a reader who was not present could reach the same conclusion from the artifact alone.
