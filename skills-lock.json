@@ -12,6 +12,13 @@
       "sourceType": "github",
       "skillPath": "SKILL.md",
       "computedHash": "4e4f3209ad4d1608006dd4fed5cc59b4fa47d8f53d3b16e5bd167c1a75fba470"
+    },
+    "skill-improver": {
+      "source": "trailofbits/skills",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "plugins/skill-improver/skills/skill-improver/SKILL.md",
+      "computedHash": "8be489ba14195530574586ee93763578ad83df5ca4f9a77d90f1d4e6844af3cc"
     }
   }
 }
