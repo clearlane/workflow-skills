@@ -225,7 +225,13 @@ LOCK_TIMEOUT_SECONDS = 30
 # that has to be exclusive spans open_run to save_state, which are separate
 # calls in every coordinator. The OS drops it when the process ends, including
 # when it crashes, so nothing has to remember to release it.
-_HELD_LOCKS = []
+#
+# Keyed by run directory so re-entry is free. flock is per open file
+# description, so a second handle on the same file from this process would
+# block against our own lock forever: a caller that opens one run twice, which
+# a test or a batch driver does naturally, would deadlock against itself and
+# then fail as though a stranger held it.
+_HELD_LOCKS = {}
 
 
 def acquire_run_lock(root):
@@ -244,6 +250,10 @@ def acquire_run_lock(root):
     """
     root.mkdir(parents=True, exist_ok=True)
     path = root / LOCK_FILE
+    key = str(path.resolve())
+    # Already ours: re-entry must not queue behind our own handle.
+    if key in _HELD_LOCKS:
+        return
     deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
     handle = path.open("w")
     while True:
@@ -260,7 +270,7 @@ def acquire_run_lock(root):
                     path,
                 )
             time.sleep(0.05)
-    _HELD_LOCKS.append(handle)
+    _HELD_LOCKS[key] = handle
 
 
 def write_json(path, value):
@@ -863,6 +873,19 @@ def check_run_lock_serialises_writers(root):
     (fresh / LOCK_FILE).unlink(missing_ok=True)
     open_run(fresh)
     assert (fresh / LOCK_FILE).exists(), "open_run did not take the run lock"
+
+    # Opening the same run twice in one process must not block. flock is per
+    # open file description, so a second handle would queue behind the first
+    # one this process already holds, wait out the whole timeout, and then
+    # report that a stranger held the lock. Nothing would be contending: the
+    # caller would be deadlocked against itself. A CLI exits between runs so it
+    # never sees this, but a test or a batch driver opens one run repeatedly.
+    started = time.monotonic()
+    open_run(fresh)
+    elapsed = time.monotonic() - started
+    assert elapsed < LOCK_TIMEOUT_SECONDS / 2, (
+        f"re-opening a run held by this process took {elapsed:.1f}s; the lock is not re-entrant"
+    )
 
 
 def self_check():
