@@ -25,6 +25,12 @@ Record these before creating files:
 
 Keep the manifest minimal. Declare a custom component path only when the layout genuinely requires it, because every declaration is another thing that can drift from the tree.
 
+## Scaffolding
+
+Create the skeleton once, before any component is written: a directory per selected component kind and nothing for the kinds not selected, the manifest carrying identity and version, the documentation file, the ignore rules that keep user-local configuration out of version control, and version-control initialization so the first component is written against a recorded baseline.
+
+Select the kinds by asking what the deliverable actually needs, one question per kind, and present the selection as kind, count, and purpose for approval before the first file exists. A skeleton is cheap to change and a built-out bundle is not, which is what makes this the checkpoint rather than a later review.
+
 ## Discovery
 
 Hosts locate components by convention. Two rules make discovery predictable:
@@ -38,6 +44,20 @@ Distinguish two moments, because they fail differently:
 - **Activation** happens per component at use time: an invoked command, a selected worker, a skill matched by task context, a fired event, or a routed tool call. Wrong activation metadata fails here, while the component itself loaded fine.
 
 Component names must be unique across installed bundles. When collision is plausible, prefix names with the bundle identity rather than hoping installations stay disjoint.
+
+## Verifying Activation
+
+Registration is provable from the tree; activation is not. Install into a disposable scope and exercise each kind through whatever surface the host exposes:
+
+| Kind | What proves it activates |
+|---|---|
+| Skill | A request phrased as a user would phrase it selects the skill, and a near-miss request does not |
+| Command | It appears in the host's own listing, and invoking it runs with arguments parsed as declared |
+| Worker | A task matching its selection conditions routes to it rather than being handled inline |
+| Event handler | The boundary fires and the handler's effect is observable, not merely logged |
+| External tool | The service is reachable and a routed call returns through the adapter |
+
+Test from a clean install rather than the development tree. The failure this catches is metadata that reads correctly and routes wrongly, which no amount of inspecting the files reveals.
 
 ## Portable Paths
 
@@ -69,6 +89,8 @@ Factor logic used by several components into one internal library directory refe
 - Verify on every operating system claimed as supported, and document required tools and versions instead of assuming them.
 - Bump the version on every behavior change, and keep description and keywords matching actual capability.
 - Mark a component deprecated before removing it, and document breaking changes for existing installations.
+
+Documentation obligations follow the kinds actually present, the same way phases follow capabilities: a bundle with commands documents their invocation and arguments, one with workers documents when each is selected, one with event handlers documents which boundaries it registers for and what it does there. Prepare the distribution catalog entry with identity, summary, and classification in whatever form the target catalog takes.
 
 ## Troubleshooting
 

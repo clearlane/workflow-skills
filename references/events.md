@@ -104,6 +104,18 @@ Assume matching handlers may run concurrently and in unspecified order.
 
 Registration changes may require host reload. Runtime configuration read by existing handler should take effect according to adapter contract.
 
+## Handler-Issued Continuations
+
+A handler that re-injects work causes the next boundary it will itself receive, so it must be able to tell a fresh event from its own continuation. Read the host's re-entrancy signal, and when none exists derive one from the run state the handler wrote. A handler that cannot distinguish the two turns a bug into an unbounded loop with no observable difference from correct progress.
+
+Several runs may be live in one working directory, so a continuation acts only on the run that produced it:
+
+- Key run state on a run identifier, never on the working directory alone.
+- Establish which run invoked this handler before touching any state, and no-op when it cannot be established. Acting on whichever run is found first corrupts an unrelated one.
+- Never infer ownership from the text of a transcript: a run's own description of itself matches.
+
+Each continuation carries what the next iteration cannot reconstruct from conversation: the subject, the position in the bound, the run identifier, and how to reach the capability the iteration needs. It does not carry the method. That stays in the skill the pointer names, which is the same progressive-disclosure boundary core guidance applies everywhere else.
+
 ## Latency and External Systems
 
 Keep hot-path handlers short. Minimize I/O, cache expensive deterministic checks safely, and run independent work concurrently only when resources and side effects do not conflict.

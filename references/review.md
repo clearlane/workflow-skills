@@ -12,13 +12,15 @@ Every finding cites a path, or a path and line, inside the reviewed skill. Cite 
 
 Do not record a finding whose only support is preference, style, or an unmeasured claim about model behavior. Prefer running an existing deterministic check over asserting what it would say.
 
+Record the remedy alongside the evidence when the fix is already known. A finding that names the place and the contract but not the change leaves the next run to re-derive it, and a remediation run triages against that field rather than re-reading the prose.
+
 ## Severity
 
-| Severity | Meaning | Test |
-|---|---|---|
-| `blocking` | Use of the skill can lose data, bypass a gate, or produce a wrong result silently | Would a normal run cause harm the user cannot undo or detect? |
-| `major` | The skill works but a contract is violated, so it degrades under load, failure, or reuse | Does it break on interruption, concurrency, an unusual input, or a second run? |
-| `minor` | Correct but costly: duplication, dead resources, naming drift, avoidable context | Would fixing it be a small targeted change? |
+| Severity | Meaning | Test | A remediation run owes it |
+|---|---|---|---|
+| `blocking` | Use of the skill can lose data, bypass a gate, or produce a wrong result silently | Would a normal run cause harm the user cannot undo or detect? | Fix before anything else |
+| `major` | The skill works but a contract is violated, so it degrades under load, failure, or reuse | Does it break on interruption, concurrency, an unusual input, or a second run? | Fix |
+| `minor` | Correct but costly: duplication, dead resources, naming drift, avoidable context | Would fixing it be a small targeted change? | Judge individually, then fix or dismiss |
 
 Severity ranks consequence, not confidence. An uncertain suspicion of a blocking defect is recorded as blocking and disposed of explicitly.
 
@@ -31,6 +33,8 @@ A blocking finding gates the verdict until it carries one:
 - `deferred` — the fix is scheduled; the note says what triggers it.
 
 Never dispose of a finding by rewording it into a lower severity.
+
+A minor finding is judged one at a time, against three questions: does fixing it genuinely improve the skill, is it a reviewer false positive, and does the current behavior serve a purpose the reviewer missed. Dismissing the whole class in one move answers none of them, so it is not a disposition.
 
 ## Always-Run Phases
 

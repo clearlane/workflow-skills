@@ -46,6 +46,25 @@ Define minimum sufficient fields:
 
 Prefer contract over persona. Add domain role only when it changes decisions or quality criteria.
 
+## Writing a Contract From a Description
+
+A worker is usually asked for in one line. Turning that into a contract is itself a bounded task:
+
+- Extract the intent including what the description implies but does not say, then narrow it. A worker for "review the API" that reviews one route's contract is bounded; one that reviews the API is not. Narrowing is the default and does not need to be asked about, because a scope stated back concretely is easier to widen than an unbounded one is to finish.
+- Write selection conditions as situations that trigger the worker, not as keywords. A condition someone can match against a real request is testable; a keyword list is not.
+- Structure the instructions as responsibilities, method, quality criteria, and output, so the worker's obligations are separable from the coordinator's ordering.
+- Choose the smallest capability set the task needs, and inherit the caller's execution tier rather than pinning one. A pinned tier is a portability claim about a host the worker may never run on.
+- Read the project's own agent instructions and carry the local conventions into the contract, so a generated worker matches the repository it lands in.
+
+## Edge Cases
+
+Every contract enumerates what breaks its normal path and states the response. At minimum: ambiguous input, a collision with something that already exists, a subject too large or too small for the method, and a missing prerequisite.
+
+Two responses generalize and belong in every contract that can hit them:
+
+- A warning does not become a failure. An unknown field or an empty directory is reported and the run continues; treating it as fatal makes the worker unusable on real input.
+- An unreadable item is reported and skipped, not fatal to the batch. One bad file must not lose the evidence from the other forty.
+
 ## Task Shapes
 
 - **Analysis**: Gather scoped evidence, identify patterns or gaps, rank findings, return actionable locations.
@@ -103,6 +122,12 @@ Return structured result with:
 - Unresolved questions or next action.
 
 Coordinator records result before retrying, rescheduling, rolling back, or continuing.
+
+## Handoff
+
+A generated component goes to the validator that owns its contract before it reaches the user, and the validator is chosen by what was generated rather than by what is convenient. Generation that reports success without that step is reporting that files exist.
+
+The handoff then names, per component: what was created, the situations that will select it, where it lives, how to exercise it, and the exact next validation to run. A summary that stops at the file list leaves the user to discover activation by accident.
 
 ## Checks
 

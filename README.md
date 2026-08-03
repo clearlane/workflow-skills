@@ -102,6 +102,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 
 - `workflows/design.md` — authoring and refactoring process
 - `workflows/review.md` — evidence-gated skill review workflow
+- `workflows/remediate.md` — bounded fix-and-recheck loop driving a reviewed skill to the bar
 - `workflows/absorb.md` — absorption workflow, coordinator entry, invariants, and rollback contract
 - `workflows/restructure.md` — audit-then-approve layout restructuring workflow
 - `references/setup.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
@@ -124,6 +125,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `references/layout.md` — evidence rules deciding when a layout is actually wrong
 - `references/migration.md` — boundary-at-a-time move execution and reference repair
 - `references/review.md` — review evidence, severity, and disposition rules
+- `references/remediation.md` — triage obligations and terminal outcomes for a remediation run
 - `references/absorb.md` — capability model, merge dispositions, conflict policy, and the cross-document rules a schema cannot express
 - `references/upstream/` — one provenance record per absorbed source, plus the refresh procedure
 
@@ -131,6 +133,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 
 - `scripts/design.py` — design coordinator deriving phases from the recorded contract, with durable decisions and resume
 - `scripts/review.py` — review coordinator deriving phases from detected surfaces, with a disposition-gated verdict
+- `scripts/remediate.py` — remediation coordinator running the bounded fix-and-recheck loop, where the check is the next review
 - `scripts/absorb.py` — absorption coordinator with durable run state, plan binding, snapshot rollback, and self-check
 - `scripts/restructure.py` — restructure coordinator binding an operation manifest to its approval, so a changed proposal cannot execute
 - `scripts/cli.py` — sysexits codes and RFC 9457 problem details, dependency-free so every script can import it
@@ -148,6 +151,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
 - `examples/absorb-run/` — one schema-valid example of every agent-authored absorption artifact
 - `examples/restructure-run/` — a schema-valid operation manifest for a restructure run
+- `examples/remediation-run/` — a schema-valid iteration record showing triage, fixes, and the re-review that checked them
 - `agents/openai.yaml` — Codex UI metadata
 - `pyproject.toml` — the single source of truth for dependency versions, the supported Python floor, and lint rules
 - `requirements.txt` — a pointer to `pyproject.toml`, kept because CI caches on it

@@ -246,6 +246,10 @@ def command_record_finding(args):
         "severity": args.severity,
         "summary": args.summary,
         "evidence": args.evidence,
+        # Optional: a review that names a defect it cannot yet fix is still a
+        # review. Recorded when known so the remediation run triages against
+        # the reviewer's statement rather than re-deriving one.
+        "remedy": args.remedy or None,
         "disposition": None,
         "disposition_note": None,
         "recorded_at": now(),
@@ -643,6 +647,10 @@ def main():
     record.add_argument("--severity", required=True, choices=SEVERITIES)
     record.add_argument("--summary", required=True)
     record.add_argument("--evidence", required=True, help="path or path:line proving the finding")
+    record.add_argument(
+        "--remedy",
+        help="the change that would resolve this finding, when the review already knows it",
+    )
     record.set_defaults(handler=command_record_finding)
 
     resolve = subparsers.add_parser("resolve-finding", help="give one finding an explicit disposition")

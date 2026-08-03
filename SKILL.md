@@ -61,6 +61,7 @@ Separate these concerns. Each row names the one owner of that concern and the re
 | Fix a layout that contradicts discovery or ownership | Evidence-based audit, then approved boundary-at-a-time migration | [workflow](workflows/restructure.md), [judgment](references/layout.md), [execution](references/migration.md) |
 | Merge many skills into one target | Evidence-bound absorption run with snapshot rollback | [workflow](workflows/absorb.md), [rules](references/absorb.md) |
 | Audit an existing skill against its contracts | Evidence-gated review run with a disposition-gated verdict | [workflow](workflows/review.md), [rules](references/review.md) |
+| Drive a reviewed skill to the quality bar | Bounded fix-and-recheck loop whose check is the next review | [workflow](workflows/remediate.md), [rules](references/remediation.md) |
 | Close a design run against owner boundaries | Boundary questions answered from run artifacts | [closure.md](references/closure.md) |
 
 The coordinator is the workflow source of truth. Prose may explain why a transition exists, but must not duplicate executable control flow. Each adapter owns its host syntax; core guidance stays runtime-neutral.
@@ -126,5 +127,7 @@ Phase names and order live in the coordinator. Do not restate them here; ask `st
 Audit an existing skill with the coordinator in [workflows/review.md](workflows/review.md). It detects the surfaces the skill exposes and derives review phases from that evidence, so a review argues from the skill rather than from a checklist.
 
 Review stays read-only on its subject: record findings during the run, change the skill after the verdict. Every finding cites a path in the reviewed skill, and the verdict cannot close while a blocking finding lacks an explicit disposition.
+
+When the verdict leaves fixes worth driving to completion, the successor run is [workflows/remediate.md](workflows/remediate.md). It consumes the review's findings and loops under a bound, and the check on each iteration is a fresh review rather than the fixer's own judgement of its work.
 
 Record every absorbed source as one file under [references/upstream/](references/upstream/README.md), carrying its baseline digest, absorption date, bound plan hash, absorbed capabilities, deliberate exclusions, and canonical destinations. That directory owns the refresh procedure; [UPSTREAM.md](UPSTREAM.md) records absorption history.

@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/remediation.schema.json",
+  "title": "Remediation iteration record",
+  "description": "iterations/<n>.json. One iteration of the fix-and-recheck loop: which findings it took, what it changed, and what the re-review said afterwards. The re-review is the check on the fix, so an iteration that claims progress without a recheck verdict is rejected rather than believed.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "iteration",
+    "findings_sha256",
+    "triaged",
+    "changed_files",
+    "recheck",
+    "notes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "iteration": {
+      "description": "One-based position in the bound, so a record read on its own says where in the budget it happened.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "findings_sha256": {
+      "description": "Digest of the findings this iteration triaged. A later iteration reading a different set is working from a review this record does not describe.",
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "triaged": {
+      "description": "Every finding this iteration considered, with what it decided. Coverage against the review's own findings is checked imperatively, since the schema cannot see the other file.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/triage"
+      }
+    },
+    "changed_files": {
+      "$ref": "common.schema.json#/$defs/pathList"
+    },
+    "recheck": {
+      "$ref": "#/$defs/recheck"
+    },
+    "notes": {
+      "$ref": "common.schema.json#/$defs/textList"
+    }
+  },
+  "$defs": {
+    "triage": {
+      "description": "One finding's disposition for this iteration. Dismissing needs a reason; fixing needs the change named, because the next re-review is what tests the claim.",
+      "type": "object",
+      "required": [
+        "finding_id",
+        "severity",
+        "action",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "finding_id": {
+          "type": "string",
+          "pattern": "^F[0-9]+$"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "blocking",
+            "major",
+            "minor"
+          ]
+        },
+        "action": {
+          "description": "`deferred` postpones within the loop and leaves the finding for a later iteration; `dismissed` ends it, which is why only the lowest severity may use it.",
+          "type": "string",
+          "enum": [
+            "fixed",
+            "deferred",
+            "dismissed"
+          ]
+        },
+        "reason": {
+          "$ref": "common.schema.json#/$defs/text"
+        }
+      },
+      "allOf": [
+        {
+          "description": "Only a minor finding may be dismissed. A blocking or major finding carries a fix obligation, so dismissing one is how a loop terminates with the defect intact.",
+          "if": {
+            "properties": {
+              "action": {
+                "const": "dismissed"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "severity": {
+                "const": "minor"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "recheck": {
+      "description": "The re-review that tested this iteration's fixes. Its counts come from the new review run, not from the fixer's own judgement of its work.",
+      "type": "object",
+      "required": [
+        "ran",
+        "blocking",
+        "major",
+        "minor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ran": {
+          "description": "The exact command that produced the counts, so the verdict can be reproduced rather than taken on trust.",
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "blocking": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "major": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minor": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

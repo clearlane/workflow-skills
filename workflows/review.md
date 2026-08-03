@@ -4,6 +4,8 @@ Audit an existing skill against the contracts this repository already owns, with
 
 Review is read-only on its subject. Record findings during the run and change the skill after the verdict, or in a separate design run when the fix is a redesign.
 
+When the verdict leaves fixes worth driving to completion, hand off to [remediate.md](remediate.md). It consumes this run's `findings.json` under a bound, and each iteration is checked by a fresh review rather than by the run that made the fix.
+
 ## When to Use
 
 Use this workflow to audit a skill before release, after absorbing sources, when activation misfires in real use, or when a skill has grown past the design that shaped it.
@@ -52,10 +54,11 @@ python3 scripts/review.py record-finding \
   --phase <phase> \
   --severity blocking \
   --summary "<observable defect>" \
-  --evidence <path>:<line>
+  --evidence <path>:<line> \
+  --remedy "<the change that would resolve it>"
 ```
 
-Every finding needs evidence in the reviewed skill. A claim with no path is an opinion, and the coordinator rejects it. Severity meanings and the question set for each phase live in [review.md](../references/review.md).
+Every finding needs evidence in the reviewed skill. A claim with no path is an opinion, and the coordinator rejects it. `--remedy` is optional, because a review that names a defect it cannot yet fix is still a review; record it when known so a remediation run triages against this run's own statement. Severity meanings, the fix obligation each carries, and the question set for each phase live in [review.md](../references/review.md).
 
 Close the phase with the judgement it reached:
 
