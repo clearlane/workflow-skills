@@ -123,6 +123,31 @@ def require_phase(state, expected):
         fail(f"Run is at {found!r}, not {expected!r}", EX_DATAERR)
 
 
+def require_inside_scope(scope, relative, label):
+    """Refuse a path that leaves the scope once symlinks are resolved.
+
+    safe_relative_path is lexical, so it rejects `..` and absolute forms but
+    cannot see that `link/a.py` resolves into another tree entirely. A manifest
+    naming such a path passed every check and would have deleted a file outside
+    the tree the user approved operations for.
+
+    Resolution stops at the first symlinked component rather than following it,
+    which is the same refusal inventory.py already makes when walking.
+    """
+    target = scope / relative
+    current = scope
+    for part in Path(relative).parts:
+        current = current / part
+        if current.is_symlink():
+            fail(f"{label}: {relative} passes through symlink {part!r}; resolve it before proposing", EX_DATAERR)
+    try:
+        resolved = target.resolve()
+    except OSError as error:
+        fail(f"{label}: {relative} cannot be resolved: {error}", EX_DATAERR)
+    if resolved != scope.resolve() and scope.resolve() not in resolved.parents:
+        fail(f"{label}: {relative} resolves outside the scope", EX_DATAERR)
+
+
 def load_manifest(root, state, expect_unapplied=True):
     """Read the manifest and prove it describes the tree this run is scoped to.
 
@@ -159,6 +184,9 @@ def load_manifest(root, state, expect_unapplied=True):
         # one that must, or the manifest was written against a stale tree.
         if expect_unapplied and action != "create" and not (scope / relative).exists():
             fail(f"{label}: {relative} does not exist in the scope", EX_DATAERR)
+        for candidate in (relative, operation.get("destination")):
+            if candidate:
+                require_inside_scope(scope, candidate, label)
     return path, value
 
 
@@ -439,6 +467,31 @@ def command_self_check(_args):
         execute("complete-phase", "--run-dir", run, "--phase", "diagnose", "--note", "d")
         result = execute("propose", "--run-dir", run, check=False)
         assert result.returncode != 0, result.stderr
+
+        # A symlink is a path that looks relative and is not. Lexical checks
+        # pass it, so without this the manifest could delete outside the tree
+        # the user approved operations for.
+        scope = fresh_scope("symlink-scope")
+        outside = root / "outside-tree"
+        outside.mkdir()
+        (outside / "secret.py").write_text("must survive\n")
+        (scope / "link").symlink_to(outside)
+        for label, operation in (
+            ("through a symlinked directory", {"action": "delete", "path": "link/secret.py", "reason": "escape"}),
+            (
+                "as a move destination",
+                {"action": "move", "path": "b.py", "destination": "link/b.py", "reason": "escape"},
+            ),
+        ):
+            run = root / f"symlink-{label.split()[-1]}"
+            execute("init", "--name", "Sym", "--scope", scope, "--run-dir", run, "--mode", "mutate")
+            (run / "manifest.json").write_text(json.dumps(manifest(scope, [operation])))
+            execute("complete-phase", "--run-dir", run, "--phase", "evidence", "--note", "e")
+            execute("complete-phase", "--run-dir", run, "--phase", "diagnose", "--note", "d")
+            result = execute("propose", "--run-dir", run, check=False)
+            assert result.returncode != 0, f"symlink escape {label} was accepted"
+            assert "symlink" in result.stderr, result.stderr
+        assert (outside / "secret.py").read_text() == "must survive\n"
 
         # A run directory inside its own scope would restructure its own record.
         result = execute(
