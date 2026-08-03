@@ -140,7 +140,6 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `scripts/check.py` — single entrypoint running every deterministic repository check
 - `scripts/settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
 - `scripts/names.py` — deterministic portable filename check
-- `scripts/install-fanout.sh` — installs the shared skill set into every sibling project and links this skill live
 
 **Supporting files**
 
