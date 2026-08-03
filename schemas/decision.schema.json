@@ -36,5 +36,6 @@
     "findings": {
       "$ref": "common.schema.json#/$defs/textList"
     }
-  }
+  },
+  "additionalProperties": false
 }

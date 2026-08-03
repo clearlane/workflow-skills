@@ -656,6 +656,16 @@ def check_schema_coverage(root):
         # so neither is named directly by a coordinator.
         if name not in sources and name not in SCHEMA_INDIRECT:
             failures.append(f"schemas/{name}: no script writes or validates against it")
+        # An agent authors these files by hand, so a misspelled key is the most
+        # likely mistake there is. An open root accepts it, the coordinator
+        # reports the artifact valid, and the content is silently dropped: the
+        # run proceeds as though the agent never wrote it. Closing the root
+        # turns that into an error naming the key.
+        document = json.loads((root / "schemas" / name).read_text(encoding="utf-8"))
+        if document.get("type") != "object" or "properties" not in document:
+            continue
+        if document.get("additionalProperties") is not False:
+            failures.append(f"schemas/{name}: root accepts undeclared keys; set additionalProperties false")
     return failures
 
 

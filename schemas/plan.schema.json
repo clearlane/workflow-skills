@@ -253,5 +253,6 @@
         }
       }
     }
-  }
+  },
+  "additionalProperties": false
 }

@@ -79,6 +79,53 @@
       "items": {
         "$ref": "#/$defs/scopeExtension"
       }
+    },
+    "applied": {
+      "description": "Scope-relative paths of the mutating operations the agent actually carried out, verified against the filesystem before being recorded.",
+      "$ref": "common.schema.json#/$defs/pathList"
+    },
+    "approval": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/approval"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "manifest_sha256": {
+      "description": "Digest of the proposed manifest, so approval binds to the exact plan that was reviewed rather than to whatever the file says later.",
+      "$ref": "#/$defs/optionalDigest"
+    },
+    "mode": {
+      "description": "Whether the run may modify its scope or only describe it. Mirrors the --mode choices, so a state file cannot claim a mode the CLI cannot produce.",
+      "enum": [
+        "audit",
+        "mutate"
+      ]
+    },
+    "mutating_count": {
+      "description": "How many of those operations modify the scope. Zero is what makes an approval gate unnecessary.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "name": {
+      "description": "The subject's slug, for coordinators whose subject is a name rather than an existing skill directory.",
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "operation_count": {
+      "description": "Operations in the bound manifest, carried so status can describe the run's size without re-reading it.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "run_id": {
+      "description": "Identifies which run wrote a provenance record, so records from a re-run are distinguishable from the run that produced them.",
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "scope": {
+      "description": "Root of the tree a run may modify. Bound at init so a later phase cannot quietly widen it.",
+      "$ref": "common.schema.json#/$defs/text"
     }
   },
   "$defs": {
@@ -126,6 +173,28 @@
           "$ref": "common.schema.json#/$defs/timestamp"
         }
       }
+    },
+    "approval": {
+      "description": "A human's approval of one exact manifest. Binding it to the digest is what stops an approved run from executing a manifest nobody reviewed.",
+      "type": "object",
+      "required": [
+        "manifest_sha256",
+        "approved_by",
+        "approved_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "manifest_sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "approved_by": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "approved_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
     }
-  }
+  },
+  "additionalProperties": false
 }

@@ -88,6 +88,8 @@ Resolve `$ref` between schemas from disk. Publishing them under URLs makes them 
 
 Vendor a third-party schema rather than fetching it, and pin the copy by digest. A vendored copy is trustworthy only if it is the published document: an edited one claims conformance to a standard while validating against a private variant of it.
 
+Close every artifact root to undeclared keys. An agent authors these files by hand, so a misspelled key is the likeliest mistake it will make, and an open root accepts it: the coordinator reports the artifact valid and reads none of the content that went under the wrong name. The run then proceeds as though the agent never wrote it. A closed root turns that silent loss into an error naming the key. The cost is that every field a coordinator writes must be declared, which is the point: a field on disk that no schema describes has no type and no reader can rely on it.
+
 ### What a Schema Cannot Decide
 
 Keep these imperative, and say so where the schema stops:
