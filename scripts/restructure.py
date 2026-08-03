@@ -34,12 +34,14 @@ from state import (
     phase_complete_event,
     read_history,
     read_json,
+    relative_file_manifest,
     require_text,
     run_cli,
     safe_relative_path,
     save_state,
     schema_errors,
     slug,
+    tree_sha256,
     write_artifact,
 )
 from state import (
@@ -261,6 +263,25 @@ def advance(root, state, phase, event=None):
     save_state(root, state, event or phase_complete_event(phase))
 
 
+def untouched_digest(scope, manifest):
+    """Digest the part of the scope no approved operation is allowed to change.
+
+    Digesting the whole tree would flag every approved move, so the comparison
+    has to exclude the paths the plan names, on both sides. What is left is the
+    tree the plan promised not to touch, and it must come through execution
+    byte-identical. A file that appears, vanishes, or changes inside that set
+    was never reviewed by whoever approved the manifest.
+    """
+    touched = set()
+    for operation in manifest["operations"]:
+        touched.add(operation["path"])
+        destination = operation.get("destination")
+        if destination:
+            touched.add(destination)
+    entries = relative_file_manifest(Path(scope))
+    return tree_sha256({path: entry for path, entry in entries.items() if path not in touched})
+
+
 def command_propose(args):
     """Bind the manifest, so approval has something exact to be given for."""
     root, state = open_run(args.run_dir)
@@ -273,6 +294,13 @@ def command_propose(args):
             EX_DATAERR,
         )
     state["manifest_sha256"] = json_sha256(path)
+    # Approval binds the plan; without this it binds nothing about the tree the
+    # plan was written against. An agent could carry out every approved
+    # operation and, in the same breath, rewrite an unrelated file or add one
+    # nobody reviewed, and execute would confirm the approved operations and
+    # record the run as faithful. Digesting the scope here is what lets execute
+    # tell an approved change from a change no one ever saw.
+    state["scope_sha256"] = untouched_digest(state["scope"], manifest)
     state["operation_count"] = len(manifest["operations"])
     state["mutating_count"] = len(mutating)
     record_decision(root, "propose", f"Bound {len(mutating)} mutating operations of {len(manifest['operations'])}.")
@@ -333,6 +361,17 @@ def command_execute(args):
         )
     require_text(args.note, "--note")
     scope = Path(state["scope"])
+    # Every approved operation may have happened and the run still be unfaithful,
+    # because the checks below only ask whether the named paths moved. This asks
+    # the question they cannot: did anything else change? The digest was taken
+    # when the manifest was bound, over exactly the paths the plan does not name.
+    expected = state.get("scope_sha256")
+    if expected and untouched_digest(scope, manifest) != expected:
+        fail(
+            "the scope changed outside the approved operations; "
+            "execute records what was reviewed, and this tree carries changes nobody approved",
+            EX_DATAERR,
+        )
     applied = []
     for operation in manifest["operations"]:
         if operation["action"] not in MUTATING:
@@ -427,6 +466,32 @@ def command_self_check(_args):
         status = json.loads(applied.stdout)
         assert status["phase"] == "validate", status
         assert status["detail"]["approval"]["approved_by"] == "operator", status
+
+        # Carrying out every approved operation is not the same as changing only
+        # what was approved. The operation checks read the paths the manifest
+        # names, so a file rewritten, added, or deleted beside them was recorded
+        # as a faithful run: an agent could smuggle any edit past a human who
+        # reviewed a one-line move. Each shape is checked separately because a
+        # digest over the wrong set would catch some and miss others.
+        for label, tamper in (
+            ("rewrote", lambda tree: (tree / "src" / "a.py").write_text("rewritten\n")),
+            ("added", lambda tree: (tree / "unreviewed.py").write_text("new\n")),
+            ("deleted", lambda tree: (tree / "src" / "a.py").unlink()),
+        ):
+            tampered = fresh_scope(f"tamper-{label}")
+            run = root / f"tamper-run-{label}"
+            execute("init", "--name", "Tamper", "--scope", tampered, "--run-dir", run, "--mode", "mutate")
+            (run / "manifest.json").write_text(json.dumps(manifest(tampered, operations)))
+            execute("complete-phase", "--run-dir", run, "--phase", "evidence", "--note", "e")
+            execute("complete-phase", "--run-dir", run, "--phase", "diagnose", "--note", "d")
+            execute("propose", "--run-dir", run)
+            execute("approve", "--run-dir", run, "--approved-by", "operator")
+            (tampered / "src" / "b.py").write_text((tampered / "b.py").read_text())
+            (tampered / "b.py").unlink()
+            tamper(tampered)
+            result = execute("execute", "--run-dir", run, "--note", "x", check=False)
+            assert result.returncode == EX_DATAERR, (label, result.returncode, result.stdout)
+            assert "outside the approved operations" in result.stderr, (label, result.stderr)
 
         # A manifest edited between propose and approve is refused at approve.
         scope = fresh_scope("reorder-scope")

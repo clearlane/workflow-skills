@@ -98,6 +98,10 @@
       "description": "Digest of the proposed manifest, so approval binds to the exact plan that was reviewed rather than to whatever the file says later.",
       "$ref": "#/$defs/optionalDigest"
     },
+    "scope_sha256": {
+      "description": "Digest of the scope tree as it stood when the manifest was proposed. Approval binds a plan; this binds the tree that plan was written against, so execute can tell an approved change from one nobody reviewed.",
+      "$ref": "#/$defs/optionalDigest"
+    },
     "mode": {
       "description": "Whether the run may modify its scope or only describe it. Mirrors the --mode choices, so a state file cannot claim a mode the CLI cannot produce.",
       "enum": [
