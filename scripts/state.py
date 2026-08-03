@@ -600,6 +600,23 @@ def open_run(run_dir, *artifacts):
             EX_DATAERR,
             root / "state.json",
         )
+    # `completed` is a set of phases wearing a list's clothes, and two rules
+    # below read it as a length: the history bound compares its count to the
+    # number of transitions, and pending_phase treats membership as done. A
+    # repeated name satisfies the count while contributing one phase, so a
+    # duplicate buys a free completion the log cannot contradict. Phases must
+    # be distinct for the same reason: pending_phase returns the first name
+    # not yet done, and a list that names one phase twice describes an order
+    # that cannot be walked.
+    for field in ("phases", "completed"):
+        names = state.get(field) or []
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        if repeated:
+            fail(
+                f"{root / 'state.json'}: {field} repeats {repeated}, so it no longer describes distinct phases",
+                EX_DATAERR,
+                root / "state.json",
+            )
     # history.jsonl is the durable record: it is appended before the state is
     # written and survives losing it entirely. Every phase added to `completed`
     # goes through one save_state, so a state claiming more completions than
@@ -826,6 +843,43 @@ def check_open_run_rejects_edited_state(root):
         assert error.code == EX_DATAERR, error.code
     else:
         raise AssertionError("accepted more completions than the history records")
+
+    # The bound above counts completions, so a repeated name pays for a phase
+    # it did not run: the length still matches the log while one phase quietly
+    # goes unfinished. This is the tamper the count alone cannot see, which is
+    # why distinctness is checked rather than inferred.
+    remove_path(root)
+    advanced = {
+        "version": VERSION,
+        "phase": "first",
+        "phases": phases,
+        "completed": [],
+        "created_at": now(),
+        "updated_at": now(),
+    }
+    save_state(root, advanced, "initialized")
+    for name in phases:
+        advanced["completed"] = [*advanced["completed"], name]
+        save_state(root, advanced, phase_complete_event(name))
+    laundered = read_json(root / "state.json")
+    laundered["completed"] = [phases[0], phases[0]]
+    write_json(root / "state.json", stamp("state.schema.json", laundered))
+    try:
+        open_run(root)
+    except Failure as error:
+        assert error.code == EX_DATAERR, error.code
+        assert "distinct" in error.message, error.message
+    else:
+        raise AssertionError("accepted a duplicate completion the history cannot contradict")
+
+    # The same rule guards the phase list, which pending_phase walks in order.
+    build(phases=[phases[0], phases[0]])
+    try:
+        open_run(root)
+    except Failure as error:
+        assert error.code == EX_DATAERR, error.code
+    else:
+        raise AssertionError("accepted a phase list that repeats a phase")
 
 
 def check_run_lock_serialises_writers(root):
