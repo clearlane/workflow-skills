@@ -716,6 +716,40 @@ def run_ruff(root, *arguments):
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
+def ruff_version_mismatch(root):
+    """Report a ruff whose version is not the one pyproject.toml pins.
+
+    The pin exists so a ruff upgrade cannot silently widen or narrow what this
+    repository considers an error. It only holds for the ruff pip installed:
+    shutil.which finds whatever is first on PATH, so a system-wide ruff
+    silently replaced the pinned one and enforced a different rule set. That is
+    invisible either way round, as a finding the pinned version would not
+    raise, or as a missed finding on a machine running something older.
+
+    Reported rather than fatal, because a contributor with a newer ruff should
+    still be able to run the suite; the point is that they can see the
+    substitution.
+    """
+    executable = shutil.which("ruff")
+    if executable is None:
+        return []
+    pinned = re.search(r'"ruff==([0-9]+)\.([0-9]+)', (root / "pyproject.toml").read_text(encoding="utf-8"))
+    if pinned is None:
+        return ["pyproject.toml no longer pins ruff; the lint rule set is unbounded"]
+    result = subprocess.run([executable, "--version"], capture_output=True, text=True, check=False)
+    found = re.search(r"([0-9]+)\.([0-9]+)", result.stdout)
+    if found is None:
+        return []
+    if found.group(1, 2) != pinned.group(1, 2):
+        return [
+            (
+                f"ruff on PATH is {found.group(0)} but pyproject.toml pins "
+                f"{pinned.group(1)}.{pinned.group(2)}.*; lint results will not match CI"
+            )
+        ]
+    return []
+
+
 def run_script(root, name, *arguments, expect=None):
     """Run a script, optionally requiring proof it did something.
 
@@ -784,8 +818,10 @@ def check_ci_floor(root):
     versions = [entry.strip().strip("\"'") for entry in matrix.group(1).split(",")]
     if versions[0] != declared.group(1):
         return [
-            f"checks.yml tests {versions[0]} first but pyproject.toml declares "
-            f">={declared.group(1)}; the declared floor would go untested"
+            (
+                f"checks.yml tests {versions[0]} first but pyproject.toml declares "
+                f">={declared.group(1)}; the declared floor would go untested"
+            )
         ]
     return []
 
@@ -868,6 +904,12 @@ def self_check():
         matrix.write_text('        python-version: ["3.11"]\n', encoding="utf-8")
         assert check_ci_floor(tree) == []
 
+        # The pin check must notice a missing pin, which is the state in which
+        # the lint rule set is silently whatever the machine happens to have.
+        project.write_text('dev = ["check-jsonschema~=0.37"]\n', encoding="utf-8")
+        if shutil.which("ruff") is not None:
+            assert ruff_version_mismatch(tree), "an unpinned ruff was accepted"
+
     print("self-check passed")
 
 
@@ -882,6 +924,7 @@ def main():
         *discovered_self_checks(ROOT),
         ("self-checks assert", lambda: self_checks_assert_something(ROOT)),
         ("CI tests the floor", lambda: check_ci_floor(ROOT)),
+        ("ruff matches the pin", lambda: ruff_version_mismatch(ROOT)),
         ("skill contract", lambda: check_skill(ROOT)),
         ("links and anchors", lambda: document.broken_links(ROOT)),
         ("resource reachability", lambda: check_reachability(ROOT)),

@@ -35,7 +35,7 @@ dependencies = [
 # it cannot find, so a contributor running the stdlib-only subset stays able to
 # work; CI installs this extra and therefore enforces them.
 dev = [
-    "ruff==0.15.*",
+    "ruff==0.16.*",
     "check-jsonschema~=0.37",  # lints schemas/ as schemas, which jsonschema does not
 ]
 
