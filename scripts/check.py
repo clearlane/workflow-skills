@@ -8,6 +8,7 @@ file declares what must hold rather than how markdown or YAML is parsed.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -43,6 +44,11 @@ ARTIFACT_REFERENCE = "references/artifacts.md"
 # common holds shared definitions and skill is reached through inventory, so
 # neither is named directly by a coordinator.
 SCHEMA_INDIRECT = {"common.schema.json"}
+# Third-party schemas, vendored so validation stays offline, pinned so a
+# silent edit to one cannot turn a conformance claim into a private variant.
+VENDORED_SCHEMAS = {
+    "sarif-2.1.0.schema.json": "c3b4bb2d6093897483348925aaa73af03b3e3f4bd4ca38cef26dcb4212a2682e",
+}
 README_EXEMPT = {".gitignore", "LICENSE", "LICENSE-CODE", README, "skill-logic.workflow.json"}
 # The repository is dual-licensed: prose carries the upstream share-alike
 # obligation, executables are MIT so they can be vendored without it.
@@ -458,6 +464,26 @@ def check_schema_keywords(root):
     return failures
 
 
+def check_vendored_schemas(root):
+    """The vendored third-party schemas must stay byte-identical to what we fetched.
+
+    A vendored copy is only trustworthy if it is the published document. Editing
+    one to make a check pass would mean claiming conformance to a standard while
+    validating against a private variant of it, which is worse than not
+    validating at all. Refresh by re-fetching and updating the digest here.
+    """
+    failures = []
+    for name, expected in VENDORED_SCHEMAS.items():
+        path = root / "schemas" / "vendor" / name
+        if not path.is_file():
+            failures.append(f"schemas/vendor/{name}: missing")
+            continue
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != expected:
+            failures.append(f"schemas/vendor/{name}: sha256 {actual} does not match the recorded {expected}")
+    return failures
+
+
 def check_schema_coverage(root):
     """Every schema must be documented, reachable, and actually used.
 
@@ -604,6 +630,7 @@ def main():
         ("schema coverage", lambda: check_schema_coverage(ROOT)),
         ("schema lint", lambda: check_schema_lint(ROOT)),
         ("schema keywords", lambda: check_schema_keywords(ROOT)),
+        ("vendored schemas", lambda: check_vendored_schemas(ROOT)),
         ("python lint", lambda: check_lint(ROOT)),
         ("python format", lambda: check_format(ROOT)),
         ("external links", lambda: check_external_links(ROOT)),

@@ -78,6 +78,8 @@ Each artifact kind has one schema in `schemas/`, and shared vocabulary lives in 
 
 Resolve `$ref` between schemas from disk. Publishing them under URLs makes them addressable and quotable; fetching them at validation time would make every run depend on a web host.
 
+Vendor a third-party schema rather than fetching it, and pin the copy by digest. A vendored copy is trustworthy only if it is the published document: an edited one claims conformance to a standard while validating against a private variant of it.
+
 ### What a Schema Cannot Decide
 
 Keep these imperative, and say so where the schema stops:

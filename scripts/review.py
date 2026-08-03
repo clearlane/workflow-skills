@@ -31,6 +31,7 @@ from state import (
     require_text,
     save_state,
     slug,
+    validate_sarif,
     write_artifact,
     write_json,
 )
@@ -38,6 +39,15 @@ from state import (
 # Review concerns every skill has, regardless of which surfaces it exposes.
 ALWAYS_FIRST = ("activation", "structure")
 ALWAYS_LAST = ("safety", "verdict")
+
+# SARIF 2.1.0 has three result levels. Ours map onto them without loss: a
+# reviewer's "this blocks the merge" is a scanner's "error".
+SARIF_LEVELS = {"blocking": "error", "major": "warning", "minor": "note"}
+SARIF_SCHEMA = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
+# Identifies which tool produced a result once the file has left this run
+# directory, and gives each rule a page explaining what it checks.
+TOOL_NAME = "designing-workflow-skills review"
+HELP_BASE = "https://github.com/clearlane/workflow-skills/blob/main"
 PHASE_RESOURCES = {
     "activation": "references/structure.md",
     "structure": "references/naming.md",
@@ -359,6 +369,96 @@ def write_report(root, state, findings):
         decision = read_json(root / "decisions" / f"{phase}.json")
         lines.append(f"- **{phase}** ({decision['resource']}): {decision['note']}")
     (root / "report.md").write_text("\n".join(lines) + "\n")
+    write_sarif(root, state, findings)
+
+
+def split_evidence(evidence):
+    """Separate `path:line` into a path and a 1-based line, if a line is present.
+
+    Evidence is required to name a path but not a line, so a finding about a
+    whole file stays a file-level result rather than being forced onto line 1,
+    which would put an annotation on an arbitrary line of source.
+    """
+    path, separator, tail = evidence.rpartition(":")
+    if separator and tail.isdigit() and path:
+        return path, int(tail)
+    return evidence, None
+
+
+def sarif_location(evidence):
+    path, line = split_evidence(evidence)
+    location = {"artifactLocation": {"uri": path}}
+    if line is not None:
+        location["region"] = {"startLine": line}
+    return {"physicalLocation": location}
+
+
+def write_sarif(root, state, findings):
+    """Emit the same findings a machine can act on.
+
+    report.md is human-only: a verdict cannot gate CI or annotate a pull
+    request without a reviewer transcribing it. findings.json already carries
+    everything SARIF needs, and record-finding requires evidence with a path,
+    so the mapping to a location is total rather than best-effort.
+
+    Constructed directly because SARIF is JSON. The obvious library, sarif-tools,
+    reads and summarises SARIF rather than building it, and would pull matplotlib
+    and python-docx into a coordinator that only writes a document.
+    """
+    rules = []
+    results = []
+    for phase in state["phases"]:
+        rules.append(
+            {
+                "id": phase,
+                "name": phase,
+                "shortDescription": {"text": f"Skill review: {phase}"},
+                "helpUri": f"{HELP_BASE}/{phase_resource(phase)}",
+            }
+        )
+    known = {rule["id"] for rule in rules}
+    for item in findings:
+        if item["phase"] not in known:
+            fail(f"Finding {item['id']} names phase {item['phase']!r}, which is not in the run")
+        result = {
+            "ruleId": item["phase"],
+            "level": SARIF_LEVELS[item["severity"]],
+            "message": {"text": item["summary"]},
+            "locations": [sarif_location(item["evidence"])],
+            "properties": {"findingId": item["id"], "disposition": item["disposition"]},
+        }
+        # A finding a reviewer accepted is still a finding. Dropping it would
+        # misreport the review as having found nothing there.
+        if item["disposition"] in ("accepted", "deferred"):
+            suppression = {"kind": "external", "status": "accepted"}
+            if item.get("disposition_note"):
+                suppression["justification"] = item["disposition_note"]
+            result["suppressions"] = [suppression]
+        results.append(result)
+    document = {
+        "$schema": SARIF_SCHEMA,
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": TOOL_NAME,
+                        "informationUri": HELP_BASE,
+                        "rules": rules,
+                    }
+                },
+                "results": results,
+                "invocations": [
+                    {
+                        "executionSuccessful": True,
+                        "endTimeUtc": now(),
+                        "workingDirectory": {"uri": Path(state["skill"]["path"]).as_uri()},
+                    }
+                ],
+            }
+        ],
+    }
+    write_json(root / "report.sarif", document)
 
 
 def command_self_check(_args):
@@ -444,6 +544,31 @@ def command_self_check(_args):
             "--evidence",
             "SKILL.md:1",
         )
+        # Evidence without a line, recorded while its phase is still open.
+        execute(
+            "record-finding",
+            "--run-dir",
+            run,
+            "--phase",
+            "activation",
+            "--severity",
+            "minor",
+            "--summary",
+            "Description omits a trigger",
+            "--evidence",
+            "SKILL.md",
+        )
+        execute(
+            "resolve-finding",
+            "--run-dir",
+            run,
+            "--id",
+            "F2",
+            "--disposition",
+            "accepted",
+            "--note",
+            "by design",
+        )
         execute("complete-phase", "--run-dir", run, "--phase", "structure", "--note", "one canonical home")
         execute("complete-phase", "--run-dir", run, "--phase", "safety", "--note", "gate missing")
 
@@ -456,6 +581,27 @@ def command_self_check(_args):
         report = (run / "report.md").read_text()
         assert "F1" in report and "fixed" in report, report
         assert "1 blocking" in report, report
+
+        # The SARIF is only useful if a consumer that knows nothing about this
+        # repository can read it, so validate against the published schema.
+        sarif = json.loads((run / "report.sarif").read_text())
+        validate_sarif(sarif)
+        results = sarif["runs"][0]["results"]
+        assert [item["level"] for item in results] == ["error", "note"], results
+        location = results[0]["locations"][0]["physicalLocation"]
+        assert location["artifactLocation"]["uri"] == "SKILL.md", location
+        assert location["region"]["startLine"] == 1, location
+        assert "suppressions" not in results[0], results[0]
+        rules = {rule["id"] for rule in sarif["runs"][0]["tool"]["driver"]["rules"]}
+        assert {item["ruleId"] for item in results} <= rules, rules
+
+        # An accepted finding stays in the output as a suppressed result. Omitting
+        # it would report the review as having found nothing at that location.
+        accepted = next(item for item in results if item["properties"]["findingId"] == "F2")
+        assert accepted["level"] == "note", accepted
+        assert accepted["suppressions"][0]["justification"] == "by design", accepted
+        # Evidence without a line stays file-level rather than pointing at line 1.
+        assert "region" not in accepted["locations"][0]["physicalLocation"], accepted
 
         # Late surface discovery extends the plan without dropping progress.
         late = root / "late-run"

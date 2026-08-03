@@ -251,6 +251,38 @@ def schema_errors(name, value):
     return messages
 
 
+VENDOR_SCHEMA_DIRECTORY = SCHEMA_DIRECTORY / "vendor"
+
+
+@cache
+def vendored_validator(name):
+    """Validate against a vendored copy of a third-party schema.
+
+    The SARIF schema is draft-04 and lives outside this repository, so it is
+    neither registered with our own schemas nor stamped like them. Vendoring it
+    keeps the check offline and deterministic: fetching the published copy at
+    validation time would make a run fail when a raw.githubusercontent host is
+    down, which says nothing about the document being validated.
+    """
+    path = VENDOR_SCHEMA_DIRECTORY / name
+    if not path.is_file():
+        fail(f"Missing vendored schema: {path}")
+    contents = json.loads(path.read_text(encoding="utf-8"))
+    return jsonschema.validators.validator_for(contents)(contents)
+
+
+def validate_sarif(document):
+    """Refuse to claim SARIF output that a SARIF consumer would reject."""
+    validator = vendored_validator("sarif-2.1.0.schema.json")
+    messages = [
+        f"{'/'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
+        for error in sorted(validator.iter_errors(document), key=lambda item: list(item.absolute_path))
+    ]
+    if messages:
+        detail = "\n  ".join(messages)
+        fail(f"Document is not valid SARIF 2.1.0:\n  {detail}")
+
+
 def stamp(name, value):
     """Attach the schema identity an artifact claims to satisfy.
 

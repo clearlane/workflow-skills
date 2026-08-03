@@ -76,6 +76,20 @@ The `coordinator` and `state` phases carry two more, since they own what the oth
 - Does executable code own ordering, branching, and bounded retries, with interrupted work resumable from durable state alone?
 - Is concurrency set by runtime configuration rather than a fixed prose batch size?
 
+## Machine-Readable Output
+
+The verdict writes `report.sarif` beside `report.md`, so a review can gate CI or annotate a pull request without a human transcribing it. [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) is the contract, and severity maps onto its three levels:
+
+| Severity | SARIF `level` |
+|---|---|
+| `blocking` | `error` |
+| `major` | `warning` |
+| `minor` | `note` |
+
+The review phase becomes the `ruleId`, so results group by the concern that found them. Evidence maps to a location: `path:line` becomes a region, and a bare path stays file-level rather than being pinned to line 1, which would annotate an arbitrary line.
+
+An `accepted` or `deferred` finding is emitted as a suppressed result, never omitted. Dropping it would report the review as having found nothing at that location, which is the opposite of what the disposition recorded.
+
 ## Reviewing the Result
 
 A review passes when a reader who was not present can act on `report.md`: each finding names a place, a contract, and a consequence. If a phase closed with no finding and no note explaining what held, the phase was not reviewed.
