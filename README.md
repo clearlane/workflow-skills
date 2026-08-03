@@ -1,10 +1,32 @@
+<div align="center">
+
 # Designing Workflow Skills
 
-[![checks](https://github.com/clearlane/workflow-skills/actions/workflows/checks.yml/badge.svg)](https://github.com/clearlane/workflow-skills/actions/workflows/checks.yml)
+**An Agent Skill for building Agent Skills.**
 
-**An Agent Skill for building Agent Skills.** Design, review, and merge multi-step AI agent workflows that hold their control flow in executable coordinators instead of prose an agent has to remember.
+<br />
+
+[![Star this repo](https://img.shields.io/github/stars/clearlane/workflow-skills?style=for-the-badge&logo=github&label=%E2%AD%90%20Star%20this%20repo&color=yellow)](https://github.com/clearlane/workflow-skills/stargazers)
+
+<br />
+
+[![checks](https://img.shields.io/github/actions/workflow/status/clearlane/workflow-skills/checks.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=checks)](https://github.com/clearlane/workflow-skills/actions/workflows/checks.yml)
+&nbsp;
+[![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC_BY--SA_4.0-blue?style=for-the-badge)](LICENSE)
+&nbsp;
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge)](CONTRIBUTING.md)
+&nbsp;
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](pyproject.toml)
+
+---
+
+Design, review, and merge multi-step AI agent workflows that hold their control flow in executable coordinators instead of prose an agent has to remember.
 
 Works with Claude Code, Codex, Cursor, and any runtime that loads `SKILL.md` — the guidance stays runtime-neutral, and host-specific syntax is confined to adapters.
+
+[Install](#install) · [Why This Exists](#why-this-exists) · [What It Covers](#what-it-covers) · [Structure](#structure) · [Contributing](#contributing)
+
+</div>
 
 > **Continuation of the `designing-workflow-skills` skill removed from [`trailofbits/skills`](https://github.com/trailofbits/skills) in July 2026.** Actively maintained. See [Looking for the Trail of Bits Plugin](#looking-for-the-trail-of-bits-plugin) if that is what brought you here.
 
@@ -183,6 +205,26 @@ Skill-settings guidance independently re-expresses generic concepts from the ups
 
 See [`references/upstream/`](references/upstream/README.md) for per-source baselines, absorbed coverage, deliberate exclusions, and the refresh procedure, and [`UPSTREAM.md`](UPSTREAM.md) for absorption history.
 
+## Contributing
+
+Pull requests are welcome. Run `python3 scripts/check.py` before opening one — it is the same suite CI runs, so a green local run means a green pull request.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) explains what each check enforces and why, including the rule that a new check must be shown to fail on a real violation before it is worth keeping.
+
 ## License
 
 Licensed under [CC BY-SA 4.0](LICENSE), matching the upstream license. Adaptations are distributed under the same terms.
+
+---
+
+<div align="center">
+
+Built by [Joachim Brindeau](https://github.com/joachimBrindeau)
+
+<br />
+
+**If this saved you time:**
+
+[![Star this repo](https://img.shields.io/github/stars/clearlane/workflow-skills?style=for-the-badge&logo=github&label=%E2%AD%90%20Star%20this%20repo&color=yellow)](https://github.com/clearlane/workflow-skills/stargazers)
+
+</div>
