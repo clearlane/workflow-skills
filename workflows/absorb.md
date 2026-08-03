@@ -42,11 +42,14 @@ Inspect phase and next action at any time, including after an interruption:
 python3 scripts/absorb.py status --run-dir <run-directory>
 ```
 
-Every phase transition uses the same command:
+Every phase transition uses the same command, and the same one the design and review coordinators use. Name the phase you are closing and why it is done: the coordinator refuses a phase the run is not on, so a resumed run cannot be advanced by mistake, and the note becomes the run's decision trail.
 
 ```bash
-python3 scripts/absorb.py advance --run-dir <run-directory>
+python3 scripts/absorb.py complete-phase --run-dir <run-directory> \
+  --phase <phase> --note "<why this phase is done>"
 ```
+
+Artifact validation is a precondition of the transition, not a different verb: a phase whose evidence the contract requires will refuse to close without it.
 
 ## 1. Analysis
 
@@ -54,7 +57,7 @@ Analyze the existing target plus one source per independent worker when the runt
 
 Write `analyses/target.json` and one `analyses/<source-id>.json` per source, using the IDs in `inventory.json` and the schema in [absorb.md](../references/absorb.md). Every capability and every runtime dependency needs a stable ID and evidence paths. Suggested destinations are advice; synthesis decides.
 
-Advance only after every source has a valid analysis.
+Close the phase only after every source has a valid analysis.
 
 ## 2. Synthesis Plan
 
@@ -102,7 +105,7 @@ Run the checks relevant to the changed skill:
 - Trigger wording and reference-path inspection.
 - Any target repository check named in the bound plan.
 
-Write `validation.json` with `plan_sha256`, `passed`, `checks`, `remaining_gaps`, and `notes`, then advance. Failed validation returns to merge until the configured attempt bound.
+Write `validation.json` with `plan_sha256`, `passed`, `checks`, `remaining_gaps`, and `notes`, then close the phase. Failed validation returns to merge until the configured attempt bound, and exhausting the bound rolls the target back and exits as a failure.
 
 A changed plan, a changed source, an unrecorded out-of-scope diff, a diff that contradicts the declared evidence, or exhausted attempts restore the snapshot and end the run in `rolled-back`, after preserving the in-progress target under `revisions/`. When repair needs one more file, record it with `extend-scope`; when the intent itself changed, use `revise-plan`.
 

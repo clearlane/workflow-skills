@@ -44,6 +44,10 @@ REVIEW_WORKFLOW = "workflows/review.md"
 ABSORB_WORKFLOW = "workflows/absorb.md"
 README = "README.md"
 CHECKER = "check.py"
+# The commands every coordinator must expose, so one run is driven the same way
+# as another and a wrapper does not need to know which it is holding.
+COORDINATORS = ("design.py", "review.py", "absorb.py")
+CORE_VERBS = ("init", "status", "complete-phase", "self-check")
 README_SECTION = "Structure"
 ARTIFACT_REFERENCE = "references/artifacts.md"
 # common holds shared definitions and skill is reached through inventory, so
@@ -132,6 +136,31 @@ def check_duplicate_headings(root):
             if heading.text in seen:
                 failures.append(f"{parsed.path.relative_to(root)}:{heading.line}: duplicate section {heading.text!r}")
             seen.add(heading.text)
+    return failures
+
+
+def check_coordinator_verbs(root):
+    """The three coordinators must drive a run with the same commands.
+
+    An author who learns one coordinator should be able to drive the others, and
+    a generic wrapper should be able to advance any run without knowing which
+    coordinator it holds. Two grammars for one state machine make both
+    impossible, and the divergence is invisible until someone tries.
+    """
+    failures = []
+    for name in COORDINATORS:
+        result = subprocess.run(
+            [sys.executable, str(root / "scripts" / name), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            failures.append(f"scripts/{name}: --help failed")
+            continue
+        missing = [verb for verb in CORE_VERBS if verb not in result.stdout]
+        if missing:
+            failures.append(f"scripts/{name}: does not expose {', '.join(missing)}")
     return failures
 
 
@@ -650,6 +679,7 @@ def main():
         ("links and anchors", lambda: document.broken_links(ROOT)),
         ("resource reachability", lambda: check_reachability(ROOT)),
         ("canonical sections", lambda: check_duplicate_headings(ROOT)),
+        ("coordinator verbs", lambda: check_coordinator_verbs(ROOT)),
         ("phase owners", lambda: check_phase_owners(ROOT)),
         ("documented capabilities", lambda: check_capability_rows(ROOT)),
         ("documented review phases", lambda: check_review_phases(ROOT)),

@@ -39,8 +39,10 @@ from state import (
     paths_overlap,
     read_history,
     read_json,
+    read_status,
     relative_file_manifest,
     remove_path,
+    require_text,
     run_cli,
     safe_relative_path,
     save_state,
@@ -446,10 +448,10 @@ def phase_resource(phase):
 
 def next_action(phase):
     return {
-        "analysis": "Write analyses/<source-id>.json for every source, then run advance.",
-        "plan": "Write plan.json with complete capability coverage, then run advance.",
-        "merge": "Edit target only, write apply.json, then run advance.",
-        "validation": "Run relevant checks, write validation.json, then run advance.",
+        "analysis": "Write analyses/<source-id>.json for every source, then run complete-phase --phase analysis.",
+        "plan": "Write plan.json with complete capability coverage, then run complete-phase --phase plan.",
+        "merge": "Edit target only, write apply.json, then run complete-phase --phase merge.",
+        "validation": "Run relevant checks, write validation.json, then run complete-phase --phase validation.",
         "complete": "Run complete. Keep artifacts for audit or remove them explicitly.",
         "rolled-back": "Target restored after unsafe or exhausted execution. Revise plan or start new run.",
     }[phase]
@@ -534,9 +536,16 @@ def command_status(args):
     print_status(root, state, inventory)
 
 
-def command_advance(args):
+def command_complete_phase(args):
     root, state, inventory = load_run(args.run_dir)
     phase = state["phase"]
+    # Asserted rather than inferred. Inferring the phase makes a resumed run
+    # easy to advance by mistake, because the caller's belief about where the
+    # run is never has to agree with the run's own record.
+    if args.phase != phase:
+        fail(f"Run is on phase {phase!r}, not {args.phase!r}")
+    require_text(args.note, "--note")
+    resource = phase_resource(phase)
     if phase == "analysis":
         capability_keys(root, inventory)
         state["phase"] = "plan"
@@ -595,6 +604,13 @@ def command_advance(args):
             save_state(root, state, "validation-failed")
     else:
         fail(f"Cannot advance phase: {phase}")
+    # Written after the transition, so a rejected phase leaves no record of a
+    # decision that was never made.
+    write_artifact(
+        root / "decisions" / f"{phase}.json",
+        "decision.schema.json",
+        {"phase": phase, "resource": resource, "note": args.note, "recorded_at": now()},
+    )
     print_status(root, state, inventory)
 
 
@@ -663,6 +679,17 @@ def command_self_check(_args):
                 text=True,
             )
 
+        def advance(run, note="phase complete", check=True):
+            """Close whichever phase the run is on.
+
+            An agent reads status to learn the phase, then names it when closing
+            it. The self-check does the same rather than hardcoding a phase at
+            each call site, so a change to the phase order does not silently
+            turn these into assertions about the wrong phase.
+            """
+            phase = read_status(execute("status", "--run-dir", run).stdout)["phase"]
+            return execute("complete-phase", "--run-dir", run, "--phase", phase, "--note", note, check=check)
+
         def write_evidence(path, value):
             """Write an agent-authored artifact the way an agent would.
 
@@ -728,7 +755,7 @@ def command_self_check(_args):
                         "runtime_dependencies": runtime_dependencies,
                     },
                 )
-            execute("advance", "--run-dir", run)
+            advance(run)
             capability_map = [
                 {
                     "key": "target:target-baseline",
@@ -774,7 +801,7 @@ def command_self_check(_args):
                     "validation_commands": ["self-check"],
                 },
             )
-            execute("advance", "--run-dir", run)
+            advance(run)
             state = read_json(run / "state.json")
             assert state["phase"] == "merge"
             assert state["execution_plan_sha256"] == state["plan_sha256"] == json_sha256(run / "plan.json")
@@ -802,7 +829,7 @@ def command_self_check(_args):
             "---\nname: target\ndescription: Combined target skill.\n---\n\n# Target\n\nCombined.\n"
         )
         write_apply(run, plan_hash, ["SKILL.md"])
-        execute("advance", "--run-dir", run)
+        advance(run)
         write_evidence(
             run / "validation.json",
             {
@@ -813,9 +840,9 @@ def command_self_check(_args):
                 "notes": [],
             },
         )
-        execute("advance", "--run-dir", run)
+        advance(run)
         write_apply(run, plan_hash, ["SKILL.md"], notes=["Repaired"])
-        execute("advance", "--run-dir", run)
+        advance(run)
         write_evidence(
             run / "validation.json",
             {
@@ -827,7 +854,7 @@ def command_self_check(_args):
             },
         )
         # A passing run cannot complete until the orchestrator verdict exists.
-        missing_feedback = execute("advance", "--run-dir", run, check=False)
+        missing_feedback = advance(run, check=False)
         assert missing_feedback.returncode != 0 and "feedback.json" in missing_feedback.stderr
         write_evidence(
             run / "feedback.json",
@@ -853,12 +880,12 @@ def command_self_check(_args):
         unproven = read_json(run / "feedback.json")
         unproven["observations"][0].pop("changed_files")
         write_evidence(run / "feedback.json", unproven)
-        unproven_result = execute("advance", "--run-dir", run, check=False)
+        unproven_result = advance(run, check=False)
         assert unproven_result.returncode != 0 and "changed_files" in unproven_result.stderr
         assert read_json(run / "state.json")["phase"] == "validation"
         unproven["observations"][0]["changed_files"] = ["scripts/absorb.py"]
         write_evidence(run / "feedback.json", unproven)
-        execute("advance", "--run-dir", run)
+        advance(run)
         state = read_json(run / "state.json")
         assert state["phase"] == "complete"
         assert state["validation_attempts"] == 2
@@ -871,7 +898,7 @@ def command_self_check(_args):
         (target / "SKILL.md").write_text("changed\n")
         (target / "EXTRA.md").write_text("outside plan\n")
         write_apply(run, plan_hash, ["EXTRA.md", "SKILL.md"])
-        result = execute("advance", "--run-dir", run, check=False)
+        result = advance(run, check=False)
         assert result.returncode != 0 and "target rolled back" in result.stderr
         assert read_json(run / "state.json")["phase"] == "rolled-back"
         assert (target / "SKILL.md").read_text() == baseline
@@ -888,14 +915,14 @@ def command_self_check(_args):
         merged = "---\nname: target\ndescription: Combined target skill.\n---\n\n# Target\n\nMerged.\n"
         (target / "SKILL.md").write_text(merged)
         write_apply(run, plan_hash, ["SKILL.md"], notes="not a list")
-        result = execute("advance", "--run-dir", run, check=False)
+        result = advance(run, check=False)
         assert result.returncode != 0 and "does not satisfy apply.schema.json" in result.stderr
         assert "notes" in result.stderr
         assert "rolled back" not in result.stderr
         assert read_json(run / "state.json")["phase"] == "merge"
         assert (target / "SKILL.md").read_text() == merged
         write_apply(run, plan_hash, ["SKILL.md"])
-        execute("advance", "--run-dir", run)
+        advance(run)
         assert read_json(run / "state.json")["phase"] == "validation"
         write_evidence(
             run / "validation.json",
@@ -907,7 +934,7 @@ def command_self_check(_args):
                 "notes": [],
             },
         )
-        result = execute("advance", "--run-dir", run, check=False)
+        result = advance(run, check=False)
         assert result.returncode != 0 and "rolled back" not in result.stderr
         assert read_json(run / "state.json")["phase"] == "validation"
         assert (target / "SKILL.md").read_text() == merged
@@ -918,7 +945,7 @@ def command_self_check(_args):
         (target / "SKILL.md").write_text("merged\n")
         (target / "helper.py").write_text("fix\n")
         write_apply(run, plan_hash, ["SKILL.md", "helper.py"])
-        blocked = execute("advance", "--run-dir", run, check=False)
+        blocked = advance(run, check=False)
         assert blocked.returncode != 0 and "extend-scope" in blocked.stderr
         assert read_json(run / "state.json")["phase"] == "rolled-back"
 
@@ -948,7 +975,7 @@ def command_self_check(_args):
             execute("extend-scope", "--run-dir", run, "--path", "other.py", "--reason", " ", check=False).returncode
             != 0
         )
-        execute("advance", "--run-dir", run)
+        advance(run)
         assert read_json(run / "state.json")["phase"] == "validation"
         write_evidence(
             run / "validation.json",
@@ -962,7 +989,7 @@ def command_self_check(_args):
         )
         # Exhausting the attempt bound is a distinct outcome, so it exits
         # EX_TEMPFAIL rather than reporting the rolled-back run as a success.
-        exhausted = execute("advance", "--run-dir", run, check=False)
+        exhausted = advance(run, check=False)
         assert exhausted.returncode == EX_TEMPFAIL, exhausted.returncode
         assert "reaching the bound" in exhausted.stderr, exhausted.stderr
         assert read_json(run / "state.json")["phase"] == "rolled-back"
@@ -978,7 +1005,7 @@ def command_self_check(_args):
         (target / "SKILL.md").write_text("changed\n")
         (target / "EXTRA.md").write_text("outside plan\n")
         write_apply(run, plan_hash, ["EXTRA.md", "SKILL.md"])
-        result = execute("advance", "--run-dir", run, check=False)
+        result = advance(run, check=False)
         assert result.returncode != 0 and "target rolled back" in result.stderr
         assert (target / "SKILL.md").read_text() == baseline
         assert not (target / "EXTRA.md").exists()
@@ -988,7 +1015,7 @@ def command_self_check(_args):
         target, _sources, run, baseline, plan_hash = prepare_run("bounded", max_attempts=1)
         (target / "SKILL.md").write_text("changed\n")
         write_apply(run, plan_hash, ["SKILL.md"])
-        execute("advance", "--run-dir", run)
+        advance(run)
         write_evidence(
             run / "validation.json",
             {
@@ -999,7 +1026,7 @@ def command_self_check(_args):
                 "notes": [],
             },
         )
-        bounded = execute("advance", "--run-dir", run, check=False)
+        bounded = advance(run, check=False)
         assert bounded.returncode == EX_TEMPFAIL, bounded.returncode
         assert read_json(run / "state.json")["phase"] == "rolled-back"
         assert (target / "SKILL.md").read_text() == baseline
@@ -1007,7 +1034,7 @@ def command_self_check(_args):
         target, _sources, run, baseline, plan_hash = prepare_run("revision")
         (target / "SKILL.md").write_text("partially merged target\n")
         write_apply(run, plan_hash, ["SKILL.md"])
-        execute("advance", "--run-dir", run)
+        advance(run)
         execute("revise-plan", "--run-dir", run)
         state = read_json(run / "state.json")
         assert state["phase"] == "plan"
@@ -1039,9 +1066,14 @@ def parser():
     initialize.add_argument("--max-validation-attempts", type=int, default=3)
     initialize.set_defaults(handler=command_init)
 
+    complete = commands.add_parser("complete-phase")
+    complete.add_argument("--run-dir", type=Path, required=True)
+    complete.add_argument("--phase", required=True, choices=PHASES)
+    complete.add_argument("--note", required=True, help="why this phase is done")
+    complete.set_defaults(handler=command_complete_phase, history=False)
+
     for name, handler in (
         ("status", command_status),
-        ("advance", command_advance),
         ("revise-plan", command_revise_plan),
     ):
         command = commands.add_parser(name)
