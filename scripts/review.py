@@ -31,6 +31,7 @@ from state import (
     require_text,
     save_state,
     slug,
+    write_artifact,
     write_json,
 )
 
@@ -136,7 +137,7 @@ def load_findings(root):
 
 
 def save_findings(root, findings):
-    write_json(root / "findings.json", {"findings": findings})
+    write_artifact(root / "findings.json", "findings.schema.json", {"findings": findings})
 
 
 def unresolved_blocking(findings):
@@ -286,8 +287,9 @@ def command_complete_phase(args):
     blocking = unresolved_blocking(findings)
     if expected == "verdict" and blocking:
         fail(f"Cannot close the verdict with unresolved blocking findings: {', '.join(blocking)}")
-    write_json(
+    write_artifact(
         root / "decisions" / f"{expected}.json",
+        "decision.schema.json",
         {
             "phase": expected,
             "resource": phase_resource(expected),

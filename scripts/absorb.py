@@ -34,19 +34,25 @@ from state import (
     read_json,
     relative_file_manifest,
     remove_path,
-    require_list,
-    require_text,
     safe_relative_path,
     save_state,
+    schema_errors,
     slug,
+    stamp,
     tree_sha256,
+    write_artifact,
     write_json,
 )
 
 CAPABILITY_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-ALLOWED_OPERATIONS = {"create", "update", "delete", "move"}
-ALLOWED_DECISIONS = {"integrate", "retain", "omit"}
-ALLOWED_RUNTIME_DECISIONS = {"generalize", "omit"}
+# Which schema governs each agent-authored artifact. The analyses directory
+# holds one file per source, so it is keyed by directory rather than by name.
+SCHEMA_FOR = {
+    "plan.json": "plan.schema.json",
+    "apply.json": "apply.schema.json",
+    "validation.json": "validation.schema.json",
+    "feedback.json": "feedback.schema.json",
+}
 
 
 class MalformedEvidence(SystemExit):
@@ -82,44 +88,42 @@ def load_run(run_dir):
 
 
 def validate_analysis(path, expected_source_id):
+    """Shape from the schema; identity and uniqueness from here.
+
+    The schema owns every field rule, so the two cannot drift. It cannot own
+    the remaining two questions: which source this file is supposed to describe
+    is knowable only from the inventory, and uniqueness over one property of a
+    list item is not expressible in JSON Schema.
+    """
     value = read_json(path)
+    require_schema(path, "analysis.schema.json", value)
     if value.get("source_id") != expected_source_id:
-        fail(f"{path}: source_id must be {expected_source_id}")
-    require_text(value.get("summary"), f"{path}: summary")
-    for field in ("capabilities", "triggers", "resources", "overlaps", "conflicts", "risks", "runtime_dependencies"):
-        require_list(value.get(field), f"{path}: {field}")
-    if not value["capabilities"]:
-        fail(f"{path}: capabilities must not be empty")
-    seen = set()
-    for index, capability in enumerate(value["capabilities"]):
-        if not isinstance(capability, dict):
-            fail(f"{path}: capabilities[{index}] must be object")
-        capability_id = capability.get("id")
-        if not isinstance(capability_id, str) or not CAPABILITY_ID.fullmatch(capability_id):
-            fail(f"{path}: invalid capability id {capability_id!r}")
-        if capability_id in seen:
-            fail(f"{path}: duplicate capability id {capability_id}")
-        seen.add(capability_id)
-        require_text(capability.get("purpose"), f"{path}: capability {capability_id} purpose")
-        require_list(capability.get("evidence"), f"{path}: capability {capability_id} evidence")
-        if not capability["evidence"]:
-            fail(f"{path}: capability {capability_id} needs evidence")
-    runtime_ids = set()
-    for index, dependency in enumerate(value["runtime_dependencies"]):
-        if not isinstance(dependency, dict):
-            fail(f"{path}: runtime_dependencies[{index}] must be object")
-        dependency_id = dependency.get("id")
-        if not isinstance(dependency_id, str) or not CAPABILITY_ID.fullmatch(dependency_id):
-            fail(f"{path}: invalid runtime dependency id {dependency_id!r}")
-        if dependency_id in runtime_ids:
-            fail(f"{path}: duplicate runtime dependency id {dependency_id}")
-        runtime_ids.add(dependency_id)
-        require_text(dependency.get("symbol"), f"{path}: runtime dependency {dependency_id} symbol")
-        require_text(dependency.get("kind"), f"{path}: runtime dependency {dependency_id} kind")
-        require_list(dependency.get("evidence"), f"{path}: runtime dependency {dependency_id} evidence")
-        if not dependency["evidence"]:
-            fail(f"{path}: runtime dependency {dependency_id} needs evidence")
+        malformed(f"{path}: source_id must be {expected_source_id}")
+    require_unique_ids(path, value["capabilities"], "capability")
+    require_unique_ids(path, value["runtime_dependencies"], "runtime dependency")
     return value
+
+
+def require_unique_ids(path, items, label):
+    seen = set()
+    for item in items:
+        identifier = item["id"]
+        if identifier in seen:
+            malformed(f"{path}: duplicate {label} id {identifier}")
+        seen.add(identifier)
+
+
+def require_schema(path, name, value):
+    """Reject an artifact that does not satisfy its schema, listing every fault.
+
+    Reported as malformed evidence rather than unsafe execution: a mistyped
+    field means the run cannot read the file yet, which is not proof that
+    anything was done wrong to the target.
+    """
+    errors = schema_errors(name, value)
+    if errors:
+        detail = "\n  ".join(errors)
+        malformed(f"{path}: does not satisfy {name}:\n  {detail}")
 
 
 def capability_keys(root, inventory):
@@ -141,81 +145,55 @@ def runtime_dependency_keys(root, inventory):
 
 
 def validate_plan(root, inventory):
+    """Shape from the schema; cross-artifact coverage and path safety from here.
+
+    The schema decides whether a plan is well formed. It cannot decide whether
+    the plan is complete, because completeness is a question about the analyses
+    in another directory: every capability and every runtime dependency found
+    there must be decided exactly once, so nothing is silently dropped between
+    reading a source and merging it.
+    """
     path = root / "plan.json"
     value = read_json(path)
-    contract = value.get("target_contract")
-    if not isinstance(contract, dict):
-        fail(f"{path}: target_contract must be object")
-    require_text(contract.get("name"), f"{path}: target_contract.name")
-    require_text(contract.get("description"), f"{path}: target_contract.description")
-    if contract.get("runtime_policy") != "runtime-neutral":
-        fail(f"{path}: target_contract.runtime_policy must be runtime-neutral")
-    require_list(contract.get("scope"), f"{path}: target_contract.scope")
-    require_list(contract.get("non_goals"), f"{path}: target_contract.non_goals")
-    for field in (
-        "capability_map",
-        "runtime_adapter_map",
-        "decisions",
-        "file_operations",
-        "omitted_items",
-        "risks",
-        "validation_commands",
-    ):
-        require_list(value.get(field), f"{path}: {field}")
+    require_schema(path, "plan.schema.json", value)
 
-    expected = capability_keys(root, inventory)
-    actual = []
-    for index, item in enumerate(value["capability_map"]):
-        if not isinstance(item, dict):
-            fail(f"{path}: capability_map[{index}] must be object")
-        key = item.get("key")
-        require_text(key, f"{path}: capability_map[{index}].key")
-        actual.append(key)
-        decision = item.get("decision")
-        if decision not in ALLOWED_DECISIONS:
-            fail(f"{path}: invalid decision for {key}: {decision}")
-        if decision == "omit":
-            require_text(item.get("reason"), f"{path}: omitted {key} reason")
-        else:
-            safe_relative_path(item.get("destination"), f"{path}: {key} destination")
-    if len(actual) != len(set(actual)):
-        fail(f"{path}: duplicate capability_map keys")
-    missing = sorted(set(expected) - set(actual))
-    unknown = sorted(set(actual) - set(expected))
-    if missing or unknown:
-        fail(f"{path}: capability coverage mismatch; missing={missing}, unknown={unknown}")
+    require_coverage(path, value["capability_map"], capability_keys(root, inventory), "capability")
+    require_coverage(
+        path,
+        value["runtime_adapter_map"],
+        runtime_dependency_keys(root, inventory),
+        "runtime dependency",
+    )
 
-    expected_runtime = runtime_dependency_keys(root, inventory)
-    actual_runtime = []
-    for index, item in enumerate(value["runtime_adapter_map"]):
-        if not isinstance(item, dict):
-            fail(f"{path}: runtime_adapter_map[{index}] must be object")
-        key = item.get("key")
-        require_text(key, f"{path}: runtime_adapter_map[{index}].key")
-        actual_runtime.append(key)
-        decision = item.get("decision")
-        if decision not in ALLOWED_RUNTIME_DECISIONS:
-            fail(f"{path}: invalid runtime decision for {key}: {decision}")
-        require_text(item.get("reason"), f"{path}: runtime decision {key} reason")
-        if decision == "generalize":
-            safe_relative_path(item.get("destination"), f"{path}: {key} destination")
-    if len(actual_runtime) != len(set(actual_runtime)):
-        fail(f"{path}: duplicate runtime_adapter_map keys")
-    missing_runtime = sorted(set(expected_runtime) - set(actual_runtime))
-    unknown_runtime = sorted(set(actual_runtime) - set(expected_runtime))
-    if missing_runtime or unknown_runtime:
-        fail(f"{path}: runtime dependency coverage mismatch; missing={missing_runtime}, unknown={unknown_runtime}")
+    # A destination is inside the target, which is a property of the filesystem
+    # rather than of the document, so it stays imperative.
+    for item in value["capability_map"] + value["runtime_adapter_map"]:
+        if "destination" in item:
+            safe_relative_path(item["destination"], f"{path}: {item['key']} destination")
 
     planned_paths = set()
-    for index, operation in enumerate(value["file_operations"]):
-        if not isinstance(operation, dict):
-            fail(f"{path}: file_operations[{index}] must be object")
-        if operation.get("op") not in ALLOWED_OPERATIONS:
-            fail(f"{path}: invalid file operation {operation.get('op')}")
-        planned_paths.add(safe_relative_path(operation.get("path"), f"{path}: file operation path"))
-        if operation.get("op") == "move" and operation.get("from") is not None:
+    for operation in value["file_operations"]:
+        planned_paths.add(safe_relative_path(operation["path"], f"{path}: file operation path"))
+        if operation["op"] == "move" and operation.get("from") is not None:
             planned_paths.add(safe_relative_path(operation["from"], f"{path}: move source"))
     return value, planned_paths
+
+
+def require_coverage(path, decided, expected, label):
+    """Every known key decided exactly once, and no key invented.
+
+    Absorption's whole promise is that nothing is lost. A missing key means a
+    capability disappeared between analysis and plan; an unknown key means the
+    plan decided something no source actually offers.
+    """
+    keys = [item["key"] for item in decided]
+    duplicates = sorted({key for key in keys if keys.count(key) > 1})
+    if duplicates:
+        malformed(f"{path}: duplicate {label} keys: {duplicates}")
+    missing = sorted(set(expected) - set(keys))
+    unknown = sorted(set(keys) - set(expected))
+    if missing or unknown:
+        fail(f"{path}: {label} coverage mismatch; missing={missing}, unknown={unknown}")
 
 
 def bound_paths(root, state, inventory):
@@ -351,15 +329,12 @@ def target_diff(inventory):
 def validate_apply(root, state, inventory):
     path = root / "apply.json"
     value = read_json(path)
+    require_schema(path, "apply.schema.json", value)
     current_plan_hash = json_sha256(root / "plan.json")
     if current_plan_hash != state.get("execution_plan_sha256"):
         fail("plan.json changed after binding; run revise-plan")
     if value.get("plan_sha256") != current_plan_hash:
         fail(f"{path}: plan_sha256 does not match bound plan")
-    for field in ("changed_files", "deleted_files", "notes"):
-        if not isinstance(value.get(field), list):
-            # A shape error is unreadable evidence, not proof of unsafe execution.
-            malformed(f"{path}: {field} must be list")
     declared_changed = sorted(safe_relative_path(item, f"{path}: changed_files") for item in value["changed_files"])
     declared_deleted = sorted(safe_relative_path(item, f"{path}: deleted_files") for item in value["deleted_files"])
     changed, deleted, current_skill = target_diff(inventory)
@@ -370,32 +345,21 @@ def validate_apply(root, state, inventory):
     if outside_plan:
         fail(f"{path}: changed paths outside bound plan: {outside_plan}; record them with extend-scope or revert them")
     validate_sources_unchanged(inventory)
-    write_json(root / "target-after-merge.json", current_skill)
+    write_artifact(root / "target-after-merge.json", "skill.schema.json", current_skill)
 
 
 def validate_validation(root, state):
+    """Shape from the schema; the binding to this run's plan from here.
+
+    Whether a validation record is self-consistent is a property of the
+    document, so the schema decides it. Whether it describes *this* run is not:
+    only the coordinator knows which plan digest execution was bound to.
+    """
     path = root / "validation.json"
     value = read_json(path)
-    if value.get("plan_sha256") != state.get("execution_plan_sha256"):
+    require_schema(path, "validation.schema.json", value)
+    if value["plan_sha256"] != state.get("execution_plan_sha256"):
         fail(f"{path}: plan_sha256 does not match bound plan")
-    if not isinstance(value.get("passed"), bool):
-        malformed(f"{path}: passed must be boolean")
-    for field in ("checks", "remaining_gaps", "notes"):
-        if not isinstance(value.get(field), list):
-            malformed(f"{path}: {field} must be list")
-    if not value["checks"]:
-        malformed(f"{path}: checks must not be empty")
-    for index, check in enumerate(value["checks"]):
-        if not isinstance(check, dict):
-            malformed(f"{path}: checks[{index}] must be object")
-        for field in ("name", "command"):
-            item = check.get(field)
-            if not isinstance(item, str) or not item.strip():
-                malformed(f"{path}: checks[{index}].{field} must be non-empty text")
-        if not isinstance(check.get("exit_code"), int):
-            malformed(f"{path}: checks[{index}].exit_code must be integer")
-    if value["passed"] and (value["remaining_gaps"] or any(item["exit_code"] != 0 for item in value["checks"])):
-        fail(f"{path}: passed validation cannot contain failed checks or remaining gaps")
     return value
 
 
@@ -404,26 +368,12 @@ def validate_feedback(root):
 
     Every absorption exercises this coordinator against real material, so each
     run is also a test of the orchestrator itself. Without a recorded verdict,
-    defects observed during a run are lost when the run artifacts age out.
+    defects observed during a run are lost when the run artifacts age out. The
+    schema owns the shape, including that a claim of "fixed" must name files.
     """
     path = root / "feedback.json"
     value = read_json(path)
-    require_list(value.get("observations"), f"{path}: observations")
-    require_list(value.get("improvements"), f"{path}: improvements")
-    for index, observation in enumerate(value["observations"]):
-        if not isinstance(observation, dict):
-            fail(f"{path}: observations[{index}] must be object")
-        require_text(observation.get("issue"), f"{path}: observations[{index}].issue")
-        require_text(observation.get("evidence"), f"{path}: observations[{index}].evidence")
-        disposition = observation.get("disposition")
-        if disposition not in {"fixed", "deferred", "accepted"}:
-            fail(f"{path}: observations[{index}].disposition must be fixed, deferred, or accepted")
-        if disposition == "fixed":
-            require_list(observation.get("changed_files"), f"{path}: observations[{index}].changed_files")
-            if not observation["changed_files"]:
-                fail(f"{path}: observations[{index}] marked fixed needs changed_files")
-        else:
-            require_text(observation.get("reason"), f"{path}: observations[{index}].reason")
+    require_schema(path, "feedback.schema.json", value)
     return value
 
 
@@ -483,7 +433,7 @@ def command_init(args):
         sources.append(source)
     root.mkdir(parents=True, exist_ok=True)
     (root / "analyses").mkdir()
-    inventory = {"version": VERSION, "created_at": now(), "target": target, "sources": sources}
+    inventory = {"created_at": now(), "target": target, "sources": sources}
     state = {
         "version": VERSION,
         "phase": "analysis",
@@ -497,7 +447,7 @@ def command_init(args):
         "created_at": now(),
         "updated_at": now(),
     }
-    write_json(root / "inventory.json", inventory)
+    write_artifact(root / "inventory.json", "inventory.schema.json", inventory)
     save_state(root, state, "initialized")
     print_status(root, state, inventory)
 
@@ -632,6 +582,15 @@ def command_self_check(_args):
                 text=True,
             )
 
+        def write_evidence(path, value):
+            """Write an agent-authored artifact the way an agent would.
+
+            The self-check stands in for the agent, so it must produce artifacts
+            carrying the same schema stamp a real run would, or it would be
+            exercising a path no real run takes.
+            """
+            write_json(path, stamp(SCHEMA_FOR.get(path.name, "analysis.schema.json"), value))
+
         def create_skill(path, name):
             path.mkdir()
             content = f"---\nname: {name}\ndescription: {name} skill.\n---\n\n# {name.title()}\n"
@@ -650,7 +609,7 @@ def command_self_check(_args):
                 init_arguments.extend(("--source", source))
             execute(*init_arguments)
             source_ids = [item["id"] for item in read_json(run / "inventory.json")["sources"]]
-            write_json(
+            write_evidence(
                 run / "analyses" / "target.json",
                 {
                     "source_id": "target",
@@ -672,7 +631,7 @@ def command_self_check(_args):
                     runtime_dependencies = [
                         {"id": "vendor-tool", "symbol": "VendorTool", "kind": "tool", "evidence": ["SKILL.md"]},
                     ]
-                write_json(
+                write_evidence(
                     run / "analyses" / f"{source_id}.json",
                     {
                         "source_id": source_id,
@@ -706,7 +665,7 @@ def command_self_check(_args):
                 }
                 for source_id in source_ids
             )
-            write_json(
+            write_evidence(
                 run / "plan.json",
                 {
                     "target_contract": {
@@ -747,7 +706,7 @@ def command_self_check(_args):
             The self-check writes this report ten times and varies only the
             changed set and the notes, so the shape lives here once.
             """
-            write_json(
+            write_evidence(
                 run / "apply.json",
                 {
                     "plan_sha256": plan_hash,
@@ -763,7 +722,7 @@ def command_self_check(_args):
         )
         write_apply(run, plan_hash, ["SKILL.md"])
         execute("advance", "--run-dir", run)
-        write_json(
+        write_evidence(
             run / "validation.json",
             {
                 "plan_sha256": plan_hash,
@@ -776,7 +735,7 @@ def command_self_check(_args):
         execute("advance", "--run-dir", run)
         write_apply(run, plan_hash, ["SKILL.md"], notes=["Repaired"])
         execute("advance", "--run-dir", run)
-        write_json(
+        write_evidence(
             run / "validation.json",
             {
                 "plan_sha256": plan_hash,
@@ -789,7 +748,7 @@ def command_self_check(_args):
         # A passing run cannot complete until the orchestrator verdict exists.
         missing_feedback = execute("advance", "--run-dir", run, check=False)
         assert missing_feedback.returncode != 0 and "feedback.json" in missing_feedback.stderr
-        write_json(
+        write_evidence(
             run / "feedback.json",
             {
                 "observations": [
@@ -812,12 +771,12 @@ def command_self_check(_args):
         # A "fixed" verdict must name the files that carry the fix.
         unproven = read_json(run / "feedback.json")
         unproven["observations"][0].pop("changed_files")
-        write_json(run / "feedback.json", unproven)
+        write_evidence(run / "feedback.json", unproven)
         unproven_result = execute("advance", "--run-dir", run, check=False)
         assert unproven_result.returncode != 0 and "changed_files" in unproven_result.stderr
         assert read_json(run / "state.json")["phase"] == "validation"
         unproven["observations"][0]["changed_files"] = ["scripts/absorb.py"]
-        write_json(run / "feedback.json", unproven)
+        write_evidence(run / "feedback.json", unproven)
         execute("advance", "--run-dir", run)
         state = read_json(run / "state.json")
         assert state["phase"] == "complete"
@@ -849,14 +808,15 @@ def command_self_check(_args):
         (target / "SKILL.md").write_text(merged)
         write_apply(run, plan_hash, ["SKILL.md"], notes="not a list")
         result = execute("advance", "--run-dir", run, check=False)
-        assert result.returncode != 0 and "notes must be list" in result.stderr
+        assert result.returncode != 0 and "does not satisfy apply.schema.json" in result.stderr
+        assert "notes" in result.stderr
         assert "rolled back" not in result.stderr
         assert read_json(run / "state.json")["phase"] == "merge"
         assert (target / "SKILL.md").read_text() == merged
         write_apply(run, plan_hash, ["SKILL.md"])
         execute("advance", "--run-dir", run)
         assert read_json(run / "state.json")["phase"] == "validation"
-        write_json(
+        write_evidence(
             run / "validation.json",
             {
                 "plan_sha256": plan_hash,
@@ -909,7 +869,7 @@ def command_self_check(_args):
         )
         execute("advance", "--run-dir", run)
         assert read_json(run / "state.json")["phase"] == "validation"
-        write_json(
+        write_evidence(
             run / "validation.json",
             {
                 "plan_sha256": plan_hash,
@@ -944,7 +904,7 @@ def command_self_check(_args):
         (target / "SKILL.md").write_text("changed\n")
         write_apply(run, plan_hash, ["SKILL.md"])
         execute("advance", "--run-dir", run)
-        write_json(
+        write_evidence(
             run / "validation.json",
             {
                 "plan_sha256": plan_hash,

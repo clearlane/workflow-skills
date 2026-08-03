@@ -26,7 +26,7 @@ from state import (
     require_text,
     save_state,
     slug,
-    write_json,
+    write_artifact,
 )
 
 # Capability -> phase that designs it, and the resource holding its contract.
@@ -157,7 +157,7 @@ def command_complete_phase(args):
         "note": args.note,
         "recorded_at": now(),
     }
-    write_json(root / "decisions" / f"{expected}.json", decision)
+    write_artifact(root / "decisions" / f"{expected}.json", "decision.schema.json", decision)
     state["completed"].append(expected)
     state["phase"] = current_phase(state) or "complete"
     save_state(root, state, f"phase-complete:{expected}")
