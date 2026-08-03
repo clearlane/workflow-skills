@@ -8,12 +8,15 @@ JSON, digest, timestamp, and validation helpers live here once instead of per
 script. references/artifacts.md owns the contract these implement.
 """
 
+import errno
 import hashlib
+import io
 import json
 import re
 import shutil
 import subprocess
 import sys
+from contextlib import redirect_stderr
 from datetime import datetime, timezone
 from functools import cache, lru_cache
 from pathlib import Path
@@ -95,6 +98,28 @@ def shipped_paths(root):
     return frozenset(entry for entry in completed.stdout.decode().split("\0") if entry)
 
 
+# A filesystem refusal that the caller's input caused, rather than one the
+# machine imposed. Both are OSError; only the exit code should differ.
+USAGE_ERRNOS = frozenset(
+    {
+        errno.ENAMETOOLONG,
+        errno.EINVAL,
+        errno.EISDIR,
+        errno.ENOTDIR,
+        errno.ELOOP,
+        errno.EILSEQ,
+    }
+)
+
+# Long enough to identify the path, short enough that a 5000-character argument
+# does not become the whole diagnostic.
+PATH_EXCERPT = 120
+
+
+def shorten(value):
+    return value if len(value) <= PATH_EXCERPT else f"{value[:PATH_EXCERPT]}... ({len(value)} characters)"
+
+
 def run_cli(main, argv=None):
     """Run a coordinator entrypoint, rendering any failure through one path.
 
@@ -103,6 +128,12 @@ def run_cli(main, argv=None):
     string happened to be. Routing through here gives all of them the same
     failure class, the same stream, and the same `--output json` behaviour
     without each entrypoint restating it.
+
+    OSError is caught alongside Failure because the filesystem rejects inputs
+    this code cannot pre-validate: a path over the system limit, a permission
+    denial, a name the filesystem will not encode. Those arrived as a raw
+    traceback and exit 1, which is the one shape the contract promises never to
+    emit, and it leaks absolute paths from the machine that ran it.
     """
     argv = sys.argv[1:] if argv is None else argv
     as_json = wants_json(argv)
@@ -111,6 +142,14 @@ def run_cli(main, argv=None):
     except Failure as error:
         report_failure(error, as_json, sys.stderr)
         raise SystemExit(error.code) from error
+    except OSError as error:
+        # errno distinguishes "you asked for something impossible" from "the
+        # machine could not do it", which map to different sysexits codes.
+        code = EX_DATAERR if error.errno in USAGE_ERRNOS else EX_UNAVAILABLE
+        detail = error.strerror or type(error).__name__
+        failure = Failure(f"{detail}: {shorten(str(error.filename or ''))}".rstrip(": "), code)
+        report_failure(failure, as_json, sys.stderr)
+        raise SystemExit(code) from error
 
 
 def now():
@@ -569,6 +608,28 @@ def self_check():
         # to fall back rather than be handed an empty set they would read as
         # "this project ships no files".
         assert shipped_paths(root) is None
+
+        # A filesystem refusal must arrive as the same failure shape as any
+        # other, not as a traceback: the exit code is the contract, and a
+        # traceback also prints absolute paths from the machine that ran it.
+        for error, expected in (
+            (OSError(errno.ENAMETOOLONG, "File name too long", "x" * 400), EX_DATAERR),
+            (OSError(errno.EACCES, "Permission denied", "/root/secret"), EX_UNAVAILABLE),
+        ):
+
+            def raise_error(error=error):
+                raise error
+
+            try:
+                with redirect_stderr(io.StringIO()) as captured:
+                    run_cli(raise_error, argv=[])
+            except SystemExit as exit_error:
+                assert exit_error.code == expected, (error, exit_error.code)
+                assert error.strerror in captured.getvalue()
+            else:
+                raise AssertionError(f"{error} did not exit")
+        assert len(shorten("y" * 400)) < 200
+        assert shorten("short") == "short"
 
     repository = Path(__file__).resolve().parent.parent
     shipped = shipped_paths(repository)
