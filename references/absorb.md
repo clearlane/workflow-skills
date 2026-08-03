@@ -80,113 +80,31 @@ Design for repeated absorption:
 
 Avoid folders named after each absorbed source unless source identity affects runtime behavior. Source-shaped organization scales linearly and preserves duplication.
 
-## Analysis Artifact
+## Run Artifacts
 
-Write `analyses/target.json` for an existing target and `analyses/<source-id>.json` for every source:
+[artifacts.md](artifacts.md) owns the run directory, the schema and version stamp, and the coordinator/agent ownership split. The field-level shape of every artifact below lives in `schemas/`, which the coordinator validates against directly; this section owns only the rules a schema cannot express.
 
-```json
-{
-  "source_id": "001-example",
-  "summary": "What this source contributes",
-  "capabilities": [
-    {
-      "id": "stable-capability-id",
-      "purpose": "Observable behavior or preserved constraint",
-      "evidence": ["SKILL.md", "scripts/example.py"],
-      "suggested_destination": "SKILL.md or references/topic.md",
-      "notes": "Optional synthesis advice"
-    }
-  ],
-  "triggers": ["user intent or context"],
-  "resources": ["scripts/example.py"],
-  "overlaps": [
-    {
-      "with": "target or another source ID",
-      "topic": "shared behavior",
-      "relationship": "duplicate, complement, or conflict"
-    }
-  ],
-  "conflicts": [
-    {
-      "topic": "conflicting rule",
-      "recommendation": "preferred resolution",
-      "reason": "evidence-based reason"
-    }
-  ],
-  "risks": ["migration or compatibility risk"],
-  "runtime_dependencies": [
-    {
-      "id": "vendor-tool-name",
-      "symbol": "VendorTool",
-      "kind": "tool, model, path, metadata, environment, or syntax",
-      "evidence": ["SKILL.md"],
-      "notes": "Why this is runtime-specific"
-    }
-  ]
-}
-```
+| Artifact | Schema | Written by |
+|---|---|---|
+| `analyses/target.json`, `analyses/<source-id>.json` | `analysis.schema.json` | agent, one per skill analysed |
+| `plan.json` | `plan.schema.json` | agent |
+| `apply.json` | `apply.schema.json` | agent |
+| `validation.json` | `validation.schema.json` | agent |
+| `feedback.json` | `feedback.schema.json` | agent |
 
-## Plan Artifact
+### Rules Beyond the Schema
 
-Write `plan.json`:
+A schema checks one document against itself. These constraints span documents, so the coordinator checks them:
 
-```json
-{
-  "target_contract": {
-    "name": "target-skill-name",
-    "description": "Combined trigger contract",
-    "runtime_policy": "runtime-neutral",
-    "scope": ["included jobs"],
-    "non_goals": ["excluded jobs"]
-  },
-  "capability_map": [
-    {
-      "key": "001-example:stable-capability-id",
-      "decision": "integrate",
-      "destination": "references/topic.md",
-      "reason": "Canonical home for this capability"
-    }
-  ],
-  "decisions": [
-    {
-      "topic": "design choice",
-      "decision": "selected behavior",
-      "sources": ["target", "001-example"],
-      "reason": "why"
-    }
-  ],
-  "file_operations": [
-    {
-      "op": "update",
-      "path": "SKILL.md",
-      "purpose": "Unify activation and workflow",
-      "sources": ["target", "001-example"]
-    }
-  ],
-  "omitted_items": [
-    {
-      "item": "obsolete guidance",
-      "reason": "superseded by runtime behavior"
-    }
-  ],
-  "runtime_adapter_map": [
-    {
-      "key": "001-example:vendor-tool-name",
-      "decision": "generalize",
-      "destination": "references/adapters.md",
-      "reason": "Keep capability without vendor syntax"
-    }
-  ],
-  "risks": ["risk requiring review"],
-  "validation_commands": ["python3 scripts/check.py"]
-}
-```
-
-For `omit`, `reason` is required and `destination` may be absent. For `integrate` and `retain`, `destination` is required. Every capability key from all analyses must appear exactly once, and every runtime dependency key exactly once with `generalize` or `omit`; both require a reason, and `generalize` requires a destination.
+- **Coverage.** Every capability key from every analysis appears in `capability_map` exactly once, and every runtime dependency key exactly once. A plan that silently drops a capability is the failure absorption exists to prevent, and no single document can detect it.
+- **Disposition consistency.** `omit` requires a reason and needs no destination. `integrate` and `retain` require a destination. `generalize` requires both.
+- **Identity.** That an analysis describes the source it claims to is knowable only from the inventory.
+- **Binding.** That a recorded `plan_sha256` matches the plan this run bound is a fact about the run, not about the file.
+- **Path safety.** That a file operation stays inside the target is a question about the filesystem.
 
 ## Merge Evidence
 
-`apply.json` records the bound `plan_sha256`, cumulative `changed_files`, cumulative `deleted_files`, and `notes`. `validation.json` records the bound `plan_sha256`, `passed`, a non-empty `checks` list of `name`, `command`, and `exit_code`, plus `remaining_gaps` and `notes`. A passing validation cannot contain a failed check or a remaining gap. Every list field stays a list even when empty.
+`apply.schema.json` and `validation.schema.json` own the shape of the two evidence artifacts. What they cannot state: a passing validation cannot contain a failed check or a remaining gap, and both must carry the `plan_sha256` this run actually bound.
 
 Malformed evidence and unsafe execution are different failures. A wrong field type or an empty check list means the run cannot read the evidence yet, so the coordinator rejects it and holds the phase. Rollback is reserved for evidence that proves the mutation unsafe: a changed plan or source, a diff outside the bound plan, a diff contradicting the declaration, or exhausted attempts. Because a rollback is lossy, it preserves the in-progress target first, so a scope mistake costs a re-bind rather than the merge.
 
@@ -198,6 +116,6 @@ Absorption is the one workflow that runs itself against unfamiliar material ever
 - A rule the run had to violate to make progress is either a wrong rule or a missing capability. Do not silently bypass it.
 - Repeated manual steps between phases belong in the coordinator.
 
-`feedback.json` records `observations` and `improvements`. Each observation needs `issue`, `evidence`, and a `disposition` of `fixed`, `deferred`, or `accepted`. A `fixed` observation must name the `changed_files` carrying the fix, so the claim is checkable against the diff. A `deferred` or `accepted` observation must state its `reason`.
+`feedback.schema.json` owns its shape. Each observation needs `issue`, `evidence`, and a `disposition` of `fixed`, `deferred`, or `accepted`. A `fixed` observation must name the `changed_files` carrying the fix, so the claim is checkable against the diff. A `deferred` or `accepted` observation must state its `reason`.
 
 Coordinator fixes are target edits like any other, so they stay inside a recorded scope. Record the extra paths with `extend-scope` and a reason, which keeps the correct merge and still confines mutation to the pre-mutation snapshot. Reserve `revise-plan` for a change of intent. Never widen a diff silently: an unrecorded out-of-scope path is still unsafe evidence and still rolls the run back.

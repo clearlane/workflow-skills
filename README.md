@@ -110,6 +110,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 
 - `references/structure.md` — skill contract, progressive disclosure, resources, and deployment shapes
 - `references/patterns.md` — dynamic coordinator patterns
+- `references/artifacts.md` — run directory layout, artifact stamping, ownership, and the standards behind digests and timestamps
 - `references/naming.md` — one-word and family-first hierarchical filename convention
 - `references/checks.md` — where checks and approval gates belong so failure stays actionable
 - `references/closure.md` — owner-boundary questions that close a design run
@@ -123,7 +124,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `references/layout.md` — evidence rules deciding when a layout is actually wrong
 - `references/migration.md` — boundary-at-a-time move execution and reference repair
 - `references/review.md` — review evidence, severity, and disposition rules
-- `references/absorb.md` — capability model, merge dispositions, conflict policy, and absorption artifact schemas
+- `references/absorb.md` — capability model, merge dispositions, conflict policy, and the cross-document rules a schema cannot express
 - `references/upstream/` — one provenance record per absorbed source, plus the refresh procedure
 
 **Coordinators and tooling**
@@ -131,7 +132,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `scripts/design.py` — design coordinator deriving phases from the recorded contract, with durable decisions and resume
 - `scripts/review.py` — review coordinator deriving phases from detected surfaces, with a disposition-gated verdict
 - `scripts/absorb.py` — absorption coordinator with durable run state, plan binding, snapshot rollback, and self-check
-- `scripts/state.py` — shared durable-run primitives used by both coordinators
+- `scripts/state.py` — shared durable-run primitives: digests, run state, and schema-validated artifact IO
 - `scripts/document.py` — markdown and YAML document model backing the structural checks
 - `scripts/inventory.py` — deterministic structural inventory for layout audits
 - `scripts/check.py` — single entrypoint running every deterministic repository check
@@ -141,6 +142,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 
 **Supporting files**
 
+- `schemas/` — one JSON Schema per run-artifact kind, with shared definitions in `common.schema.json`
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
 - `agents/openai.yaml` — Codex UI metadata
 - `pyproject.toml` — the single source of truth for dependency versions, the supported Python floor, and lint rules
