@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import absorb
 import cli
 import design
 import document
@@ -40,6 +41,7 @@ VENDOR_TOKENS = ("{baseDir}", "quick_validate", "approved_plan_sha256")
 PHASE_SECTION = "Phases the Coordinator Always Runs"
 DESIGN_WORKFLOW = "workflows/design.md"
 REVIEW_WORKFLOW = "workflows/review.md"
+ABSORB_WORKFLOW = "workflows/absorb.md"
 README = "README.md"
 CHECKER = "check.py"
 README_SECTION = "Structure"
@@ -142,10 +144,11 @@ def check_phase_owners(root):
     phase names, and it fails the moment a phase is added without a contract.
     """
     failures = []
-    entry_documents = {DESIGN_WORKFLOW, REVIEW_WORKFLOW, "SKILL.md"}
+    entry_documents = {DESIGN_WORKFLOW, REVIEW_WORKFLOW, ABSORB_WORKFLOW, "SKILL.md"}
     coordinators = (
         ("design", design.derive_phases(design.CAPABILITIES), design.phase_resource),
         ("review", review.derive_phases(review.SURFACES), review.phase_resource),
+        ("absorb", absorb.derive_phases(), absorb.phase_resource),
     )
     owners = {}
     for coordinator, phases, resolve in coordinators:

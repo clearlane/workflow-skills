@@ -395,6 +395,34 @@ def validate_feedback(root):
     return value
 
 
+# The contract each phase answers to. A phase whose resource is the workflow
+# that dispatched the coordinator answers "what do I read now?" with "the file
+# you came from", so every phase names a section that owns its rules.
+PHASE_RESOURCES = {
+    "analysis": "references/absorb.md#analysis-dimensions",
+    "plan": "references/absorb.md#merge-decisions",
+    "merge": "references/absorb.md#merge-evidence",
+    "validation": "references/absorb.md#validation-evidence",
+    "complete": "references/absorb.md#orchestrator-feedback",
+    "rolled-back": "references/absorb.md#conflict-policy",
+}
+PHASES = tuple(PHASE_RESOURCES)
+
+
+def derive_phases(_capabilities=None):
+    """Absorption's phases are fixed: every run analyses, plans, merges, validates.
+
+    Unlike design and review, the shape does not vary with the target, so this
+    takes no input. It exists so the repository's phase-owner check can treat
+    all three coordinators the same way.
+    """
+    return list(PHASES)
+
+
+def phase_resource(phase):
+    return PHASE_RESOURCES[phase]
+
+
 def next_action(phase):
     return {
         "analysis": "Write analyses/<source-id>.json for every source, then run advance.",
@@ -418,6 +446,7 @@ def print_status(root, state, inventory):
         "execution_plan_sha256": state.get("execution_plan_sha256"),
         "rollback_scope": state.get("rollback_scope"),
         "rollback_reason": state.get("rollback_reason"),
+        "resource": phase_resource(state["phase"]),
         "next_action": next_action(state["phase"]),
     }
     print(json.dumps(output, indent=2, sort_keys=True))

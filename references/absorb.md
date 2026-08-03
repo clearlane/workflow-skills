@@ -104,9 +104,19 @@ A schema checks one document against itself. These constraints span documents, s
 
 ## Merge Evidence
 
-`apply.schema.json` and `validation.schema.json` own the shape of the two evidence artifacts. What they cannot state: a passing validation cannot contain a failed check or a remaining gap, and both must carry the `plan_sha256` this run actually bound.
+`apply.schema.json` owns the declaration's shape. What it cannot state: the declaration must carry the `plan_sha256` this run actually bound, and it is checked against the real target diff. The declaration exists so a mismatch is detectable at all, since without it there is nothing to compare the diff to.
 
-Malformed evidence and unsafe execution are different failures. A wrong field type or an empty check list means the run cannot read the evidence yet, so the coordinator rejects it and holds the phase. Rollback is reserved for evidence that proves the mutation unsafe: a changed plan or source, a diff outside the bound plan, a diff contradicting the declaration, or exhausted attempts. Because a rollback is lossy, it preserves the in-progress target first, so a scope mistake costs a re-bind rather than the merge.
+Edit the target and nothing else. A path outside the bound plan is either a mistake or a deliberate widening, and only one of those is safe: record the deliberate case with `extend-scope` and a reason. An unrecorded out-of-scope path is unsafe evidence.
+
+Malformed evidence and unsafe execution are different failures. A wrong field type means the run cannot read the evidence yet, so the coordinator rejects it and holds the phase. Rollback is reserved for evidence that proves the mutation unsafe: a changed plan or source, a diff outside the bound plan, or a diff contradicting the declaration. Because a rollback is lossy, it preserves the in-progress target first, so a scope mistake costs a re-bind rather than the merge.
+
+## Validation Evidence
+
+`validation.schema.json` owns the verdict's shape. What it cannot state: a passing validation cannot contain a failed check or a remaining gap, and the verdict must carry the same bound `plan_sha256` as the merge it judges.
+
+Run the target's own checks rather than asserting the merge looks right. A validation with an empty check list is malformed, not passing: it claims a verdict no observation supports.
+
+Retries are bounded. A failed validation returns the run to `merge` so the next attempt has the previous verdict to work from, and each attempt is preserved rather than overwritten. Exhausting the bound rolls the target back and exits as a failure, because a rolled-back run reported as a success defeats the bound entirely.
 
 ## Orchestrator Feedback
 
