@@ -4,8 +4,13 @@
 __pycache__/
 *.html
 
-# Editable install of the check dependencies (see requirements.txt)
+# Artifacts of the toolchain pyproject.toml declares. Ignored because a
+# `pip install .` or a `ruff` run must not leave files a later `git add -A`
+# would commit; the egg-info entry already covered one third of that.
 *.egg-info/
+build/
+dist/
+.ruff_cache/
 
 # Generated agent skill directories (see skills-lock.json)
 agent/
