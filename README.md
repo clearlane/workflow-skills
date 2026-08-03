@@ -1,5 +1,7 @@
 # Designing Workflow Skills
 
+[![checks](https://github.com/clearlane/workflow-skills/actions/workflows/checks.yml/badge.svg)](https://github.com/clearlane/workflow-skills/actions/workflows/checks.yml)
+
 **An Agent Skill for building Agent Skills.** Design, review, and merge multi-step AI agent workflows that hold their control flow in executable coordinators instead of prose an agent has to remember.
 
 Works with Claude Code, Codex, Cursor, and any runtime that loads `SKILL.md` — the guidance stays runtime-neutral, and host-specific syntax is confined to adapters.
@@ -132,7 +134,9 @@ Run every deterministic check with one command:
 python3 scripts/check.py
 ```
 
-It runs the filename convention, the shared-state, document-model, settings-resolver, design, review, absorption, and inventory self-checks, the skill contract and size budget, relative-link and anchor resolution, resource reachability, one-canonical-section-per-document, phase-owner distinctness, documented capabilities and review phases, README structure coverage, and a runtime-neutral token scan.
+It runs the filename convention, the shared-state, document-model, settings-resolver, design, review, absorption, and inventory self-checks, the skill contract and size budget, relative-link and anchor resolution, resource reachability, one-canonical-section-per-document, phase-owner distinctness, documented capabilities and review phases, README structure coverage, shebang and executable-bit agreement, and a runtime-neutral token scan.
+
+The checks need Python 3.10 or later and the parsers in `requirements.txt`. Lint rules and the supported Python floor live in `pyproject.toml`, so `ruff` reports the same findings everywhere.
 
 Two checks delegate to external tools and skip silently when the tool is absent, so the default run needs only the Python dependencies above:
 
@@ -142,6 +146,8 @@ Two checks delegate to external tools and skip silently when the tool is absent,
 ```bash
 CHECK_EXTERNAL_LINKS=1 python3 scripts/check.py
 ```
+
+GitHub Actions runs the deterministic suite on every push and pull request against both the declared floor and the current Python release. External link checking runs on a weekly schedule instead, so a briefly unreachable third-party host cannot fail an unrelated change.
 
 ## Looking for the Trail of Bits Plugin
 
