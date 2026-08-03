@@ -41,6 +41,16 @@ COMPATIBILITY_LIMIT = 500
 SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 REQUIRED_FRONTMATTER = ("name", "description")
 VENDOR_TOKENS = ("{baseDir}", "quick_validate", "approved_plan_sha256")
+# Host names, which the token list previously omitted: it held only three
+# legacy strings, so guidance could name a specific runtime and pass. These are
+# checked only where neutrality is the rule. Quoting a host in the README, in
+# vendored upstream material, or inside an installed third-party skill is not a
+# neutrality violation, and scanning those would make the check unusable.
+HOST_TOKENS = ("Claude Code", "~/.claude", "CLAUDE.md", ".cursor", "Cursor", "Copilot")
+NEUTRAL_ROOTS = ("references", "workflows")
+NEUTRAL_FILES = ("SKILL.md", "AGENTS.md", "CONTRIBUTING.md")
+# Upstream material is vendored verbatim, so it describes the host it came from.
+NEUTRAL_EXEMPT = ("references/upstream",)
 PHASE_SECTION = "Phases the Coordinator Always Runs"
 DESIGN_WORKFLOW = "workflows/design.md"
 REVIEW_WORKFLOW = "workflows/review.md"
@@ -130,10 +140,19 @@ def check_vendor_tokens(root):
     """Core guidance stays runtime-neutral; host syntax belongs in adapters."""
     failures = []
     for parsed in document.walk(root):
+        relative = parsed.path.relative_to(root)
+        posix = relative.as_posix()
+        # A document is core guidance if it is a contract in references/ or
+        # workflows/, or one of the top-level documents that speak for the
+        # repository. Everything else may name a host freely.
+        neutral = (relative.parts[0] in NEUTRAL_ROOTS or posix in NEUTRAL_FILES) and not posix.startswith(
+            NEUTRAL_EXEMPT
+        )
+        tokens = VENDOR_TOKENS + (HOST_TOKENS if neutral else ())
         for number, line in enumerate(parsed.text.splitlines(), 1):
-            for token in VENDOR_TOKENS:
+            for token in tokens:
                 if token in line:
-                    failures.append(f"{parsed.path.relative_to(root)}:{number}: vendor token {token}")
+                    failures.append(f"{relative}:{number}: vendor token {token}")
     return failures
 
 
