@@ -716,38 +716,43 @@ def run_ruff(root, *arguments):
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
-def ruff_version_mismatch(root):
-    """Report a ruff whose version is not the one pyproject.toml pins.
+def tool_version_mismatches(root):
+    """Report a shelled-out tool whose version is not the one pyproject.toml pins.
 
-    The pin exists so a ruff upgrade cannot silently widen or narrow what this
-    repository considers an error. It only holds for the ruff pip installed:
-    shutil.which finds whatever is first on PATH, so a system-wide ruff
-    silently replaced the pinned one and enforced a different rule set. That is
-    invisible either way round, as a finding the pinned version would not
-    raise, or as a missed finding on a machine running something older.
+    The pins exist so an upgrade cannot silently widen or narrow what this
+    repository considers an error. They only ever bound the copy pip installed:
+    check.py resolves each tool with shutil.which, which returns whatever is
+    first on PATH, so a system-wide install silently replaces the pinned one
+    and enforces a different rule set. That is invisible either way round, as a
+    finding the pinned version would not raise, or as a missed finding on a
+    machine running something older.
 
-    Reported rather than fatal, because a contributor with a newer ruff should
-    still be able to run the suite; the point is that they can see the
-    substitution.
+    Derived from the dev extra rather than a second list here, so pinning a new
+    tool covers it without editing this function. Reported rather than fatal,
+    because a contributor with a different version should still be able to run
+    the suite; the point is that they can see the substitution.
     """
-    executable = shutil.which("ruff")
-    if executable is None:
-        return []
-    pinned = re.search(r'"ruff==([0-9]+)\.([0-9]+)', (root / "pyproject.toml").read_text(encoding="utf-8"))
-    if pinned is None:
-        return ["pyproject.toml no longer pins ruff; the lint rule set is unbounded"]
-    result = subprocess.run([executable, "--version"], capture_output=True, text=True, check=False)
-    found = re.search(r"([0-9]+)\.([0-9]+)", result.stdout)
-    if found is None:
-        return []
-    if found.group(1, 2) != pinned.group(1, 2):
-        return [
-            (
-                f"ruff on PATH is {found.group(0)} but pyproject.toml pins "
-                f"{pinned.group(1)}.{pinned.group(2)}.*; lint results will not match CI"
+    text = (root / "pyproject.toml").read_text(encoding="utf-8")
+    extra = re.search(r"dev\s*=\s*\[(.*?)\]", text, re.S)
+    if extra is None:
+        return ["pyproject.toml declares no dev extra; the tool versions are unbounded"]
+    failures = []
+    pinned = re.findall(r'"([A-Za-z0-9_.-]+)\s*[=~]=\s*([0-9]+)\.([0-9]+)', extra.group(1))
+    if not pinned:
+        return ["pyproject.toml pins no tool versions; the rule sets are unbounded"]
+    for name, major, minor in pinned:
+        executable = shutil.which(name)
+        if executable is None:
+            continue
+        result = subprocess.run([executable, "--version"], capture_output=True, text=True, check=False)
+        found = re.search(r"([0-9]+)\.([0-9]+)", result.stdout)
+        if found is None:
+            continue
+        if found.group(1, 2) != (major, minor):
+            failures.append(
+                f"{name} on PATH is {found.group(0)} but pyproject.toml pins {major}.{minor}; results will not match CI"
             )
-        ]
-    return []
+    return failures
 
 
 def run_script(root, name, *arguments, expect=None):
@@ -904,11 +909,14 @@ def self_check():
         matrix.write_text('        python-version: ["3.11"]\n', encoding="utf-8")
         assert check_ci_floor(tree) == []
 
-        # The pin check must notice a missing pin, which is the state in which
-        # the lint rule set is silently whatever the machine happens to have.
-        project.write_text('dev = ["check-jsonschema~=0.37"]\n', encoding="utf-8")
+        # The pin check must notice a version that differs from the pin, and a
+        # dev extra that pins nothing at all; both leave the rule set as
+        # whatever the machine happens to have.
+        project.write_text('dev = ["ruff==0.1.*"]\n', encoding="utf-8")
         if shutil.which("ruff") is not None:
-            assert ruff_version_mismatch(tree), "an unpinned ruff was accepted"
+            assert tool_version_mismatches(tree), "a ruff differing from the pin was accepted"
+        project.write_text('dev = ["ruff"]\n', encoding="utf-8")
+        assert tool_version_mismatches(tree), "a dev extra pinning nothing was accepted"
 
     print("self-check passed")
 
@@ -924,7 +932,7 @@ def main():
         *discovered_self_checks(ROOT),
         ("self-checks assert", lambda: self_checks_assert_something(ROOT)),
         ("CI tests the floor", lambda: check_ci_floor(ROOT)),
-        ("ruff matches the pin", lambda: ruff_version_mismatch(ROOT)),
+        ("tools match their pins", lambda: tool_version_mismatches(ROOT)),
         ("skill contract", lambda: check_skill(ROOT)),
         ("links and anchors", lambda: document.broken_links(ROOT)),
         ("resource reachability", lambda: check_reachability(ROOT)),
