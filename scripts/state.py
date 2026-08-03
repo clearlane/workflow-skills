@@ -164,9 +164,17 @@ def now():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+# A slug becomes a directory name in absorb's source ids, so it has to fit in
+# a filesystem component. POSIX guarantees NAME_MAX is at least 255; the bound
+# is set well below that so a caller-supplied prefix still fits.
+SLUG_LIMIT = 64
+
+
 def slug(value):
     normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return normalized or "skill"
+    # Truncating on a separator keeps the result readable rather than cutting a
+    # word in half, and the strip repairs the case where the cut lands on one.
+    return normalized[:SLUG_LIMIT].strip("-") or "skill"
 
 
 def read_json(path):
@@ -602,6 +610,13 @@ def self_check():
         assert not paths_overlap(Path("/a"), Path("/b"))
         assert slug("Absorb Skills!") == "absorb-skills"
         assert slug("---") == "skill"
+        # A slug names a directory, so it must fit a filesystem component
+        # whatever it was built from, and must never end on the cut separator.
+        for source in ("a " * 400, "x" * 400, "word-" * 50):
+            produced = slug(source)
+            assert len(produced) <= SLUG_LIMIT, (source[:20], len(produced))
+            assert not produced.startswith("-") and not produced.endswith("-"), produced
+            assert produced
         check_canonical_digests(root)
         check_history_survives_state_loss(root / "run")
         # Outside a repository there is nothing to ship, so callers must be told
