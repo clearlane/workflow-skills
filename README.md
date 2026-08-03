@@ -28,7 +28,7 @@ Works with Claude Code, Codex, Cursor, and any runtime that loads `SKILL.md` —
 
 </div>
 
-> **Continuation of the `designing-workflow-skills` skill removed from [`trailofbits/skills`](https://github.com/trailofbits/skills) in July 2026.** Actively maintained. See [Looking for the Trail of Bits Plugin](#looking-for-the-trail-of-bits-plugin) if that is what brought you here.
+> **Started as a fork of the `designing-workflow-skills` skill Trail of Bits removed in July 2026, and has since been rebuilt.** The prose workflow became 1,700 lines of executable coordinators, and seven further sources were absorbed. If the deleted plugin is what brought you here, see [Relationship to the Trail of Bits Plugin](#relationship-to-the-trail-of-bits-plugin).
 
 ## Why This Exists
 
@@ -172,28 +172,25 @@ CHECK_EXTERNAL_LINKS=1 python3 scripts/check.py
 
 GitHub Actions runs the deterministic suite on every push and pull request against both the declared floor and the current Python release. External link checking runs on a weekly schedule instead, so a briefly unreachable third-party host cannot fail an unrelated change.
 
-## Looking for the Trail of Bits Plugin
+## Relationship to the Trail of Bits Plugin
 
-If you are searching for `designing-workflow-skills`, `workflow-skill-design`, or the deleted Trail of Bits workflow-skill plugin, you are in the right place. Trail of Bits removed `plugins/workflow-skill-design/` from [`trailofbits/skills`](https://github.com/trailofbits/skills) in [PR #215](https://github.com/trailofbits/skills/pull/215) on July 31, 2026. This repository is the continuation of that work, and it is actively maintained.
+If you are searching for `designing-workflow-skills`, `workflow-skill-design`, or the deleted Trail of Bits workflow-skill plugin, this repository is where that line of work continued. Trail of Bits removed `plugins/workflow-skill-design/` from [`trailofbits/skills`](https://github.com/trailofbits/skills) in [PR #215](https://github.com/trailofbits/skills/pull/215) on July 31, 2026.
 
-The skill you want is `designing-workflow-skills` — install it with the command above. Every capability of the original is still present, and the last pre-removal revision is preserved at commit [`09dfbd91537b888136c9203dca4ffdee5a595c69`](https://github.com/trailofbits/skills/commit/09dfbd91537b888136c9203dca4ffdee5a595c69) if you need to compare.
+What you install here is not that plugin. It keeps the original's goal and covers what the original covered, but the design was rebuilt rather than maintained, and most of the surface is now new. The last pre-removal revision is preserved at commit [`09dfbd91537b888136c9203dca4ffdee5a595c69`](https://github.com/trailofbits/skills/commit/09dfbd91537b888136c9203dca4ffdee5a595c69) if you want the original behavior instead.
 
-### What Changed Since the Original
+### How Far It Has Moved
 
-The skill has diverged substantially from the version Trail of Bits published. The largest difference is architectural: workflow control moved out of prose and into executable coordinators.
+The original was a prose skill: numbered steps an agent read and tried to follow. The workflow now lives in code.
 
-- Ordering, branching, concurrency, retry, and resume logic now live in `scripts/design.py`, `scripts/review.py`, and `scripts/absorb.py` rather than in numbered instructions an agent had to remember.
-- Phase lists are derived from a recorded contract, so a skill without settings never walks a settings phase.
-- Runtime-specific tool guidance became runtime-neutral capability guidance, enforced by an automated token scan.
-- Obsolete task tools, fixed batching advice, and mandatory prompt-level verification were removed.
-- Generic skill-authoring guidance already covered by current skill tooling was dropped.
-- Trail of Bits branding was removed while attribution was preserved.
-
-Capabilities added since the fork include evidence-gated skill review with a disposition-gated verdict, evidence-bound absorption with snapshot rollback, layout restructuring, bundle packaging, validated skill settings, and a single deterministic check entrypoint.
+- **Control flow is executable.** Ordering, branching, concurrency, retry, and resume logic live in roughly 1,700 lines across `scripts/design.py`, `scripts/review.py`, and `scripts/absorb.py`, not in instructions a model has to remember. An interrupted run resumes from artifacts on disk.
+- **Phases are derived, not fixed.** The phase list comes from a recorded capability contract, so a skill without settings never walks a settings phase.
+- **Guidance is runtime-neutral.** Runtime-specific tool advice became capability guidance, enforced by an automated token scan rather than by review.
+- **Scope grew past the original.** Seven further sources were absorbed, and evidence-gated review with a disposition-gated verdict, evidence-bound absorption with snapshot rollback, layout restructuring, bundle packaging, validated skill settings, and a single deterministic check entrypoint did not exist in the original.
+- **Dropped along the way.** Obsolete task tools, fixed batching advice, mandatory prompt-level verification, generic authoring guidance now covered by host tooling, and Trail of Bits branding.
 
 ### Attribution
 
-This project began as an adaptation of Trail of Bits' `designing-workflow-skills` skill and remains licensed under the same terms. Credit for the original design belongs to [Trail of Bits](https://github.com/trailofbits).
+This project began as an adaptation of Trail of Bits' `designing-workflow-skills` skill and remains licensed under the same terms. Credit for the original design belongs to [Trail of Bits](https://github.com/trailofbits). Responsibility for everything built since is this repository's, and the current design should not be read as theirs.
 
 Command-entrypoint guidance independently re-expresses generic concepts from the upstream `command-development` source. No runtime-specific syntax, files, or examples were copied.
 
