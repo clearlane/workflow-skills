@@ -12,6 +12,7 @@ A run directory is created empty, lives outside every skill it operates on, and 
 run/
   state.json              current phase and bindings
   history.jsonl           append-only transition log
+  .lock                   held while a command advances the run
   decisions/<phase>.json  why each phase was considered done
   <artifact>.json         workflow-specific evidence
 ```
@@ -62,6 +63,24 @@ Name the standard rather than describing the behavior. A skill that says "canoni
 Keeping the log inside the state document puts an append-only record in the one structure guaranteed to be rewritten: a failed write risks the log along with the state, and a long run rewrites its entire history to add one line.
 
 Append the transition **before** writing the state it produced. A crash between the two then leaves evidence that the transition was attempted, which is the more useful of the two failure modes.
+
+## One Writer At A Time
+
+A run advances by reading the state, deciding, and writing it back. Two commands doing that at once both read the same phase and the second overwrites the first, so a completed phase disappears from a document that no longer records it. Take an exclusive lock on the run for the whole read-decide-write span, not just the write: locking only the write makes each write atomic and still loses the update.
+
+Hold it in a file inside the run directory and let the operating system release it, so a crash cannot leave a run permanently locked. A lock that survives its holder is worse than none, because the recovery is manual and the run looks corrupt.
+
+Re-entry by the process already holding the lock must not block: a coordinator that opens a run it already has open would otherwise wait for itself, and report a conflict naming a process that does not exist.
+
+## Validate The State You Read, Not Only The State You Write
+
+A state document is written by a coordinator and read by whichever one resumes the run, possibly a different version, possibly after a hand edit. Validate on the way **in**: the schema for shape, and then the rules a schema cannot express, because those are the ones a resumed run depends on.
+
+- `phase` is one of this run's own `phases`, or a terminal phase.
+- `completed` names only phases that exist, and names each at most once. It is a set: a repeat lets a run claim a completion it never performed.
+- `completed` holds no more entries than `history.jsonl` records transitions. The log is appended first and survives losing the state, so where they disagree the state is the document that is wrong.
+
+Each rule earns its place by naming the corruption it catches. A check that cannot say what goes wrong without it is decoration.
 
 ## Schemas
 
