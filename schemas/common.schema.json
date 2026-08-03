@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/common.schema.json",
+  "title": "Shared artifact definitions",
+  "description": "Vocabulary reused by every run artifact. Defined once so a field cannot mean one thing in a plan and another in an analysis. references/artifacts.md owns the prose contract.",
+  "$defs": {
+    "version": {
+      "description": "Artifact format version. Bumped only when a change makes an in-flight run unresumable rather than merely older.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "schemaRef": {
+      "description": "Identifier of the schema this artifact claims to satisfy, so a reader can validate it without knowing which coordinator wrote it.",
+      "type": "string",
+      "format": "uri-reference",
+      "minLength": 1
+    },
+    "timestamp": {
+      "description": "RFC 3339 date-time restricted to the UTC 'Z' offset, which is what state.now() emits and the only form every consumer reads identically. The pattern rather than `format: date-time` because format is an unchecked annotation unless a validator opts in, and because RFC 3339 alone would also admit a local offset.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+    },
+    "text": {
+      "description": "Prose a human must be able to act on, so whitespace alone does not satisfy it.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "textList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/text"
+      }
+    },
+    "relativePath": {
+      "description": "A path inside the run's target. Traversal and absolute forms are rejected imperatively in state.safe_relative_path, because a pattern cannot express what is inside a directory.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/].*$"
+    },
+    "pathList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/relativePath"
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "identifier": {
+      "description": "A stable lowercase key used to join artifacts across phases.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "historyRecord": {
+      "description": "One line of history.jsonl.",
+      "type": "object",
+      "required": [
+        "at",
+        "event",
+        "phase"
+      ],
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "event": {
+          "$ref": "#/$defs/text"
+        },
+        "phase": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    }
+  }
+}

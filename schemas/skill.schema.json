@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/skill.schema.json",
+  "title": "Skill digest record",
+  "description": "A skill's per-file digests at one moment. Written on its own as target-after-merge.json, and embedded in inventory.json for the target and every source.",
+  "type": "object",
+  "required": [
+    "path",
+    "exists",
+    "files",
+    "sha256"
+  ],
+  "properties": {
+    "path": {
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "exists": {
+      "type": "boolean"
+    },
+    "files": {
+      "description": "Per-file digest and size. A whole-tree digest alone would say something changed without saying what.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/fileEntry"
+      }
+    },
+    "sha256": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    }
+  },
+  "$defs": {
+    "fileEntry": {
+      "type": "object",
+      "required": [
+        "sha256",
+        "size"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

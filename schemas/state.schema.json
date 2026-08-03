@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/state.schema.json",
+  "title": "Coordinator run state",
+  "description": "state.json. A mutable snapshot of where a run is, rewritten on every transition. It deliberately holds no event log: history.jsonl owns that, so a torn state write cannot take the audit trail with it.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "phase",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "phase": {
+      "description": "Where the run is now. Every coordinator has one, which is what lets a single status envelope describe all of them.",
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "created_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "updated_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "history": {
+      "description": "Rejected outright. Present only in version 1 runs, where it was the bug that motivated the split.",
+      "not": {}
+    },
+    "skill": {
+      "$ref": "#/$defs/subject"
+    },
+    "phases": {
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "completed": {
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "capabilities": {
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "surfaces": {
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "validation_attempts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_validation_attempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "plan_sha256": {
+      "$ref": "#/$defs/optionalDigest"
+    },
+    "execution_plan_sha256": {
+      "description": "The digest execution is bound to. Distinct from plan_sha256 so a plan edited after binding is detectable rather than silently adopted.",
+      "$ref": "#/$defs/optionalDigest"
+    },
+    "rollback_scope": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rollback_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "scope_extensions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/scopeExtension"
+      }
+    }
+  },
+  "$defs": {
+    "subject": {
+      "type": "object",
+      "required": [
+        "name",
+        "path"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "path": {
+          "$ref": "common.schema.json#/$defs/text"
+        }
+      }
+    },
+    "optionalDigest": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scopeExtension": {
+      "description": "A mid-merge widening of the mutable path set. Reasoned and recorded, because the alternative to allowing it is a full rebind, which makes the safe route the expensive one.",
+      "type": "object",
+      "required": [
+        "paths",
+        "reason",
+        "recorded_at"
+      ],
+      "properties": {
+        "paths": {
+          "$ref": "common.schema.json#/$defs/pathList"
+        },
+        "reason": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "recorded_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  }
+}

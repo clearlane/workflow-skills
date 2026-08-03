@@ -14,11 +14,16 @@ import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
+from functools import cache, lru_cache
 from pathlib import Path
 
+import jsonschema
 import rfc8785
+from referencing import Registry, Resource
 
 EXCLUDED_DIRECTORIES = {".git", ".hg", ".svn", "__pycache__", "node_modules"}
+SCHEMA_DIRECTORY = Path(__file__).resolve().parent.parent / "schemas"
+SCHEMA_BASE = "https://clearlane.github.io/workflow-skills/schemas/"
 # Bumped when an artifact's meaning changes in a way that makes an in-flight run
 # unresumable rather than merely older. Version 2 changed the digest algorithm
 # to RFC 8785 and moved the transition log out of state.json, so a version 1 run
@@ -204,6 +209,73 @@ def remove_path(path):
         shutil.rmtree(path)
 
 
+@lru_cache(maxsize=1)
+def schema_registry():
+    """Resolve $ref between schemas from disk, never over the network.
+
+    The $id values are URLs so the schemas are addressable and quotable, but a
+    validator that fetched them would make every run depend on a web host being
+    up. Registering the local files under those identifiers keeps the published
+    names and the offline behaviour.
+    """
+    resources = []
+    for path in sorted(SCHEMA_DIRECTORY.glob("*.schema.json")):
+        contents = json.loads(path.read_text(encoding="utf-8"))
+        resources.append((SCHEMA_BASE + path.name, Resource.from_contents(contents)))
+        # Sibling $refs are written relative, so the bare filename must resolve too.
+        resources.append((path.name, Resource.from_contents(contents)))
+    return Registry().with_resources(resources)
+
+
+@cache
+def schema_validator(name):
+    path = SCHEMA_DIRECTORY / name
+    if not path.is_file():
+        fail(f"Missing schema: {path}")
+    contents = json.loads(path.read_text(encoding="utf-8"))
+    return jsonschema.Draft202012Validator(contents, registry=schema_registry())
+
+
+def schema_errors(name, value):
+    """Every violation, deepest first, as messages an agent can act on.
+
+    Reporting only the first error makes an artifact take one round trip per
+    mistake to repair. The instance path is included because a model rewriting
+    the file needs to know which element was wrong, not just what was wrong.
+    """
+    validator = schema_validator(name)
+    messages = []
+    for error in sorted(validator.iter_errors(value), key=lambda item: list(item.absolute_path)):
+        location = "/".join(str(part) for part in error.absolute_path) or "<root>"
+        messages.append(f"{location}: {error.message}")
+    return messages
+
+
+def stamp(name, value):
+    """Attach the schema identity an artifact claims to satisfy.
+
+    Someone who finds a run directory should be able to validate what is in it
+    without knowing which coordinator wrote it or which version was current when
+    it ran. The stamp is what makes the artifact self-describing.
+    """
+    return {"schema": SCHEMA_BASE + name, "version": VERSION, **value}
+
+
+def write_artifact(path, name, value):
+    """Write a stamped artifact, refusing to emit one that violates its schema.
+
+    A coordinator that writes an invalid artifact turns its own bug into the
+    agent's problem one phase later, where the evidence of what went wrong is
+    gone. Validating on the way out keeps the failure at its cause.
+    """
+    stamped = stamp(name, value)
+    errors = schema_errors(name, stamped)
+    if errors:
+        detail = "\n  ".join(errors)
+        fail(f"Refusing to write {path}: does not satisfy {name}:\n  {detail}")
+    write_json(path, stamped)
+
+
 def check_version(state):
     """Refuse a run written by an incompatible artifact version, and say why.
 
@@ -269,7 +341,7 @@ def save_state(root, state, event):
     """
     state["updated_at"] = now()
     append_history(root, {"at": state["updated_at"], "event": event, "phase": state["phase"]})
-    write_json(root / "state.json", state)
+    write_artifact(root / "state.json", "state.schema.json", state)
 
 
 def check_canonical_digests(root):
@@ -299,7 +371,7 @@ def check_history_survives_state_loss(root):
     would, and require that every transition recorded before it is still
     readable.
     """
-    state = {"version": VERSION, "phase": "first"}
+    state = {"version": VERSION, "phase": "first", "created_at": now(), "updated_at": now()}
     save_state(root, state, "initialized")
     state["phase"] = "second"
     save_state(root, state, "advanced")

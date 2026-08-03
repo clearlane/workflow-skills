@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/analysis.schema.json",
+  "title": "Absorption source analysis",
+  "description": "One analyses/<source-id>.json. Agent-written, which is why it is validated rather than trusted: every later phase joins on the capability and runtime-dependency ids recorded here.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "source_id",
+    "summary",
+    "capabilities",
+    "triggers",
+    "resources",
+    "overlaps",
+    "conflicts",
+    "risks",
+    "runtime_dependencies"
+  ],
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "source_id": {
+      "description": "Must equal the inventory id for this source. Checked imperatively too, because the schema cannot know which source is being read.",
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "summary": {
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "capabilities": {
+      "description": "What this source contributes. Empty means nothing was found worth absorbing, which is a conclusion to state elsewhere rather than an analysis to plan against. Ids must be distinct, because the plan phase joins on '<source>:<id>' and a duplicate would silently collapse two capabilities into one decision.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/capability"
+      },
+      "$comment": "uniqueness is over id only, which uniqueItems cannot express"
+    },
+    "triggers": {
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "resources": {
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "overlaps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/overlap"
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/conflict"
+      }
+    },
+    "risks": {
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "runtime_dependencies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/runtimeDependency"
+      }
+    }
+  },
+  "$defs": {
+    "capability": {
+      "type": "object",
+      "required": [
+        "id",
+        "purpose",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "purpose": {
+          "description": "Observable behavior or preserved constraint, not a file name.",
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "evidence": {
+          "description": "Where the capability is visible in the source. A capability with no evidence is a guess, and the plan phase would carry it forward as fact.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "common.schema.json#/$defs/text"
+          }
+        },
+        "suggested_destination": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "notes": {
+          "$ref": "common.schema.json#/$defs/text"
+        }
+      }
+    },
+    "overlap": {
+      "type": "object",
+      "required": [
+        "with",
+        "topic",
+        "relationship"
+      ],
+      "properties": {
+        "with": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "topic": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "relationship": {
+          "type": "string",
+          "enum": [
+            "duplicate",
+            "complement",
+            "conflict"
+          ]
+        }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "required": [
+        "topic",
+        "recommendation",
+        "reason"
+      ],
+      "properties": {
+        "topic": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "recommendation": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "reason": {
+          "$ref": "common.schema.json#/$defs/text"
+        }
+      }
+    },
+    "runtimeDependency": {
+      "description": "Something in the source tied to one host. Recorded per source so the plan must decide, for each one, whether to generalize it or drop it.",
+      "type": "object",
+      "required": [
+        "id",
+        "symbol",
+        "kind",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/identifier"
+        },
+        "symbol": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "tool",
+            "model",
+            "path",
+            "metadata",
+            "environment",
+            "syntax"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "common.schema.json#/$defs/text"
+          }
+        },
+        "notes": {
+          "$ref": "common.schema.json#/$defs/text"
+        }
+      }
+    }
+  }
+}

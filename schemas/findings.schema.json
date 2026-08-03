@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/findings.schema.json",
+  "title": "Skill review findings",
+  "description": "findings.json. Coordinator-written, and the input to both report.md and report.sarif, so the shape here is what a downstream consumer can rely on.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "findings"
+  ],
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": [
+        "id",
+        "phase",
+        "severity",
+        "summary",
+        "evidence",
+        "disposition",
+        "recorded_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^F[0-9]+$"
+        },
+        "phase": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "blocking",
+            "major",
+            "minor"
+          ]
+        },
+        "summary": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "evidence": {
+          "description": "A path, optionally with a line. Required at record time, which is what makes the mapping to a SARIF location total.",
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "disposition": {
+          "description": "Null until resolved. A blocking finding must leave this state before the verdict phase will complete.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "fixed",
+            "accepted",
+            "deferred",
+            null
+          ]
+        },
+        "disposition_note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recorded_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "resolved_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      },
+      "allOf": [
+        {
+          "description": "A disposition without a note records a decision nobody can review.",
+          "if": {
+            "properties": {
+              "disposition": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "disposition"
+            ]
+          },
+          "then": {
+            "required": [
+              "disposition_note",
+              "resolved_at"
+            ],
+            "properties": {
+              "disposition_note": {
+                "$ref": "common.schema.json#/$defs/text"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

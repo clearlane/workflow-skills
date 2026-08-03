@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/plan.schema.json",
+  "title": "Absorption plan",
+  "description": "plan.json. Agent-written and then digest-bound: once the plan phase accepts it, its RFC 8785 digest is what authorizes every later mutation, so shape errors must be caught before binding rather than after.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "target_contract",
+    "capability_map",
+    "runtime_adapter_map",
+    "decisions",
+    "file_operations",
+    "omitted_items",
+    "risks",
+    "validation_commands"
+  ],
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "target_contract": {
+      "type": "object",
+      "required": [
+        "name",
+        "description",
+        "runtime_policy",
+        "scope",
+        "non_goals"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "description": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "runtime_policy": {
+          "description": "Only one value is accepted. A plan that intends to keep host-specific syntax in core guidance is not a plan this coordinator can carry out.",
+          "const": "runtime-neutral"
+        },
+        "scope": {
+          "$ref": "common.schema.json#/$defs/textList"
+        },
+        "non_goals": {
+          "$ref": "common.schema.json#/$defs/textList"
+        }
+      }
+    },
+    "capability_map": {
+      "description": "One entry per capability from every analysis. Completeness against the analyses is checked imperatively, since the schema cannot see the other files.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/capabilityDecision"
+      }
+    },
+    "runtime_adapter_map": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/runtimeDecision"
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/decision"
+      }
+    },
+    "file_operations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fileOperation"
+      }
+    },
+    "omitted_items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/omission"
+      }
+    },
+    "risks": {
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "validation_commands": {
+      "$ref": "common.schema.json#/$defs/textList"
+    }
+  },
+  "$defs": {
+    "capabilityDecision": {
+      "description": "Dropping a capability needs a reason; keeping one needs somewhere to put it. Neither is optional, so the requirement follows the decision.",
+      "type": "object",
+      "required": [
+        "key",
+        "decision"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "integrate",
+            "retain",
+            "omit"
+          ]
+        },
+        "destination": {
+          "$ref": "common.schema.json#/$defs/relativePath"
+        },
+        "reason": {
+          "$ref": "common.schema.json#/$defs/text"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "decision": {
+                "const": "omit"
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          },
+          "else": {
+            "required": [
+              "destination"
+            ]
+          }
+        }
+      ]
+    },
+    "runtimeDecision": {
+      "type": "object",
+      "required": [
+        "key",
+        "decision",
+        "reason"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "decision": {
+          "description": "A host-specific dependency is either re-expressed as a capability or dropped. Carrying it through unchanged is what runtime neutrality forbids.",
+          "type": "string",
+          "enum": [
+            "generalize",
+            "omit"
+          ]
+        },
+        "destination": {
+          "$ref": "common.schema.json#/$defs/relativePath"
+        },
+        "reason": {
+          "$ref": "common.schema.json#/$defs/text"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "decision": {
+                "const": "generalize"
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          },
+          "then": {
+            "required": [
+              "destination"
+            ]
+          }
+        }
+      ]
+    },
+    "decision": {
+      "type": "object",
+      "required": [
+        "topic",
+        "decision",
+        "sources",
+        "reason"
+      ],
+      "properties": {
+        "topic": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "decision": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "sources": {
+          "$ref": "common.schema.json#/$defs/textList"
+        },
+        "reason": {
+          "$ref": "common.schema.json#/$defs/text"
+        }
+      }
+    },
+    "fileOperation": {
+      "type": "object",
+      "required": [
+        "op",
+        "path",
+        "purpose"
+      ],
+      "properties": {
+        "op": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "delete",
+            "move"
+          ]
+        },
+        "path": {
+          "$ref": "common.schema.json#/$defs/relativePath"
+        },
+        "purpose": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "sources": {
+          "$ref": "common.schema.json#/$defs/textList"
+        }
+      }
+    },
+    "omission": {
+      "type": "object",
+      "required": [
+        "item",
+        "reason"
+      ],
+      "properties": {
+        "item": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "reason": {
+          "$ref": "common.schema.json#/$defs/text"
+        }
+      }
+    }
+  }
+}

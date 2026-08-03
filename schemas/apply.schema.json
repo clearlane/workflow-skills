@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/apply.schema.json",
+  "title": "Absorption merge evidence",
+  "description": "apply.json. The agent's declaration of what it changed, checked against the actual target diff. The declaration exists so a mismatch is detectable at all: without it there is nothing to compare the diff to.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "plan_sha256",
+    "changed_files",
+    "deleted_files",
+    "notes"
+  ],
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "plan_sha256": {
+      "description": "The bound plan this merge claims to carry out. A value that does not match the run's binding means the plan moved under the merge.",
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "changed_files": {
+      "description": "Cumulative, not per attempt: a retry that forgot an earlier file would otherwise look like a clean declaration.",
+      "$ref": "common.schema.json#/$defs/pathList"
+    },
+    "deleted_files": {
+      "$ref": "common.schema.json#/$defs/pathList"
+    },
+    "notes": {
+      "$ref": "common.schema.json#/$defs/textList"
+    }
+  }
+}

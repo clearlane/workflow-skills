@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/inventory.schema.json",
+  "title": "Absorption run inventory",
+  "description": "inventory.json. The immutable record of what the run started from. Source digests are re-checked before every mutation, so a source edited mid-run is caught rather than merged from silently.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "created_at",
+    "target",
+    "sources"
+  ],
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "created_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "target": {
+      "$ref": "skill.schema.json"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {
+            "$ref": "skill.schema.json"
+          },
+          {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "description": "Ordinal-prefixed so the analyses directory sorts in the order the sources were given.",
+                "type": "string",
+                "pattern": "^[0-9]{3}-[a-z0-9]+(?:-[a-z0-9]+)*$"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/decision.schema.json",
+  "title": "Phase decision record",
+  "description": "One decisions/<phase>.json. Written when a phase completes, so the reason a phase was considered done survives the conversation that produced it.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "phase",
+    "resource",
+    "note",
+    "recorded_at"
+  ],
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "phase": {
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "resource": {
+      "description": "The contract this phase was decided against. Recorded so a later reader can check the decision against the rule that applied at the time.",
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "note": {
+      "description": "Why the phase is done. An empty note would make the record indistinguishable from a phase nobody thought about.",
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "recorded_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "findings": {
+      "$ref": "common.schema.json#/$defs/textList"
+    }
+  }
+}

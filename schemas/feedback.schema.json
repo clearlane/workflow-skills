@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/feedback.schema.json",
+  "title": "Absorption orchestrator feedback",
+  "description": "feedback.json. Every absorption run exercises the coordinator against unfamiliar material, so each run is also a test of it. Without a recorded verdict, defects observed during a run vanish when the run directory is cleaned up.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "observations",
+    "improvements"
+  ],
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/observation"
+      }
+    },
+    "improvements": {
+      "$ref": "common.schema.json#/$defs/textList"
+    }
+  },
+  "$defs": {
+    "observation": {
+      "description": "A claim of 'fixed' has to name the files carrying the fix, so it is checkable against the diff; anything else has to say why it was left.",
+      "type": "object",
+      "required": [
+        "issue",
+        "evidence",
+        "disposition"
+      ],
+      "properties": {
+        "issue": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "evidence": {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "fixed",
+            "deferred",
+            "accepted"
+          ]
+        },
+        "changed_files": {
+          "$ref": "common.schema.json#/$defs/textList"
+        },
+        "reason": {
+          "$ref": "common.schema.json#/$defs/text"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "fixed"
+              }
+            },
+            "required": [
+              "disposition"
+            ]
+          },
+          "then": {
+            "required": [
+              "changed_files"
+            ],
+            "properties": {
+              "changed_files": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "required": [
+              "reason"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
