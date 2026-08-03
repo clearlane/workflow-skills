@@ -3,3 +3,7 @@
 .codegraph/
 __pycache__/
 *.html
+
+# Generated agent skill directories (see skills-lock.json)
+agent/
+.claude/skills/

@@ -1,11 +1,17 @@
 {
   "version": 1,
   "skills": {
-    "archify": {
-      "source": "tt-a1i/archify",
+    "github-optimization": {
+      "source": "199-biotechnologies/github-optimization-skill",
       "sourceType": "github",
-      "skillPath": "archify/SKILL.md",
-      "computedHash": "fe5045432bc84886216b8475d6529fb2865bc3aee6493eca763a00efce07179d"
+      "skillPath": "SKILL.md",
+      "computedHash": "78818087402dc3e2b37a0244b0eef73c1753109884b759e1e271607d673e2111"
+    },
+    "humanise-text": {
+      "source": "199-biotechnologies/humanise-text-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "4e4f3209ad4d1608006dd4fed5cc59b4fa47d8f53d3b16e5bd167c1a75fba470"
     }
   }
 }
