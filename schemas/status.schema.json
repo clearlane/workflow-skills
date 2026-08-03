@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/status.schema.json",
+  "title": "Coordinator status envelope",
+  "description": "What every coordinator prints when asked where a run is. One shape across all of them, so a wrapper can read the phase and the next action without knowing which coordinator it called. Anything specific to one coordinator lives under `detail`, which keeps the shared surface stable as a coordinator gains state.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "kind",
+    "run_dir",
+    "phase",
+    "phases",
+    "completed",
+    "remaining",
+    "resource",
+    "next_action",
+    "detail"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "kind": {
+      "description": "Which coordinator produced this, so a caller can find `detail`'s contract.",
+      "type": "string",
+      "enum": [
+        "design",
+        "review",
+        "absorb"
+      ]
+    },
+    "run_dir": {
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "phase": {
+      "description": "Null when no phase remains, which is how a caller distinguishes a finished run from one waiting on work.",
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "phases": {
+      "description": "Every phase this run will walk, in order.",
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "completed": {
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "remaining": {
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "resource": {
+      "description": "The contract the current phase answers to. Null only when no phase remains.",
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "next_action": {
+      "description": "What to do now, in one sentence. The field an agent acts on, so it names the command rather than describing the situation.",
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "detail": {
+      "description": "Coordinator-specific state. Open by design: a coordinator adds its own keys here without changing the shared envelope.",
+      "type": "object"
+    }
+  }
+}

@@ -336,6 +336,51 @@ def write_artifact(path, name, value):
     write_json(path, stamped)
 
 
+def print_status(kind, root, phase, phases, completed, resource, next_action, detail):
+    """Print the one status shape every coordinator shares.
+
+    Three coordinators previously returned three different objects to the same
+    question, so a wrapper had to know which one it had called before it could
+    find the phase. Coordinator-specific state goes under `detail`, which keeps
+    the shared surface stable as any one of them grows more state.
+    """
+    envelope = stamp(
+        "status.schema.json",
+        {
+            "kind": kind,
+            "run_dir": str(root),
+            "phase": phase,
+            "phases": list(phases),
+            "completed": list(completed),
+            "remaining": [item for item in phases if item not in completed],
+            "resource": resource,
+            "next_action": next_action,
+            "detail": detail,
+        },
+    )
+    errors = schema_errors("status.schema.json", envelope)
+    if errors:
+        # A malformed status is the coordinator lying about where the run is,
+        # which is worse than refusing to answer.
+        detail_text = "\n  ".join(errors)
+        fail(f"Refusing to print an invalid status envelope:\n  {detail_text}", EX_SOFTWARE)
+    print(json.dumps(envelope, indent=2, sort_keys=True))
+
+
+def read_status(stdout):
+    """Parse a coordinator's status and prove it satisfies the shared envelope.
+
+    Used by the self-checks, so each coordinator validates its own output rather
+    than only the schema file being well-formed. A coordinator that drifts from
+    the envelope fails its own check instead of surfacing as a broken wrapper.
+    """
+    envelope = json.loads(stdout)
+    errors = schema_errors("status.schema.json", envelope)
+    if errors:
+        raise AssertionError("status envelope violates its schema:\n  " + "\n  ".join(errors))
+    return envelope
+
+
 def check_version(state):
     """Refuse a run written by an incompatible artifact version, and say why.
 

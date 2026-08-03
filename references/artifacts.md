@@ -68,6 +68,7 @@ Each artifact kind has one schema in `schemas/`, and shared vocabulary lives in 
 | `state.schema.json` | `state.json` | coordinator |
 | `decision.schema.json` | `decisions/<phase>.json` | coordinator |
 | `findings.schema.json` | `findings.json` | coordinator |
+| `status.schema.json` | printed status, not written to disk | coordinator |
 | `inventory.schema.json` | `inventory.json` | coordinator |
 | `skill.schema.json` | `target-after-merge.json`, and embedded in the inventory | coordinator |
 | `analysis.schema.json` | `analyses/<source-id>.json` | agent |
@@ -101,6 +102,16 @@ Keep these imperative, and say so where the schema stops:
 | Deleted | Explicitly. A coordinator does not remove the evidence of its own run |
 
 Preserve superseded evidence rather than overwriting it. An attempt that failed is the record of why the next one differed, and a run that quietly overwrites it cannot answer what changed.
+
+## Reporting Where a Run Is
+
+A coordinator's `status` is the answer to "where am I", and it is the one output a wrapper reads without knowing which coordinator it called. Give every coordinator the same envelope: the current phase, the full phase list, what is completed and remaining, the contract the current phase answers to, and the next action in one sentence.
+
+Put anything specific to one coordinator under `detail`. A shared surface that grows a field every time one coordinator gains state is not shared, and a caller that must branch on the coordinator's name to find the phase gets no benefit from the envelope existing.
+
+`phase` is null when no phase remains, which is how a caller distinguishes a finished run from one waiting on work. Derive `completed` from the phase reached where the progression is linear, rather than storing it: a stored list can disagree with the phase, and then two fields describe one fact.
+
+Validate the envelope before printing it. A malformed status is the coordinator misreporting where the run is, which is worse than refusing to answer.
 
 ## How a Run Reports Failure
 

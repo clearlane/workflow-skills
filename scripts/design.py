@@ -31,6 +31,9 @@ from state import (
     slug,
     write_artifact,
 )
+from state import (
+    print_status as print_envelope,
+)
 
 # Capability -> phase that designs it, and the resource holding its contract.
 CAPABILITY_PHASES = (
@@ -87,24 +90,21 @@ def current_phase(state):
 
 def print_status(root, state):
     phase = current_phase(state)
-    remaining = [item for item in state["phases"] if item not in state["completed"]]
-    output = {
-        "run_dir": str(root),
-        "skill": state["skill"],
-        "capabilities": state["capabilities"],
-        "phases": state["phases"],
-        "completed": state["completed"],
-        "phase": phase,
-        "remaining": remaining,
-        "resource": phase_resource(phase) if phase else None,
-        "next_action": (
+    print_envelope(
+        "design",
+        root,
+        phase,
+        state["phases"],
+        state["completed"],
+        phase_resource(phase) if phase else None,
+        (
             f"Design '{phase}' using {phase_resource(phase)}, then run complete-phase "
             f"--phase {phase} with a decision note."
             if phase
             else "All phases complete. Record the result and run the repository checks."
         ),
-    }
-    print(json.dumps(output, indent=2, sort_keys=True))
+        {"skill": state["skill"], "capabilities": state["capabilities"]},
+    )
 
 
 def command_init(args):

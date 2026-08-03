@@ -30,6 +30,7 @@ from state import (
     paths_overlap,
     read_history,
     read_json,
+    read_status,
     require_text,
     run_cli,
     save_state,
@@ -37,6 +38,9 @@ from state import (
     validate_sarif,
     write_artifact,
     write_json,
+)
+from state import (
+    print_status as print_envelope,
 )
 
 # Review concerns every skill has, regardless of which surfaces it exposes.
@@ -170,22 +174,20 @@ def print_status(root, state):
         )
     else:
         action = f"Review complete. Report written to {root / 'report.md'}."
-    output = {
-        "run_dir": str(root),
-        "skill": state["skill"],
-        "surfaces": state["surfaces"],
-        "phases": state["phases"],
-        "completed": state["completed"],
-        "phase": phase,
-        "remaining": [item for item in state["phases"] if item not in state["completed"]],
-        "resource": phase_resource(phase) if phase else None,
-        "findings": {
-            "total": len(findings),
-            "blocking_unresolved": blocking,
+    print_envelope(
+        "review",
+        root,
+        phase,
+        state["phases"],
+        state["completed"],
+        phase_resource(phase) if phase else None,
+        action,
+        {
+            "skill": state["skill"],
+            "surfaces": state["surfaces"],
+            "findings": {"total": len(findings), "blocking_unresolved": blocking},
         },
-        "next_action": action,
-    }
-    print(json.dumps(output, indent=2, sort_keys=True))
+    )
 
 
 def command_init(args):
@@ -487,9 +489,9 @@ def command_self_check(_args):
         (plain / "SKILL.md").write_text("# Plain\n\nDo one thing directly.\n")
         run = root / "plain-run"
         result = execute("init", "--skill", plain, "--run-dir", run)
-        state = json.loads(result.stdout)
+        state = read_status(result.stdout)
         assert state["phases"] == list(ALWAYS_FIRST + ALWAYS_LAST), state["phases"]
-        assert state["surfaces"] == [], state["surfaces"]
+        assert state["detail"]["surfaces"] == [], state
 
         # Evidence in the skill, not a checklist, selects the extra phases.
         rich = root / "rich"
@@ -498,9 +500,9 @@ def command_self_check(_args):
         (rich / "scripts" / "settings.py").write_text("# settings adapter\n")
         rich_run = root / "rich-run"
         result = execute("init", "--skill", rich, "--run-dir", rich_run)
-        state = json.loads(result.stdout)
-        assert "coordinator" in state["surfaces"] and "state" in state["surfaces"], state["surfaces"]
-        assert "settings" in state["surfaces"], state["surfaces"]
+        state = read_status(result.stdout)
+        assert {"coordinator", "state"} <= set(state["detail"]["surfaces"]), state
+        assert "settings" in state["detail"]["surfaces"], state
         assert state["phases"][0] == "activation" and state["phases"][-1] == "verdict"
         inventory = json.loads((rich_run / "inventory.json").read_text())
         assert inventory["evidence"]["state"], "state surface must carry file evidence"
@@ -508,7 +510,7 @@ def command_self_check(_args):
         # An explicit skip removes a detected surface and its phase.
         skipped_run = root / "skipped-run"
         result = execute("init", "--skill", rich, "--run-dir", skipped_run, "--skip-surface", "settings")
-        assert "settings" not in json.loads(result.stdout)["surfaces"]
+        assert "settings" not in read_status(result.stdout)["detail"]["surfaces"]
 
         # Phases close in order, and only with a decision note.
         assert execute(
@@ -611,7 +613,7 @@ def command_self_check(_args):
         execute("init", "--skill", plain, "--run-dir", late)
         execute("complete-phase", "--run-dir", late, "--phase", "activation", "--note", "ok")
         result = execute("add-surface", "--run-dir", late, "--surface", "workers")
-        state = json.loads(result.stdout)
+        state = read_status(result.stdout)
         assert "workers" in state["phases"] and "activation" in state["completed"]
         assert execute("add-surface", "--run-dir", late, "--surface", "workers", check=False).returncode
 

@@ -51,6 +51,9 @@ from state import (
     write_artifact,
     write_json,
 )
+from state import (
+    print_status as print_envelope,
+)
 
 CAPABILITY_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 # Which schema governs each agent-authored artifact. The analyses directory
@@ -407,6 +410,11 @@ PHASE_RESOURCES = {
     "rolled-back": "references/absorb.md#conflict-policy",
 }
 PHASES = tuple(PHASE_RESOURCES)
+# The ordered walk, ending in whichever terminal state the run reached. A run
+# that rolled back did not pass through `complete`, and saying otherwise would
+# report a discarded merge as a finished one.
+WORKING_PHASES = ("analysis", "plan", "merge", "validation")
+TERMINAL_PHASES = ("complete", "rolled-back")
 
 
 def derive_phases(_capabilities=None):
@@ -417,6 +425,19 @@ def derive_phases(_capabilities=None):
     all three coordinators the same way.
     """
     return list(PHASES)
+
+
+def walked_phases(phase):
+    """The phase list for a run currently on `phase`.
+
+    Absorption does not record a completed list, because its progression is
+    linear: reaching a phase is what proves the earlier ones closed. Deriving
+    the list means it cannot drift from the phase the run is actually on, and a
+    validation failure returning to `merge` correctly reports analysis and plan
+    as still done.
+    """
+    terminal = phase if phase in TERMINAL_PHASES else "complete"
+    return [*WORKING_PHASES, terminal]
 
 
 def phase_resource(phase):
@@ -435,21 +456,27 @@ def next_action(phase):
 
 
 def print_status(root, state, inventory):
-    output = {
-        "run_dir": str(root),
-        "phase": state["phase"],
-        "target": inventory["target"]["path"],
-        "source_count": len(inventory["sources"]),
-        "validation_attempts": state["validation_attempts"],
-        "max_validation_attempts": state["max_validation_attempts"],
-        "plan_sha256": state.get("plan_sha256"),
-        "execution_plan_sha256": state.get("execution_plan_sha256"),
-        "rollback_scope": state.get("rollback_scope"),
-        "rollback_reason": state.get("rollback_reason"),
-        "resource": phase_resource(state["phase"]),
-        "next_action": next_action(state["phase"]),
-    }
-    print(json.dumps(output, indent=2, sort_keys=True))
+    phase = state["phase"]
+    phases = walked_phases(phase)
+    print_envelope(
+        "absorb",
+        root,
+        phase,
+        phases,
+        phases[: phases.index(phase)],
+        phase_resource(phase),
+        next_action(phase),
+        {
+            "target": inventory["target"]["path"],
+            "source_count": len(inventory["sources"]),
+            "validation_attempts": state["validation_attempts"],
+            "max_validation_attempts": state["max_validation_attempts"],
+            "plan_sha256": state.get("plan_sha256"),
+            "execution_plan_sha256": state.get("execution_plan_sha256"),
+            "rollback_scope": state.get("rollback_scope"),
+            "rollback_reason": state.get("rollback_reason"),
+        },
+    )
 
 
 def command_init(args):
