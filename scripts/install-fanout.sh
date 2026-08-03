@@ -56,7 +56,7 @@ relpath() {
 # to this repository are visible without reinstalling.
 link_local_skill() {
   local project="$1" parent link
-  for parent in "$project/.agents/skills" "$project/agent/skills"; do
+  for parent in "$project/.agents/skills"; do
     [ -d "$parent" ] || continue
     link="$parent/$LINK_NAME"
     if [ -e "$link" ] && [ ! -L "$link" ]; then
@@ -95,6 +95,28 @@ clean_source_dir() {
   return 0
 }
 
+# `--agent '*'` also materialises `agent/skills`, the directory Eve reads. Eve
+# is unused here, that tree duplicates `.agents/skills`, and its frontmatter
+# dialect omits `name`, which makes the CLI warn on every later command. Remove
+# it, but only when it holds nothing besides the shared skills.
+drop_eve_dir() {
+  local project="$1" dir="$1/agent" entry name
+  [ -d "$dir" ] || return 0
+  for entry in "$dir"/*; do
+    [ -e "$entry" ] || continue
+    [ "$(basename "$entry")" = skills ] || return 0
+  done
+  for entry in "$dir"/skills/*; do
+    [ -e "$entry" ] || continue
+    name="$(basename "$entry")"
+    case " ${REMOTE_SKILLS[*]##*:} $LINK_NAME " in
+      *" $name "*) ;;
+      *) return 0 ;;
+    esac
+  done
+  rm -rf "$dir"
+}
+
 # Trust the resulting tree, not the installer's exit code.
 verify_project() {
   local project="$1" skill missing=""
@@ -105,6 +127,7 @@ verify_project() {
     [ -e "$project/.agents/skills/$skill/SKILL.md" ] || missing="$missing $skill(.agents)"
     [ -e "$project/.claude/skills/$skill/SKILL.md" ] || missing="$missing $skill(.claude)"
     [ -L "$project/skills/$skill" ] && missing="$missing $skill(polluted-source)"
+    [ -e "$project/agent/skills/$skill" ] && missing="$missing $skill(eve-copy)"
   done
   if [ -n "$missing" ]; then
     echo "    INCOMPLETE:$missing"
@@ -130,6 +153,7 @@ while IFS= read -r project; do
   fi
 
   clean_source_dir "$project"
+  drop_eve_dir "$project"
   verify_project "$project" || failures=$((failures + 1))
 done < <(discover_targets)
 
