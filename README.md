@@ -2,6 +2,8 @@
 
 Runtime-neutral agent skill for designing, refactoring, and merging reliable multi-step workflows with executable orchestration instead of prose-held state.
 
+> **Continuation of the `designing-workflow-skills` skill removed from [`trailofbits/skills`](https://github.com/trailofbits/skills) in July 2026.** Actively maintained, with executable coordinators replacing prose-held workflow state. See [Looking for the Trail of Bits Plugin](#looking-for-the-trail-of-bits-plugin) if that is what brought you here.
+
 ## What It Covers
 
 - Routing and dispatch tables
@@ -102,17 +104,28 @@ Two checks delegate to external tools and skip silently when the tool is absent,
 CHECK_EXTERNAL_LINKS=1 python3 scripts/check.py
 ```
 
-## Origin and Changes
+## Looking for the Trail of Bits Plugin
 
-This project adapts Trail of Bits' `designing-workflow-skills` skill from [`trailofbits/skills`](https://github.com/trailofbits/skills), using the last pre-removal revision at commit [`09dfbd91537b888136c9203dca4ffdee5a595c69`](https://github.com/trailofbits/skills/commit/09dfbd91537b888136c9203dca4ffdee5a595c69).
+If you are searching for `designing-workflow-skills`, `workflow-skill-design`, or the deleted Trail of Bits workflow-skill plugin, you are in the right place. Trail of Bits removed `plugins/workflow-skill-design/` from [`trailofbits/skills`](https://github.com/trailofbits/skills) in [PR #215](https://github.com/trailofbits/skills/pull/215) on July 31, 2026. This repository is the continuation of that work, and it is actively maintained.
 
-Trail of Bits removed the original plugin in [PR #215](https://github.com/trailofbits/skills/pull/215) on July 31, 2026. This adaptation:
+The skill you want is `designing-workflow-skills` — install it with the command above. Every capability of the original is still present, and the last pre-removal revision is preserved at commit [`09dfbd91537b888136c9203dca4ffdee5a595c69`](https://github.com/trailofbits/skills/commit/09dfbd91537b888136c9203dca4ffdee5a595c69) if you need to compare.
 
-- Moves ordering, branching, concurrency, retry, and resume logic into executable coordinators.
-- Replaces runtime-specific tool guidance with runtime-neutral capability guidance.
-- Removes obsolete task tools, fixed batching advice, and mandatory prompt-level verification.
-- Removes duplicated generic skill-authoring guidance already covered by current skill tooling.
-- Removes Trail of Bits branding while preserving attribution.
+### What Changed Since the Original
+
+The skill has diverged substantially from the version Trail of Bits published. The largest difference is architectural: workflow control moved out of prose and into executable coordinators.
+
+- Ordering, branching, concurrency, retry, and resume logic now live in `scripts/design.py`, `scripts/review.py`, and `scripts/absorb.py` rather than in numbered instructions an agent had to remember.
+- Phase lists are derived from a recorded contract, so a skill without settings never walks a settings phase.
+- Runtime-specific tool guidance became runtime-neutral capability guidance, enforced by an automated token scan.
+- Obsolete task tools, fixed batching advice, and mandatory prompt-level verification were removed.
+- Generic skill-authoring guidance already covered by current skill tooling was dropped.
+- Trail of Bits branding was removed while attribution was preserved.
+
+Capabilities added since the fork include evidence-gated skill review with a disposition-gated verdict, evidence-bound absorption with snapshot rollback, layout restructuring, bundle packaging, validated skill settings, and a single deterministic check entrypoint.
+
+### Attribution
+
+This project began as an adaptation of Trail of Bits' `designing-workflow-skills` skill and remains licensed under the same terms. Credit for the original design belongs to [Trail of Bits](https://github.com/trailofbits).
 
 Command-entrypoint guidance independently re-expresses generic concepts from project-local `command-development` source. No runtime-specific syntax, files, or examples were copied.
 
