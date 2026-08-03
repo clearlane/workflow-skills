@@ -334,7 +334,27 @@ def relative_file_manifest(root):
     manifest = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
-        if not path.is_file() or excluded(relative.parts) or ignored(relative.as_posix(), prefixes):
+        if excluded(relative.parts) or ignored(relative.as_posix(), prefixes):
+            continue
+        # is_file() follows the link, so a symlink out of the tree would be
+        # recorded as an ordinary file whose bytes live somewhere this manifest
+        # does not describe. That breaks both directions of a rollback: the
+        # snapshot copies the link rather than the content, so the baseline is
+        # never really captured, and the digest moves whenever the outside file
+        # changes, so a restore that put every tracked path back still reports
+        # that it could not. Refusing is right rather than merely safe, because
+        # a skill whose content lives outside itself cannot be copied, shipped,
+        # or restored as a unit.
+        if path.is_symlink():
+            destination = path.resolve()
+            if not destination.is_relative_to(root):
+                fail(
+                    f"{path}: symlink leaves the tree ({destination}); "
+                    "a skill must contain its own content to be snapshotted",
+                    EX_DATAERR,
+                    path,
+                )
+        if not path.is_file():
             continue
         manifest[relative.as_posix()] = {
             "sha256": file_sha256(path),
@@ -964,6 +984,26 @@ def self_check():
         manifest = relative_file_manifest(root)
         assert "keep/f.txt" in manifest
         assert not any(key.startswith(".git") for key in manifest)
+        # A manifest is the promise that a tree can be snapshotted and restored
+        # as a unit, so a link to content outside it must be refused rather than
+        # recorded as an ordinary file. A link within the tree is fine: its
+        # content is captured either way.
+        (root / "keep" / "inside.txt").symlink_to(root / "keep" / "f.txt")
+        assert "keep/inside.txt" in relative_file_manifest(root)
+        outside = Path(temporary).parent / f"outside-{os.getpid()}.txt"
+        outside.write_text("not mine")
+        try:
+            (root / "keep" / "escape.txt").symlink_to(outside)
+            try:
+                relative_file_manifest(root)
+            except Failure as error:
+                assert error.code == EX_DATAERR, error.code
+                assert "leaves the tree" in error.message, error.message
+            else:
+                raise AssertionError("manifest recorded content living outside the tree")
+        finally:
+            outside.unlink()
+            (root / "keep" / "escape.txt").unlink()
         assert safe_relative_path("a/b.md", "x") == "a/b.md"
         for bad in ("/abs", "../up", ".", ""):
             try:
