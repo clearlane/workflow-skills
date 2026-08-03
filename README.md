@@ -1,32 +1,42 @@
 # Designing Workflow Skills
 
-Runtime-neutral agent skill for designing, refactoring, and merging reliable multi-step workflows with executable orchestration instead of prose-held state.
+**An Agent Skill for building Agent Skills.** Design, review, and merge multi-step AI agent workflows that hold their control flow in executable coordinators instead of prose an agent has to remember.
 
-> **Continuation of the `designing-workflow-skills` skill removed from [`trailofbits/skills`](https://github.com/trailofbits/skills) in July 2026.** Actively maintained, with executable coordinators replacing prose-held workflow state. See [Looking for the Trail of Bits Plugin](#looking-for-the-trail-of-bits-plugin) if that is what brought you here.
+Works with Claude Code, Codex, Cursor, and any runtime that loads `SKILL.md` — the guidance stays runtime-neutral, and host-specific syntax is confined to adapters.
+
+> **Continuation of the `designing-workflow-skills` skill removed from [`trailofbits/skills`](https://github.com/trailofbits/skills) in July 2026.** Actively maintained. See [Looking for the Trail of Bits Plugin](#looking-for-the-trail-of-bits-plugin) if that is what brought you here.
+
+## Why This Exists
+
+Most multi-step skills keep their workflow in prose: numbered steps, "continue only if approved", "retry up to three times". That works until a run is interrupted, a step half-succeeds, or the model forgets step four. Prose cannot resume, cannot bound a retry, and cannot prove an approval was given for the exact action taken.
+
+This skill moves that control flow into coordinators you can run:
+
+```bash
+python3 scripts/design.py init --name my-skill --skill ./my-skill --run-dir ./run \
+  --capability coordinator --capability state
+python3 scripts/design.py status --run-dir ./run
+```
+
+`status` names the current phase and the one document that owns its contract. Phases are derived from the capabilities you record, so a skill with no settings never walks a settings phase. Progress persists in a run directory, so an interrupted design resumes from artifacts rather than from conversation history.
 
 ## What It Covers
 
-- Routing and dispatch tables
-- Parallel item pipelines with bounded concurrency
-- Runtime-neutral skill structure and progressive disclosure
-- Explicit idempotent setup and route-specific pre-flight readiness workflows
-- Typed user-local and project-local skill settings with precedence and provenance
-- Event-triggered guards and lifecycle reactions
-- MCP and external-tool integration contracts
-- Bounded delegated-worker contracts and selection tests
-- Ordered executable phases
-- Dependency graphs and resumable state
-- Bounded feedback loops
-- Approval gates for destructive actions
-- Validator-backed checks at actionable boundaries
-- Thin explicit command entrypoints with validated arguments
-- Evidence-bound absorption of one or many skills into one target, with bounded validation and automatic rollback
-- Runtime-neutral command metadata, interaction, failure, and adapter testing contracts
-- Runtime-neutral worker metadata, capability, output, failure, and adapter contracts
-- Runtime-neutral transport, authentication, schema, lifecycle, partial-success, and hook contracts
-- Runtime-neutral settings discovery, parsing, migration, atomic update, security, and reload contracts
+**Workflow patterns** — routing and dispatch tables, parallel item pipelines with bounded concurrency, ordered executable phases, dependency graphs with resumable state, bounded feedback loops, and approval gates for destructive actions.
+
+**Skill architecture** — runtime-neutral structure, progressive disclosure across references and scripts, activation metadata, filename conventions, and bundle packaging for host discovery.
+
+**Adapters** — MCP and external-tool integration, event-triggered guards and lifecycle reactions, bounded delegated workers, thin command entrypoints with validated arguments, and typed user-local and project-local settings with precedence and provenance.
+
+**Operations** — idempotent setup with pre-flight readiness reports, validator-backed checks placed where failure is actionable, evidence-gated review with a disposition-gated verdict, and evidence-bound absorption of one or many skills into one target with bounded validation and automatic rollback.
+
+## Who It Is For
+
+Use it when you are writing a skill whose steps branch, retry, resume, run concurrently, or touch something irreversible. Skip it when a single direct instruction would do — the skill says so itself, and starting with plain instructions is the documented default.
 
 ## Install
+
+### With the `skills` CLI
 
 Discover the skill before installing:
 
@@ -46,18 +56,42 @@ npx --yes skills add clearlane/workflow-skills \
 
 This writes one destination per supported agent and can be intentionally broad; replace `'*'` with explicit agent IDs when appropriate. Omit `--copy` when installing from an active local checkout and you want agents to follow repository edits through the CLI's default link mode. Add `--global` only for an explicit user-level install. Start a fresh agent session if the host discovers skills only at startup.
 
+### Manually
+
+Clone into the directory your agent scans for skills — commonly `.claude/skills/`, `.agents/skills/`, or `~/.codex/skills/`, depending on the host:
+
+```bash
+git clone https://github.com/clearlane/workflow-skills.git .agents/skills/designing-workflow-skills
+```
+
+The skill activates on its own when a task matches its description. To invoke it explicitly, mention it by name: *"use designing-workflow-skills to refactor this into a coordinator."*
+
 ## Structure
 
+Core instructions load first; everything else is loaded on demand, which is the progressive-disclosure pattern the skill itself teaches.
+
+**Entry point**
+
 - `SKILL.md` — activation and core workflow-design rules
+
+**Workflows** — multi-phase processes with coordinator entry
+
+- `workflows/design.md` — authoring and refactoring process
+- `workflows/review.md` — evidence-gated skill review workflow
+- `workflows/absorb.md` — absorption workflow, coordinator entry, invariants, and rollback contract
+- `workflows/restructure.md` — audit-then-approve layout restructuring workflow
+- `workflows/setup.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
+
+**References** — one canonical contract per concern
+
 - `references/structure.md` — skill contract, progressive disclosure, resources, and deployment shapes
+- `references/patterns.md` — dynamic coordinator patterns
 - `references/naming.md` — one-word and family-first hierarchical filename convention
 - `references/checks.md` — where checks and approval gates belong so failure stays actionable
 - `references/closure.md` — owner-boundary questions that close a design run
-- `workflows/setup.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
 - `references/install.md` — agent-skill discovery, canonical install, and same-scope verification
 - `references/events.md` — event-boundary handler design
 - `references/tools.md` — MCP and external-service adapter design
-- `references/patterns.md` — dynamic coordinator patterns
 - `references/workers.md` — bounded runtime-neutral worker design
 - `references/commands.md` — safe runtime-neutral command adapter design
 - `references/settings.md` — validated skill preferences, scopes, precedence, lifecycle, and security
@@ -66,20 +100,22 @@ This writes one destination per supported agent and can be intentionally broad; 
 - `references/migration.md` — boundary-at-a-time move execution and reference repair
 - `references/review.md` — review evidence, severity, and disposition rules
 - `references/absorb.md` — capability model, merge dispositions, conflict policy, and absorption artifact schemas
-- `workflows/absorb.md` — absorption workflow, coordinator entry, invariants, and rollback contract
-- `workflows/restructure.md` — audit-then-approve layout restructuring workflow
-- `workflows/review.md` — evidence-gated skill review workflow
-- `scripts/absorb.py` — absorption coordinator with durable run state, plan binding, snapshot rollback, and self-check
+
+**Coordinators and tooling**
+
 - `scripts/design.py` — design coordinator deriving phases from the recorded contract, with durable decisions and resume
 - `scripts/review.py` — review coordinator deriving phases from detected surfaces, with a disposition-gated verdict
+- `scripts/absorb.py` — absorption coordinator with durable run state, plan binding, snapshot rollback, and self-check
 - `scripts/state.py` — shared durable-run primitives used by both coordinators
 - `scripts/document.py` — markdown and YAML document model backing the structural checks
 - `scripts/inventory.py` — deterministic structural inventory for layout audits
 - `scripts/check.py` — single entrypoint running every deterministic repository check
 - `scripts/settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
 - `scripts/names.py` — deterministic portable filename check
+
+**Supporting files**
+
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
-- `workflows/design.md` — authoring and refactoring process
 - `agents/openai.yaml` — Codex UI metadata
 - `requirements.txt` — parser dependencies for the document-model checks
 - `skills-lock.json` — pinned skill install manifest
