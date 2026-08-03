@@ -759,6 +759,37 @@ def discovered_self_checks(root):
     return checks
 
 
+def check_ci_floor(root):
+    """The CI matrix must start at the floor pyproject.toml declares.
+
+    The workflow comment says its first entry is that floor, but nothing tied
+    the two together. Raising requires-python would leave CI proving the suite
+    works on a version the project no longer claims to support; lowering it
+    would leave the real floor untested. Both failures look like a green run.
+    """
+    pyproject = root / "pyproject.toml"
+    workflow = root / ".github" / "workflows" / "checks.yml"
+    if not pyproject.exists() or not workflow.exists():
+        return []
+    declared = re.search(
+        r"""requires-python\s*=\s*["'][>=~^\s]*([0-9.]+)""",
+        pyproject.read_text(encoding="utf-8"),
+    )
+    matrix = re.search(
+        r"""python-version:\s*\[([^\]]+)\]""",
+        workflow.read_text(encoding="utf-8"),
+    )
+    if not declared or not matrix:
+        return ["could not read the Python floor from pyproject.toml or the CI matrix"]
+    versions = [entry.strip().strip("\"'") for entry in matrix.group(1).split(",")]
+    if versions[0] != declared.group(1):
+        return [
+            f"checks.yml tests {versions[0]} first but pyproject.toml declares "
+            f">={declared.group(1)}; the declared floor would go untested"
+        ]
+    return []
+
+
 def self_checks_assert_something(root):
     """Require each self-check to contain assertions, not just the token.
 
@@ -822,6 +853,21 @@ def self_check():
         (scripts / "impostor.py").write_text("x = 1\n", encoding="utf-8")
         assert self_checks_assert_something(Path(directory)), "a script with no self-check was accepted"
 
+    # The floor check compares two files no other check reads together, so a
+    # version drift between them would otherwise look like a green run.
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / ".github" / "workflows").mkdir(parents=True)
+        project = tree / "pyproject.toml"
+        matrix = tree / ".github" / "workflows" / "checks.yml"
+        project.write_text('requires-python = ">=3.10"\n', encoding="utf-8")
+        matrix.write_text('        python-version: ["3.10", "3.13"]\n', encoding="utf-8")
+        assert check_ci_floor(tree) == []
+        project.write_text('requires-python = ">=3.11"\n', encoding="utf-8")
+        assert check_ci_floor(tree), "a CI matrix below the declared floor was accepted"
+        matrix.write_text('        python-version: ["3.11"]\n', encoding="utf-8")
+        assert check_ci_floor(tree) == []
+
     print("self-check passed")
 
 
@@ -835,6 +881,7 @@ def main():
         ("filenames", lambda: run_script(ROOT, "names.py", str(ROOT))),
         *discovered_self_checks(ROOT),
         ("self-checks assert", lambda: self_checks_assert_something(ROOT)),
+        ("CI tests the floor", lambda: check_ci_floor(ROOT)),
         ("skill contract", lambda: check_skill(ROOT)),
         ("links and anchors", lambda: document.broken_links(ROOT)),
         ("resource reachability", lambda: check_reachability(ROOT)),
