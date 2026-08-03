@@ -198,9 +198,16 @@ SLUG_LIMIT = 64
 
 def slug(value):
     normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    # Truncating on a separator keeps the result readable rather than cutting a
-    # word in half, and the strip repairs the case where the cut lands on one.
-    return normalized[:SLUG_LIMIT].strip("-") or "skill"
+    if len(normalized) <= SLUG_LIMIT:
+        return normalized or "skill"
+    # Truncation maps many names onto one slug, and a slug is an identity: two
+    # skills differing only past the cut would be recorded as the same subject,
+    # so provenance could not say which one a run was about. Spending the last
+    # few characters on a digest of the full name keeps distinct inputs
+    # distinct while leaving the readable prefix intact.
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:8]
+    kept = normalized[: SLUG_LIMIT - len(digest) - 1].strip("-")
+    return f"{kept}-{digest}" if kept else digest
 
 
 def read_json(path):
@@ -921,7 +928,13 @@ def self_check():
             produced = slug(source)
             assert len(produced) <= SLUG_LIMIT, (source[:20], len(produced))
             assert not produced.startswith("-") and not produced.endswith("-"), produced
-            assert produced
+        # A slug is also an identity, so truncation must not merge two subjects
+        # into one: names differing only past the cut have to stay distinct, or
+        # a run's provenance cannot say which skill it was about.
+        shared = "shared-prefix-" * 6
+        truncated = {slug(f"{shared}{index}") for index in range(200)}
+        assert len(truncated) == 200, f"truncation collided: {200 - len(truncated)} lost"
+        assert slug("a" * 100) != slug("a" * 101), "length alone must change the slug"
         check_canonical_digests(root)
         check_history_survives_state_loss(root / "run")
         check_open_run_rejects_edited_state(root / "edited")
