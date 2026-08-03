@@ -9,13 +9,16 @@ script. references/artifacts.md owns the contract these implement.
 """
 
 import errno
+import fcntl
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import time
 from contextlib import redirect_stderr
 from datetime import datetime, timezone
 from functools import cache, lru_cache
@@ -28,6 +31,7 @@ from referencing import Registry, Resource
 from cli import (
     EX_DATAERR,
     EX_SOFTWARE,
+    EX_TEMPFAIL,
     EX_UNAVAILABLE,
     SELF_CHECK,
     Failure,
@@ -211,11 +215,73 @@ def read_json(path):
     return value
 
 
+LOCK_FILE = ".lock"
+
+# Long enough that a slow but healthy writer is not interrupted, short enough
+# that a crashed one does not block a run indefinitely.
+LOCK_TIMEOUT_SECONDS = 30
+
+# Held for the life of the command rather than a block, because the sequence
+# that has to be exclusive spans open_run to save_state, which are separate
+# calls in every coordinator. The OS drops it when the process ends, including
+# when it crashes, so nothing has to remember to release it.
+_HELD_LOCKS = []
+
+
+def acquire_run_lock(root):
+    """Serialise the read-modify-write that advances a run.
+
+    Each write is atomic on its own, but advancing a phase reads the state,
+    edits it, and writes it back. Two coordinators against one run directory
+    interleaved those steps, so both saw the same phase pending, both appended
+    to the history, and the second state write discarded the first one's
+    completion. The transition was recorded in the log and absent from the
+    state, which is precisely the disagreement the log exists to settle.
+
+    Advisory rather than mandatory: every writer reaches a run through
+    open_run, so the lock only has to hold against this repository's own
+    coordinators, and an advisory lock is released by the OS if a holder dies.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / LOCK_FILE
+    deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
+    handle = path.open("w")
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            if time.monotonic() >= deadline:
+                handle.close()
+                fail(
+                    f"{root}: another process has held the run lock for "
+                    f"{LOCK_TIMEOUT_SECONDS}s; it may have stopped without releasing it",
+                    EX_TEMPFAIL,
+                    path,
+                )
+            time.sleep(0.05)
+    _HELD_LOCKS.append(handle)
+
+
 def write_json(path, value):
+    """Replace a file atomically, without colliding with a concurrent writer.
+
+    The temporary name carries the writer's pid: a fixed `.tmp` suffix meant two
+    processes writing the same artifact shared one scratch file, so one could
+    replace the target with a document the other was still writing. The rename
+    itself is atomic on POSIX, which is what makes the swap safe once the
+    content is complete.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
-    temporary.replace(path)
+    temporary = path.with_suffix(f"{path.suffix}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+        temporary.replace(path)
+    finally:
+        # A failure between write and replace would otherwise leave scratch
+        # files in a run directory that later reports its own contents.
+        if temporary.exists():
+            temporary.unlink()
 
 
 def file_sha256(path):
@@ -485,6 +551,9 @@ def open_run(run_dir, *artifacts):
     coordinator.
     """
     root = run_dir.expanduser().resolve()
+    # Taken before the read, so the state a command acts on cannot change under
+    # it between here and the save_state that ends the transition.
+    acquire_run_lock(root)
     state = read_json(root / "state.json")
     check_version(state)
     errors = schema_errors("state.schema.json", state)
@@ -550,7 +619,10 @@ def create_run(run_dir, *conflicts):
     capture the snapshot.
     """
     root = run_dir.expanduser().resolve()
-    if root.exists() and any(root.iterdir()):
+    # The lock is bookkeeping, not evidence: a crashed run leaves one behind,
+    # and treating it as leftover content would make that directory unusable
+    # for the retry it exists to allow.
+    if root.exists() and any(entry.name != LOCK_FILE for entry in root.iterdir()):
         fail(f"Run directory must be absent or empty: {root}")
     for path, description in conflicts:
         if paths_overlap(root, path):
@@ -739,6 +811,60 @@ def check_open_run_rejects_edited_state(root):
         raise AssertionError("accepted more completions than the history records")
 
 
+def check_run_lock_serialises_writers(root):
+    """Only one writer at a time may advance a run.
+
+    Each write is atomic, but advancing a phase reads, edits, and writes back.
+    Interleaving those steps let two writers both see a phase pending, both
+    append to the log, and the second discard the first's completion, leaving a
+    transition recorded in history and missing from the state.
+
+    Exercised in-process with a second lock holder, because the failure is
+    about exclusion rather than about any coordinator's phase rules.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    acquire_run_lock(root)
+
+    # A second holder in this process would be granted the lock again, since
+    # flock is per open file description, so exclusion is proven from a child.
+    script = (
+        "import fcntl, pathlib, sys\n"
+        "handle = pathlib.Path(sys.argv[1]).open('w')\n"
+        "try:\n"
+        "    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+        "except OSError:\n"
+        "    sys.exit(3)\n"
+        "sys.exit(0)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(root / LOCK_FILE)],
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 3, f"a second writer acquired a held run lock ({result.returncode})"
+
+    # The lock is bookkeeping, so a directory holding only one is still empty
+    # enough to start a fresh run in, which is what a crashed run leaves.
+    assert create_run(root) == root.resolve()
+
+    # Opening a run is what takes the lock. Checking the lock in isolation
+    # would still pass if open_run stopped calling for it, which is the whole
+    # protection: a coordinator reaches a run through open_run and nowhere else.
+    fresh = root.parent / "opened"
+    state = {
+        "version": VERSION,
+        "phase": "only",
+        "phases": ["only"],
+        "completed": [],
+        "created_at": now(),
+        "updated_at": now(),
+    }
+    save_state(fresh, state, "initialized")
+    (fresh / LOCK_FILE).unlink(missing_ok=True)
+    open_run(fresh)
+    assert (fresh / LOCK_FILE).exists(), "open_run did not take the run lock"
+
+
 def self_check():
     import tempfile
 
@@ -776,6 +902,7 @@ def self_check():
         check_canonical_digests(root)
         check_history_survives_state_loss(root / "run")
         check_open_run_rejects_edited_state(root / "edited")
+        check_run_lock_serialises_writers(root / "locked")
         # Outside a repository there is nothing to ship, so callers must be told
         # to fall back rather than be handed an empty set they would read as
         # "this project ships no files".
