@@ -173,6 +173,14 @@ A wrong field type means the run cannot read the evidence yet. Proof that a muta
 
 Treating the two the same destroys correct work over a typo. Reject malformed evidence and hold the phase; reserve rollback for evidence that execution was actually unsafe.
 
+## Approval Binds The Tree, Not Only The Plan
+
+A gate that records approval against a plan digest proves the plan did not change. It proves nothing about the thing the plan describes.
+
+Verifying that each approved operation happened is not the same as verifying that nothing else did. An executor can carry out every approved operation and, alongside them, rewrite a file nobody reviewed: each named path checks out, so the run is recorded as faithful and the audit trail now vouches for a change no one saw. That is worse than an unguarded mutation, which at least leaves no false assurance.
+
+Digest the tree when the plan is bound, over exactly the paths the plan does **not** name, and re-check it before recording execution. Excluding the named paths on both sides is what lets an approved change pass while an unreviewed one fails. A digest over the whole tree flags every legitimate operation, and a check that fires on correct work is a check someone will disable.
+
 ## A Snapshot Must Contain What It Promises To Restore
 
 Rollback restores a tree from a snapshot and then verifies the result against the baseline digest. Both halves assume the tree contains its own content.
