@@ -4,9 +4,9 @@
 __pycache__/
 *.html
 
-# Artifacts of the toolchain pyproject.toml declares. Ignored because a
-# `pip install .` or a `ruff` run must not leave files a later `git add -A`
-# would commit; the egg-info entry already covered one third of that.
+# Artifacts of the toolchain pyproject.toml declares. A `pip install .` or a
+# `ruff` run must not leave anything a later `git add -A` would commit, so
+# every tool named there gets an entry here.
 *.egg-info/
 build/
 dist/
