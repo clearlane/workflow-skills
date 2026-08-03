@@ -173,6 +173,16 @@ A wrong field type means the run cannot read the evidence yet. Proof that a muta
 
 Treating the two the same destroys correct work over a typo. Reject malformed evidence and hold the phase; reserve rollback for evidence that execution was actually unsafe.
 
+## A Snapshot Must Contain What It Promises To Restore
+
+Rollback restores a tree from a snapshot and then verifies the result against the baseline digest. Both halves assume the tree contains its own content.
+
+A symlink pointing outside the tree breaks that assumption twice. Copying it preserves the link, so the snapshot holds a pointer and the baseline bytes were never captured: delete the outside file and the restore is impossible. Digesting through it makes the baseline depend on content the run does not control, so an unrelated edit elsewhere on the machine makes a faithful restore fail its own verification and report an internal error.
+
+Refuse to build a manifest over a tree that reaches outside itself, rather than snapshotting it and discovering this during recovery. A skill whose content lives elsewhere cannot be copied, shipped, or restored as a unit. Links **within** the tree are fine, because their content is captured either way.
+
+Snapshot exactly the tracked regular files. Copying the whole tree also copies sockets, devices, and ignored local state, none of which can be restored and none of which the digest describes. Restore file by file for the same reason: replacing the directory wholesale deletes version-control state and unrelated worktree files that were never part of the baseline.
+
 ## Checks
 
 - `scripts/check.py` validates every schema in `schemas/` against its metaschema, and every artifact a coordinator writes against its schema, so a shape violation fails before a reader depends on it.
