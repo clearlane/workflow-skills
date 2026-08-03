@@ -100,6 +100,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `references/migration.md` — boundary-at-a-time move execution and reference repair
 - `references/review.md` — review evidence, severity, and disposition rules
 - `references/absorb.md` — capability model, merge dispositions, conflict policy, and absorption artifact schemas
+- `references/upstream/` — one provenance record per absorbed source, plus the refresh procedure
 
 **Coordinators and tooling**
 
@@ -118,8 +119,9 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
 - `agents/openai.yaml` — Codex UI metadata
 - `requirements.txt` — parser dependencies for the document-model checks
+- `pyproject.toml` — pinned lint rules and the supported Python floor for these checks
 - `skills-lock.json` — pinned skill install manifest
-- `UPSTREAM.md` — absorbed-source baselines, capability map summary, and refresh procedure
+- `UPSTREAM.md` — absorption history and the coordinator changes each run produced
 
 ## Checks
 
@@ -134,7 +136,7 @@ It runs the filename convention, the shared-state, document-model, settings-reso
 Two checks delegate to external tools and skip silently when the tool is absent, so the default run needs only the Python dependencies above:
 
 - `ruff` reports Python lint errors in `scripts/`.
-- `lychee` verifies external URLs, including the provenance links in this file and `UPSTREAM.md`. Network checking is opt-in, so the default run stays offline and deterministic:
+- `lychee` verifies external URLs, including the provenance links in this file and under `references/upstream/`. Network checking is opt-in, so the default run stays offline and deterministic:
 
 ```bash
 CHECK_EXTERNAL_LINKS=1 python3 scripts/check.py
@@ -173,7 +175,7 @@ Skill-settings guidance independently re-expresses generic concepts from project
 
 Absorption guidance and its coordinator come from the project-local `absorb-skills` source, absorbed through its own run. Host path interpolation and skill-mention syntax were dropped, its resources were renamed to this repository's filename convention, its separate host metadata file was merged into the existing one, and its legacy approval-run migration path was removed as unreachable here.
 
-See [`UPSTREAM.md`](UPSTREAM.md) for source baselines, absorbed coverage, deliberate exclusions, monitoring procedure, and changelog.
+See [`references/upstream/`](references/upstream/README.md) for per-source baselines, absorbed coverage, deliberate exclusions, and the refresh procedure, and [`UPSTREAM.md`](UPSTREAM.md) for absorption history.
 
 ## License
 

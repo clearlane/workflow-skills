@@ -14,10 +14,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import design  # noqa: E402
-import document  # noqa: E402
-from design import CAPABILITY_PHASES  # noqa: E402
-import review  # noqa: E402
+import design
+import document
+import review
+from design import CAPABILITY_PHASES
 
 ROOT = Path(__file__).resolve().parent.parent
 TICK = chr(96)
@@ -251,6 +251,7 @@ def check_external_links(root):
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode == 0:
         return []
@@ -269,6 +270,7 @@ def check_lint(root):
         [executable, "check", "--quiet", "--output-format", "concise", str(root / "scripts")],
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode == 0:
         return []
@@ -280,6 +282,7 @@ def run_script(root, name, *arguments):
         [sys.executable, str(root / "scripts" / name), *arguments],
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode != 0:
         return [f"scripts/{name} failed: {result.stdout.strip()} {result.stderr.strip()}".strip()]

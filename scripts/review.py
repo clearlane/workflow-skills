@@ -15,8 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from design import CAPABILITY_PHASES  # noqa: E402
-from state import (  # noqa: E402
+from design import CAPABILITY_PHASES
+from state import (
     excluded,
     fail,
     now,
@@ -404,8 +404,12 @@ def command_self_check(_args):
         assert "settings" not in json.loads(result.stdout)["surfaces"]
 
         # Phases close in order, and only with a decision note.
-        assert execute("complete-phase", "--run-dir", run, "--phase", "structure", "--note", "x", check=False).returncode
-        assert execute("complete-phase", "--run-dir", run, "--phase", "activation", "--note", "", check=False).returncode
+        assert execute(
+            "complete-phase", "--run-dir", run, "--phase", "structure", "--note", "x", check=False
+        ).returncode
+        assert execute(
+            "complete-phase", "--run-dir", run, "--phase", "activation", "--note", "", check=False
+        ).returncode
         execute("complete-phase", "--run-dir", run, "--phase", "activation", "--note", "triggers are specific")
 
         # Findings cannot attach to a phase the run has not reached.
@@ -422,7 +426,9 @@ def command_self_check(_args):
         execute("complete-phase", "--run-dir", run, "--phase", "safety", "--note", "gate missing")
 
         # The verdict is gated on every blocking finding having a disposition.
-        assert execute("complete-phase", "--run-dir", run, "--phase", "verdict", "--note", "ship", check=False).returncode
+        assert execute(
+            "complete-phase", "--run-dir", run, "--phase", "verdict", "--note", "ship", check=False
+        ).returncode
         execute("resolve-finding", "--run-dir", run, "--id", "F1", "--disposition", "fixed", "--note", "gate added")
         execute("complete-phase", "--run-dir", run, "--phase", "verdict", "--note", "approved after fix")
         report = (run / "report.md").read_text()

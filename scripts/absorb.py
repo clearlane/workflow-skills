@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from state import (  # noqa: E402
+from state import (
     copy_manifest_files,
     excluded,
     fail,
@@ -140,7 +140,10 @@ def validate_plan(root, inventory):
         fail(f"{path}: target_contract.runtime_policy must be runtime-neutral")
     require_list(contract.get("scope"), f"{path}: target_contract.scope")
     require_list(contract.get("non_goals"), f"{path}: target_contract.non_goals")
-    for field in ("capability_map", "runtime_adapter_map", "decisions", "file_operations", "omitted_items", "risks", "validation_commands"):
+    for field in (
+        "capability_map", "runtime_adapter_map", "decisions", "file_operations",
+        "omitted_items", "risks", "validation_commands",
+    ):
         require_list(value.get(field), f"{path}: {field}")
 
     expected = capability_keys(root, inventory)
@@ -275,7 +278,7 @@ def restore_tracked_files(snapshot_root, target, target_existed):
             directory.rmdir()
 
 
-def preserve_target_work(root, inventory, destination):
+def preserve_target_work(inventory, destination):
     """Copy current target work aside before an intentional plan revision.
 
     Rollback exists to undo unsafe execution, but a revision is a deliberate
@@ -300,7 +303,7 @@ def rollback_target(root, state, inventory, reason):
     # attempt would otherwise destroy correct merge work. Keep a copy first so a
     # rollback costs a re-bind rather than the whole merge.
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    preserve_target_work(root, inventory, root / "revisions" / f"{stamp}-rollback-target")
+    preserve_target_work(inventory, root / "revisions" / f"{stamp}-rollback-target")
     restore_tracked_files(rollback_root / "target", target, snapshot.get("target_exists"))
     restored = inspect_skill(target, allow_missing=True)
     if restored["exists"] != snapshot.get("target_exists") or restored["sha256"] != snapshot.get("target_sha256"):
@@ -582,7 +585,7 @@ def command_revise_plan(args):
     revisions.mkdir(exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     if state["phase"] in {"merge", "validation"}:
-        preserve_target_work(root, inventory, revisions / f"{stamp}-target")
+        preserve_target_work(inventory, revisions / f"{stamp}-target")
         rollback_target(root, state, inventory, "plan revision requested")
     for name in ("plan.json", "apply.json", "validation.json"):
         path = root / name
@@ -606,7 +609,10 @@ def command_self_check(_args):
         executable = Path(__file__).resolve()
 
         def execute(*arguments, check=True):
-            return subprocess.run([sys.executable, str(executable), *map(str, arguments)], check=check, capture_output=True, text=True)
+            return subprocess.run(
+                [sys.executable, str(executable), *map(str, arguments)],
+                check=check, capture_output=True, text=True,
+            )
 
         def create_skill(path, name):
             path.mkdir()
@@ -628,27 +634,52 @@ def command_self_check(_args):
             source_ids = [item["id"] for item in read_json(run / "inventory.json")["sources"]]
             write_json(run / "analyses" / "target.json", {
                 "source_id": "target", "summary": "Existing target behavior",
-                "capabilities": [{"id": "target-baseline", "purpose": "Preserve target behavior", "evidence": ["SKILL.md"]}],
-                "triggers": [], "resources": [], "overlaps": [], "conflicts": [], "risks": [], "runtime_dependencies": [],
+                "capabilities": [
+                    {"id": "target-baseline", "purpose": "Preserve target behavior", "evidence": ["SKILL.md"]},
+                ],
+                "triggers": [], "resources": [], "overlaps": [], "conflicts": [], "risks": [],
+                "runtime_dependencies": [],
             })
             for index, source_id in enumerate(source_ids):
                 runtime_dependencies = []
                 if index == 0:
-                    runtime_dependencies = [{"id": "vendor-tool", "symbol": "VendorTool", "kind": "tool", "evidence": ["SKILL.md"]}]
+                    runtime_dependencies = [
+                        {"id": "vendor-tool", "symbol": "VendorTool", "kind": "tool", "evidence": ["SKILL.md"]},
+                    ]
                 write_json(run / "analyses" / f"{source_id}.json", {
                     "source_id": source_id, "summary": "Adds source behavior",
-                    "capabilities": [{"id": "source-behavior", "purpose": "Provide behavior", "evidence": ["SKILL.md"]}],
-                    "triggers": [], "resources": [], "overlaps": [], "conflicts": [], "risks": [], "runtime_dependencies": runtime_dependencies,
+                    "capabilities": [
+                        {"id": "source-behavior", "purpose": "Provide behavior", "evidence": ["SKILL.md"]},
+                    ],
+                    "triggers": [], "resources": [], "overlaps": [], "conflicts": [], "risks": [],
+                    "runtime_dependencies": runtime_dependencies,
                 })
             execute("advance", "--run-dir", run)
-            capability_map = [{"key": "target:target-baseline", "decision": "retain", "destination": "SKILL.md", "reason": "Preserve target behavior"}]
-            capability_map.extend({"key": f"{source_id}:source-behavior", "decision": "integrate", "destination": "SKILL.md", "reason": "Core behavior"} for source_id in source_ids)
+            capability_map = [{
+                "key": "target:target-baseline", "decision": "retain",
+                "destination": "SKILL.md", "reason": "Preserve target behavior",
+            }]
+            capability_map.extend(
+                {
+                    "key": f"{source_id}:source-behavior", "decision": "integrate",
+                    "destination": "SKILL.md", "reason": "Core behavior",
+                }
+                for source_id in source_ids
+            )
             write_json(run / "plan.json", {
-                "target_contract": {"name": f"{name}-target", "description": "Combined target skill.", "runtime_policy": "runtime-neutral", "scope": ["behavior"], "non_goals": []},
+                "target_contract": {
+                    "name": f"{name}-target", "description": "Combined target skill.",
+                    "runtime_policy": "runtime-neutral", "scope": ["behavior"], "non_goals": [],
+                },
                 "capability_map": capability_map,
-                "runtime_adapter_map": [{"key": f"{source_ids[0]}:vendor-tool", "decision": "generalize", "destination": "SKILL.md", "reason": "Use runtime-neutral host capability"}],
+                "runtime_adapter_map": [{
+                    "key": f"{source_ids[0]}:vendor-tool", "decision": "generalize",
+                    "destination": "SKILL.md", "reason": "Use runtime-neutral host capability",
+                }],
                 "decisions": [],
-                "file_operations": [{"op": "update", "path": "SKILL.md", "purpose": "Absorb behavior", "sources": source_ids}],
+                "file_operations": [
+                    {"op": "update", "path": "SKILL.md", "purpose": "Absorb behavior", "sources": source_ids},
+                ],
                 "omitted_items": [], "risks": [], "validation_commands": ["self-check"],
             })
             execute("advance", "--run-dir", run)
@@ -658,9 +689,24 @@ def command_self_check(_args):
             assert (run / "rollback" / "snapshot.json").is_file()
             return target, sources, run, baseline, state["plan_sha256"]
 
+        def write_apply(run, plan_hash, changed, deleted=(), notes=()):
+            """Write one merge-apply report.
+
+            The self-check writes this report ten times and varies only the
+            changed set and the notes, so the shape lives here once.
+            """
+            write_json(run / "apply.json", {
+                "plan_sha256": plan_hash,
+                "changed_files": list(changed),
+                "deleted_files": list(deleted),
+                "notes": notes if isinstance(notes, str) else list(notes),
+            })
+
         target, sources, run, _baseline, plan_hash = prepare_run("success", source_count=10)
-        (target / "SKILL.md").write_text("---\nname: target\ndescription: Combined target skill.\n---\n\n# Target\n\nCombined.\n")
-        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": []})
+        (target / "SKILL.md").write_text(
+            "---\nname: target\ndescription: Combined target skill.\n---\n\n# Target\n\nCombined.\n"
+        )
+        write_apply(run, plan_hash, ["SKILL.md"])
         execute("advance", "--run-dir", run)
         write_json(run / "validation.json", {
             "plan_sha256": plan_hash,
@@ -669,7 +715,7 @@ def command_self_check(_args):
             "remaining_gaps": ["Needs repair"], "notes": [],
         })
         execute("advance", "--run-dir", run)
-        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": ["Repaired"]})
+        write_apply(run, plan_hash, ["SKILL.md"], notes=["Repaired"])
         execute("advance", "--run-dir", run)
         write_json(run / "validation.json", {
             "plan_sha256": plan_hash,
@@ -682,8 +728,14 @@ def command_self_check(_args):
         assert missing_feedback.returncode != 0 and "feedback.json" in missing_feedback.stderr
         write_json(run / "feedback.json", {
             "observations": [
-                {"issue": "Observed coordinator defect", "evidence": "self-check", "disposition": "fixed", "changed_files": ["scripts/absorb.py"]},
-                {"issue": "Known limitation", "evidence": "self-check", "disposition": "accepted", "reason": "Out of scope for this run"},
+                {
+                    "issue": "Observed coordinator defect", "evidence": "self-check",
+                    "disposition": "fixed", "changed_files": ["scripts/absorb.py"],
+                },
+                {
+                    "issue": "Known limitation", "evidence": "self-check",
+                    "disposition": "accepted", "reason": "Out of scope for this run",
+                },
             ],
             "improvements": ["Recorded during self-check"],
         })
@@ -701,12 +753,14 @@ def command_self_check(_args):
         assert state["phase"] == "complete"
         assert state["validation_attempts"] == 2
         for source in sources:
-            assert inspect_skill(source)["sha256"] == next(item["sha256"] for item in read_json(run / "inventory.json")["sources"] if item["path"] == str(source.resolve()))
+            recorded = read_json(run / "inventory.json")["sources"]
+            expected = next(item["sha256"] for item in recorded if item["path"] == str(source.resolve()))
+            assert inspect_skill(source)["sha256"] == expected
 
         target, _sources, run, baseline, plan_hash = prepare_run("scope")
         (target / "SKILL.md").write_text("changed\n")
         (target / "EXTRA.md").write_text("outside plan\n")
-        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["EXTRA.md", "SKILL.md"], "deleted_files": [], "notes": []})
+        write_apply(run, plan_hash, ["EXTRA.md", "SKILL.md"])
         result = execute("advance", "--run-dir", run, check=False)
         assert result.returncode != 0 and "target rolled back" in result.stderr
         assert read_json(run / "state.json")["phase"] == "rolled-back"
@@ -723,16 +777,19 @@ def command_self_check(_args):
         target, _sources, run, _baseline, plan_hash = prepare_run("malformed")
         merged = "---\nname: target\ndescription: Combined target skill.\n---\n\n# Target\n\nMerged.\n"
         (target / "SKILL.md").write_text(merged)
-        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": "not a list"})
+        write_apply(run, plan_hash, ["SKILL.md"], notes="not a list")
         result = execute("advance", "--run-dir", run, check=False)
         assert result.returncode != 0 and "notes must be list" in result.stderr
         assert "rolled back" not in result.stderr
         assert read_json(run / "state.json")["phase"] == "merge"
         assert (target / "SKILL.md").read_text() == merged
-        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": []})
+        write_apply(run, plan_hash, ["SKILL.md"])
         execute("advance", "--run-dir", run)
         assert read_json(run / "state.json")["phase"] == "validation"
-        write_json(run / "validation.json", {"plan_sha256": plan_hash, "passed": "yes", "checks": [], "remaining_gaps": [], "notes": []})
+        write_json(run / "validation.json", {
+            "plan_sha256": plan_hash, "passed": "yes",
+            "checks": [], "remaining_gaps": [], "notes": [],
+        })
         result = execute("advance", "--run-dir", run, check=False)
         assert result.returncode != 0 and "rolled back" not in result.stderr
         assert read_json(run / "state.json")["phase"] == "validation"
@@ -743,7 +800,7 @@ def command_self_check(_args):
         target, _sources, run, baseline, plan_hash = prepare_run("extend")
         (target / "SKILL.md").write_text("merged\n")
         (target / "helper.py").write_text("fix\n")
-        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md", "helper.py"], "deleted_files": [], "notes": []})
+        write_apply(run, plan_hash, ["SKILL.md", "helper.py"])
         blocked = execute("advance", "--run-dir", run, check=False)
         assert blocked.returncode != 0 and "extend-scope" in blocked.stderr
         assert read_json(run / "state.json")["phase"] == "rolled-back"
@@ -751,13 +808,20 @@ def command_self_check(_args):
         target, _sources, run, baseline, plan_hash = prepare_run("extend-ok", max_attempts=1)
         (target / "SKILL.md").write_text("merged\n")
         (target / "helper.py").write_text("fix\n")
-        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md", "helper.py"], "deleted_files": [], "notes": []})
-        execute("extend-scope", "--run-dir", run, "--path", "helper.py", "--reason", "Coordinator fix found during merge")
+        write_apply(run, plan_hash, ["SKILL.md", "helper.py"])
+        execute(
+            "extend-scope", "--run-dir", run, "--path", "helper.py",
+            "--reason", "Coordinator fix found during merge",
+        )
         recorded = read_json(run / "state.json")["scope_extensions"]
         assert recorded and recorded[0]["paths"] == ["helper.py"] and recorded[0]["reason"]
         # An empty or duplicate extension is rejected rather than silently recorded.
-        assert execute("extend-scope", "--run-dir", run, "--path", "helper.py", "--reason", "again", check=False).returncode != 0
-        assert execute("extend-scope", "--run-dir", run, "--path", "other.py", "--reason", " ", check=False).returncode != 0
+        assert execute(
+            "extend-scope", "--run-dir", run, "--path", "helper.py", "--reason", "again", check=False
+        ).returncode != 0
+        assert execute(
+            "extend-scope", "--run-dir", run, "--path", "other.py", "--reason", " ", check=False
+        ).returncode != 0
         execute("advance", "--run-dir", run)
         assert read_json(run / "state.json")["phase"] == "validation"
         write_json(run / "validation.json", {
@@ -778,7 +842,7 @@ def command_self_check(_args):
         assert inspect_skill(target)["sha256"] == read_json(run / "inventory.json")["target"]["sha256"]
         (target / "SKILL.md").write_text("changed\n")
         (target / "EXTRA.md").write_text("outside plan\n")
-        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["EXTRA.md", "SKILL.md"], "deleted_files": [], "notes": []})
+        write_apply(run, plan_hash, ["EXTRA.md", "SKILL.md"])
         result = execute("advance", "--run-dir", run, check=False)
         assert result.returncode != 0 and "target rolled back" in result.stderr
         assert (target / "SKILL.md").read_text() == baseline
@@ -788,7 +852,7 @@ def command_self_check(_args):
 
         target, _sources, run, baseline, plan_hash = prepare_run("bounded", max_attempts=1)
         (target / "SKILL.md").write_text("changed\n")
-        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": []})
+        write_apply(run, plan_hash, ["SKILL.md"])
         execute("advance", "--run-dir", run)
         write_json(run / "validation.json", {
             "plan_sha256": plan_hash, "passed": False,
@@ -801,7 +865,7 @@ def command_self_check(_args):
 
         target, _sources, run, baseline, plan_hash = prepare_run("revision")
         (target / "SKILL.md").write_text("partially merged target\n")
-        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md"], "deleted_files": [], "notes": []})
+        write_apply(run, plan_hash, ["SKILL.md"])
         execute("advance", "--run-dir", run)
         execute("revise-plan", "--run-dir", run)
         state = read_json(run / "state.json")
@@ -825,7 +889,9 @@ def parser():
     initialize.add_argument("--max-validation-attempts", type=int, default=3)
     initialize.set_defaults(handler=command_init)
 
-    for name, handler in (("status", command_status), ("advance", command_advance), ("revise-plan", command_revise_plan)):
+    for name, handler in (
+        ("status", command_status), ("advance", command_advance), ("revise-plan", command_revise_plan),
+    ):
         command = commands.add_parser(name)
         command.add_argument("--run-dir", type=Path, required=True)
         command.set_defaults(handler=handler)

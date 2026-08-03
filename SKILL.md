@@ -125,4 +125,4 @@ Audit an existing skill with the coordinator in [workflows/review.md](workflows/
 
 Review stays read-only on its subject: record findings during the run, change the skill after the verdict. Every finding cites a path in the reviewed skill, and the verdict cannot close while a blocking finding lacks an explicit disposition.
 
-When reviewing upstream sources or refreshing absorbed guidance, use [UPSTREAM.md](UPSTREAM.md) as baseline and changelog registry.
+Record every absorbed source as one file under [references/upstream/](references/upstream/README.md), carrying its baseline digest, absorption date, bound plan hash, absorbed capabilities, deliberate exclusions, and canonical destinations. That directory owns the refresh procedure; [UPSTREAM.md](UPSTREAM.md) records absorption history.

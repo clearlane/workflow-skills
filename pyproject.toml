@@ -1,0 +1,45 @@
+# Tooling configuration for this repository's own checks.
+#
+# Skill guidance stays runtime-neutral; nothing here ships to a host that
+# loads SKILL.md. This file exists so `ruff` and the Python floor are pinned
+# to the repository rather than inherited from whatever a contributor or CI
+# runner happens to have configured.
+
+[project]
+name = "workflow-skills-checks"
+version = "0"
+description = "Deterministic checks for the designing-workflow-skills repository."
+# scripts/document.py annotates a dataclass field with `dict | None`, which is
+# evaluated at class-creation time and needs PEP 604 unions at runtime.
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["scripts"]
+
+[tool.ruff.lint]
+# Enumerated rather than left to ruff's default so a ruff upgrade cannot
+# silently widen or narrow what this repository considers an error.
+select = [
+    "A",    # shadowed builtins
+    "ARG",  # unused arguments
+    "B",    # likely bugs
+    "C4",   # comprehension clarity
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # import order
+    "ISC",  # implicit string concatenation
+    "N",    # naming
+    "PGH",  # blanket noqa and type-ignore
+    "PIE",  # redundant constructs
+    "PLE",  # pylint errors
+    "PLW",  # pylint warnings
+    "RET",  # return-path clarity
+    "RUF",  # ruff-native rules, including dead noqa directives
+    "SIM",  # simplifiable logic
+    "T10",  # forgotten debugger calls
+    "TID",  # banned relative imports
+    "UP",   # outdated syntax for the supported floor
+    "W",    # pycodestyle warnings
+]

@@ -19,7 +19,7 @@ except ModuleNotFoundError as error:  # pragma: no cover - environment guard
     raise SystemExit(
         f"Missing dependency {error.name!r}. Install with: "
         "pip install markdown-it-py mdit-py-plugins PyYAML"
-    )
+    ) from error
 
 EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "tel:")
 IGNORED_DIRECTORIES = {".git", ".hg", ".svn", "__pycache__", "node_modules"}

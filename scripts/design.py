@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from state import (  # noqa: E402
+from state import (
     fail,
     now,
     paths_overlap,

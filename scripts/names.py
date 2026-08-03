@@ -3,7 +3,6 @@ import argparse
 import re
 from pathlib import Path
 
-
 PORTABLE_STEM = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 PORTABLE_EXTENSIONS = re.compile(r"^(?:[a-z0-9]+)(?:\.[a-z0-9]+)*$")
 EXACT_NAMES = {

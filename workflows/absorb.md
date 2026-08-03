@@ -160,4 +160,4 @@ This feedback is a completion requirement, not merge evidence: a missing or malf
 
 ## Record the Absorption
 
-After a run completes, record the source, upstream location, absorbed baseline digest or commit, date, and plan hash in [UPSTREAM.md](../UPSTREAM.md), together with absorbed coverage and deliberate exclusions. Keep run artifacts as the durable evidence, then delete any project-local source copy the run consumed.
+After a run completes, add one record per source under [references/upstream/](../references/upstream/README.md), named for the source. It carries the upstream location, absorbed baseline digest or commit, date, and plan hash, together with absorbed coverage, deliberate exclusions, and canonical destinations. One source, one file: never fold a new source into an existing record. Note the run in [UPSTREAM.md](../UPSTREAM.md), keep run artifacts as the durable evidence, then delete any project-local source copy the run consumed.
