@@ -21,12 +21,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from exits import (
+    EX_DATAERR,
+    EX_SOFTWARE,
+    EX_TEMPFAIL,
+    EX_UNAVAILABLE,
+    Failure,
+    fail,
+)
 from state import (
     VERSION,
     check_version,
     copy_manifest_files,
     excluded,
-    fail,
     json_sha256,
     now,
     paths_overlap,
@@ -34,6 +41,7 @@ from state import (
     read_json,
     relative_file_manifest,
     remove_path,
+    run_cli,
     safe_relative_path,
     save_state,
     schema_errors,
@@ -55,12 +63,17 @@ SCHEMA_FOR = {
 }
 
 
-class MalformedEvidence(SystemExit):
+class MalformedEvidence(Failure):
     """Evidence the run cannot read yet, as opposed to execution proven unsafe.
 
     Rolling back for a mistyped field destroys a merge that was never unsafe, so
     the coordinator rejects the evidence and keeps the target and phase intact.
+    A data error rather than a usage error: the caller invoked the coordinator
+    correctly and the artifact is what is wrong.
     """
+
+    def __init__(self, message):
+        super().__init__(message, EX_DATAERR)
 
 
 def malformed(message):
@@ -72,7 +85,7 @@ def inspect_skill(path, allow_missing=False):
     if not resolved.exists():
         if allow_missing:
             return {"path": str(resolved), "exists": False, "files": {}, "sha256": None}
-        fail(f"Skill path does not exist: {resolved}")
+        fail(f"Skill path does not exist: {resolved}", EX_UNAVAILABLE, resolved)
     if not resolved.is_dir() or not (resolved / "SKILL.md").is_file():
         fail(f"Skill must be directory containing SKILL.md: {resolved}")
     files = relative_file_manifest(resolved)
@@ -193,7 +206,7 @@ def require_coverage(path, decided, expected, label):
     missing = sorted(set(expected) - set(keys))
     unknown = sorted(set(keys) - set(expected))
     if missing or unknown:
-        fail(f"{path}: {label} coverage mismatch; missing={missing}, unknown={unknown}")
+        fail(f"{path}: {label} coverage mismatch; missing={missing}, unknown={unknown}", EX_DATAERR)
 
 
 def bound_paths(root, state, inventory):
@@ -213,14 +226,14 @@ def validate_sources_unchanged(inventory):
     for source in inventory["sources"]:
         current = inspect_skill(Path(source["path"]))
         if current["sha256"] != source["sha256"]:
-            fail(f"Source skill changed during absorption: {source['path']}")
+            fail(f"Source skill changed during absorption: {source['path']}", EX_DATAERR)
 
 
 def validate_target_baseline(inventory):
     expected = inventory["target"]
     current = inspect_skill(Path(expected["path"]), allow_missing=True)
     if current["exists"] != expected["exists"] or current["sha256"] != expected["sha256"]:
-        fail("Target changed after run initialization; start a new run")
+        fail("Target changed after run initialization; start a new run", EX_DATAERR)
 
 
 def create_rollback_snapshot(root, state, inventory):
@@ -229,14 +242,14 @@ def create_rollback_snapshot(root, state, inventory):
     rollback_root.mkdir()
     target = inspect_skill(Path(inventory["target"]["path"]), allow_missing=True)
     if target["exists"] != inventory["target"]["exists"] or target["sha256"] != inventory["target"]["sha256"]:
-        fail("Target no longer matches run baseline")
+        fail("Target no longer matches run baseline", EX_DATAERR)
     if target["exists"]:
         snapshot_root = rollback_root / "target"
         snapshot_root.mkdir(parents=True, exist_ok=True)
         copy_manifest_files(Path(target["path"]), snapshot_root, target["files"])
         snapshot = inspect_skill(rollback_root / "target")
         if snapshot["sha256"] != target["sha256"]:
-            fail("Rollback snapshot does not match target baseline")
+            fail("Rollback snapshot does not match target baseline", EX_DATAERR)
     write_json(
         rollback_root / "snapshot.json",
         {
@@ -295,7 +308,7 @@ def rollback_target(root, state, inventory, reason):
     rollback_root = root / "rollback"
     snapshot = read_json(rollback_root / "snapshot.json")
     if snapshot.get("plan_sha256") != state.get("execution_plan_sha256"):
-        fail("Rollback snapshot does not match bound plan")
+        fail("Rollback snapshot does not match bound plan", EX_DATAERR)
     target = Path(inventory["target"]["path"])
     # Restoring the baseline is safe but lossy: an out-of-scope path or a failed
     # attempt would otherwise destroy correct merge work. Keep a copy first so a
@@ -305,16 +318,18 @@ def rollback_target(root, state, inventory, reason):
     restore_tracked_files(rollback_root / "target", target, snapshot.get("target_exists"))
     restored = inspect_skill(target, allow_missing=True)
     if restored["exists"] != snapshot.get("target_exists") or restored["sha256"] != snapshot.get("target_sha256"):
-        fail("Automatic rollback could not restore target baseline")
+        fail("Automatic rollback could not restore target baseline", EX_SOFTWARE)
     state["phase"] = "rolled-back"
     state["rollback_reason"] = reason
     save_state(root, state, "target-rolled-back")
 
 
 def rollback_after_error(root, state, inventory, error):
-    message = str(error)
+    # Failure carries the prose separately from the exit code, so the rollback
+    # reason records what went wrong rather than the number it exited with.
+    message = error.message
     rollback_target(root, state, inventory, message)
-    fail(f"{message}; target rolled back")
+    fail(f"{message}; target rolled back", error.code)
 
 
 def target_diff(inventory):
@@ -332,18 +347,21 @@ def validate_apply(root, state, inventory):
     require_schema(path, "apply.schema.json", value)
     current_plan_hash = json_sha256(root / "plan.json")
     if current_plan_hash != state.get("execution_plan_sha256"):
-        fail("plan.json changed after binding; run revise-plan")
+        fail("plan.json changed after binding; run revise-plan", EX_DATAERR)
     if value.get("plan_sha256") != current_plan_hash:
-        fail(f"{path}: plan_sha256 does not match bound plan")
+        fail(f"{path}: plan_sha256 does not match bound plan", EX_DATAERR)
     declared_changed = sorted(safe_relative_path(item, f"{path}: changed_files") for item in value["changed_files"])
     declared_deleted = sorted(safe_relative_path(item, f"{path}: deleted_files") for item in value["deleted_files"])
     changed, deleted, current_skill = target_diff(inventory)
     if declared_changed != changed or declared_deleted != deleted:
-        fail(f"{path}: target diff mismatch; actual changed={changed}, actual deleted={deleted}")
+        fail(f"{path}: target diff mismatch; actual changed={changed}, actual deleted={deleted}", EX_DATAERR)
     planned_paths = bound_paths(root, state, inventory)
     outside_plan = sorted((set(changed) | set(deleted)) - planned_paths)
     if outside_plan:
-        fail(f"{path}: changed paths outside bound plan: {outside_plan}; record them with extend-scope or revert them")
+        fail(
+            f"{path}: changed paths outside bound plan: {outside_plan}; record them with extend-scope or revert them",
+            EX_DATAERR,
+        )
     validate_sources_unchanged(inventory)
     write_artifact(root / "target-after-merge.json", "skill.schema.json", current_skill)
 
@@ -359,7 +377,7 @@ def validate_validation(root, state):
     value = read_json(path)
     require_schema(path, "validation.schema.json", value)
     if value["plan_sha256"] != state.get("execution_plan_sha256"):
-        fail(f"{path}: plan_sha256 does not match bound plan")
+        fail(f"{path}: plan_sha256 does not match bound plan", EX_DATAERR)
     return value
 
 
@@ -509,6 +527,13 @@ def command_advance(args):
             save_state(root, state, "validation-passed")
         elif attempt >= state["max_validation_attempts"]:
             rollback_target(root, state, inventory, "validation attempt bound reached")
+            # Exhausting the bound is a real outcome, not a completed run. Exiting
+            # zero here would let a wrapper report a rolled-back absorption as a
+            # success, which is the one thing the bound exists to prevent.
+            fail(
+                f"Validation failed {attempt} times, reaching the bound; target rolled back",
+                EX_TEMPFAIL,
+            )
         else:
             state["phase"] = "merge"
             save_state(root, state, "validation-failed")
@@ -879,7 +904,11 @@ def command_self_check(_args):
                 "notes": [],
             },
         )
-        execute("advance", "--run-dir", run)
+        # Exhausting the attempt bound is a distinct outcome, so it exits
+        # EX_TEMPFAIL rather than reporting the rolled-back run as a success.
+        exhausted = execute("advance", "--run-dir", run, check=False)
+        assert exhausted.returncode == EX_TEMPFAIL, exhausted.returncode
+        assert "reaching the bound" in exhausted.stderr, exhausted.stderr
         assert read_json(run / "state.json")["phase"] == "rolled-back"
         # The extended path is snapshot-covered, so rollback removes it too.
         assert (target / "SKILL.md").read_text() == baseline
@@ -914,7 +943,8 @@ def command_self_check(_args):
                 "notes": [],
             },
         )
-        execute("advance", "--run-dir", run)
+        bounded = execute("advance", "--run-dir", run, check=False)
+        assert bounded.returncode == EX_TEMPFAIL, bounded.returncode
         assert read_json(run / "state.json")["phase"] == "rolled-back"
         assert (target / "SKILL.md").read_text() == baseline
 
@@ -934,6 +964,15 @@ def command_self_check(_args):
 
 def parser():
     root = argparse.ArgumentParser(description="Coordinate semantic absorption of many skills into one target.")
+    # Global, so it precedes the subcommand like any other tool-wide flag. A
+    # per-subcommand copy would let one run report failures in a shape another
+    # run of the same coordinator does not.
+    root.add_argument(
+        "--output",
+        choices=("text", "json"),
+        default="text",
+        help="failure output shape: prose (default), or RFC 9457 problem details",
+    )
     commands = root.add_subparsers(dest="command", required=True)
 
     initialize = commands.add_parser("init")
@@ -978,4 +1017,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run_cli(main)

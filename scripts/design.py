@@ -15,15 +15,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from exits import (
+    fail,
+)
 from state import (
     VERSION,
     check_version,
-    fail,
     now,
     paths_overlap,
     read_history,
     read_json,
     require_text,
+    run_cli,
     save_state,
     slug,
     write_artifact,
@@ -302,6 +305,15 @@ def command_self_check(_args):
 
 def parser():
     root = argparse.ArgumentParser(description="Coordinate design of a workflow skill.")
+    # Global, so it precedes the subcommand like any other tool-wide flag. A
+    # per-subcommand copy would let one run report failures in a shape another
+    # run of the same coordinator does not.
+    root.add_argument(
+        "--output",
+        choices=("text", "json"),
+        default="text",
+        help="failure output shape: prose (default), or RFC 9457 problem details",
+    )
     commands = root.add_subparsers(dest="command", required=True)
 
     initialize = commands.add_parser("init")
@@ -342,4 +354,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run_cli(main)

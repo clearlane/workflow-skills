@@ -13,6 +13,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 from datetime import datetime, timezone
 from functools import cache, lru_cache
 from pathlib import Path
@@ -20,6 +21,16 @@ from pathlib import Path
 import jsonschema
 import rfc8785
 from referencing import Registry, Resource
+
+from exits import (
+    EX_DATAERR,
+    EX_SOFTWARE,
+    EX_UNAVAILABLE,
+    Failure,
+    fail,
+    report_failure,
+    wants_json,
+)
 
 EXCLUDED_DIRECTORIES = {".git", ".hg", ".svn", "__pycache__", "node_modules"}
 SCHEMA_DIRECTORY = Path(__file__).resolve().parent.parent / "schemas"
@@ -81,8 +92,22 @@ def shipped_paths(root):
     return frozenset(entry for entry in completed.stdout.decode().split("\0") if entry)
 
 
-def fail(message):
-    raise SystemExit(message)
+def run_cli(main, argv=None):
+    """Run a coordinator entrypoint, rendering any failure through one path.
+
+    Every coordinator previously relied on SystemExit printing its own message,
+    which meant the exit code was always 1 and the output shape was whatever the
+    string happened to be. Routing through here gives all of them the same
+    failure class, the same stream, and the same `--output json` behaviour
+    without each entrypoint restating it.
+    """
+    argv = sys.argv[1:] if argv is None else argv
+    as_json = wants_json(argv)
+    try:
+        main()
+    except Failure as error:
+        report_failure(error, as_json, sys.stderr)
+        raise SystemExit(error.code) from error
 
 
 def now():
@@ -106,11 +131,11 @@ def read_json(path):
     try:
         value = json.loads(path.read_text())
     except FileNotFoundError:
-        fail(f"Missing file: {path}")
+        fail(f"Missing file: {path}", EX_UNAVAILABLE, path)
     except json.JSONDecodeError as error:
-        fail(f"Invalid JSON in {path}: {error}")
+        fail(f"Invalid JSON in {path}: {error}", EX_DATAERR, path)
     if not isinstance(value, dict):
-        fail(f"Expected JSON object: {path}")
+        fail(f"Expected JSON object: {path}", EX_DATAERR, path)
     return value
 
 
@@ -182,19 +207,19 @@ def tree_sha256(manifest):
 
 def require_list(value, name):
     if not isinstance(value, list):
-        fail(f"{name} must be list")
+        fail(f"{name} must be list", EX_DATAERR)
 
 
 def require_text(value, name):
     if not isinstance(value, str) or not value.strip():
-        fail(f"{name} must be non-empty string")
+        fail(f"{name} must be non-empty string", EX_DATAERR)
 
 
 def safe_relative_path(value, name):
     require_text(value, name)
     path = Path(value)
     if path.is_absolute() or ".." in path.parts or value in {".", ""}:
-        fail(f"{name} must stay inside target: {value}")
+        fail(f"{name} must stay inside target: {value}", EX_DATAERR)
     return path.as_posix()
 
 
@@ -231,7 +256,7 @@ def schema_registry():
 def schema_validator(name):
     path = SCHEMA_DIRECTORY / name
     if not path.is_file():
-        fail(f"Missing schema: {path}")
+        fail(f"Missing schema: {path}", EX_SOFTWARE, path)
     contents = json.loads(path.read_text(encoding="utf-8"))
     return jsonschema.Draft202012Validator(contents, registry=schema_registry())
 
@@ -266,7 +291,7 @@ def vendored_validator(name):
     """
     path = VENDOR_SCHEMA_DIRECTORY / name
     if not path.is_file():
-        fail(f"Missing vendored schema: {path}")
+        fail(f"Missing vendored schema: {path}", EX_SOFTWARE, path)
     contents = json.loads(path.read_text(encoding="utf-8"))
     return jsonschema.validators.validator_for(contents)(contents)
 
@@ -280,7 +305,7 @@ def validate_sarif(document):
     ]
     if messages:
         detail = "\n  ".join(messages)
-        fail(f"Document is not valid SARIF 2.1.0:\n  {detail}")
+        fail(f"Document is not valid SARIF 2.1.0:\n  {detail}", EX_SOFTWARE)
 
 
 def stamp(name, value):
@@ -304,7 +329,7 @@ def write_artifact(path, name, value):
     errors = schema_errors(name, stamped)
     if errors:
         detail = "\n  ".join(errors)
-        fail(f"Refusing to write {path}: does not satisfy {name}:\n  {detail}")
+        fail(f"Refusing to write {path}: does not satisfy {name}:\n  {detail}", EX_SOFTWARE, path)
     write_json(path, stamped)
 
 
@@ -323,7 +348,8 @@ def check_version(state):
     fail(
         f"Run artifacts are version {found!r}, this coordinator writes version {VERSION}. "
         "Digests and the transition log changed shape, so the run cannot be resumed; "
-        "start a new run."
+        "start a new run.",
+        EX_DATAERR,
     )
 
 

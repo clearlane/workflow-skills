@@ -12,6 +12,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from exits import EX_UNAVAILABLE, EX_USAGE, Failure, fail, report_failure, wants_json
+
 DEFAULT_EXCLUDES = {
     ".git",
     ".hg",
@@ -209,17 +213,17 @@ def main() -> int:
         print("self-check passed")
         return 0
     if args.max_files < 1:
-        raise SystemExit("--max-files must be positive")
+        fail("--max-files must be positive")
     scope = Path(args.scope).expanduser().resolve()
     if not scope.is_dir():
-        raise SystemExit(f"scope is not a directory: {scope}")
+        fail(f"scope is not a directory: {scope}", EX_UNAVAILABLE, scope)
     output = Path(args.output).expanduser().resolve() if args.output else None
     if output and output.exists() and output.is_dir():
-        raise SystemExit(f"output is a directory: {output}")
+        fail(f"output is a directory: {output}", EX_USAGE, output)
 
     excluded = DEFAULT_EXCLUDES | set(args.exclude)
     if any(not name or "/" in name or name in {".", ".."} for name in excluded):
-        raise SystemExit("excluded values must be safe directory basenames")
+        fail("excluded values must be safe directory basenames")
 
     result = scan(scope, excluded, args.max_files)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
@@ -232,4 +236,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Failure as error:
+        report_failure(error, wants_json(sys.argv[1:]), sys.stderr)
+        raise SystemExit(error.code) from error

@@ -12,12 +12,25 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-class SettingsError(ValueError):
-    pass
+from exits import EX_DATAERR, Failure, report_failure, wants_json
+
+
+class SettingsError(Failure):
+    """A settings layer that cannot be read as the contract requires.
+
+    A data error rather than a usage error: the caller invoked the tool
+    correctly and the file on disk is what is wrong, which is the distinction
+    that tells a wrapper whether re-invoking could ever help.
+    """
+
+    def __init__(self, message):
+        super().__init__(message, EX_DATAERR)
 
 
 def read_object(path):
@@ -151,5 +164,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except SettingsError as error:
-        raise SystemExit(str(error)) from error
+    except Failure as error:
+        report_failure(error, wants_json(sys.argv[1:]), sys.stderr)
+        raise SystemExit(error.code) from error

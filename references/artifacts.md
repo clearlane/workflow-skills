@@ -102,6 +102,24 @@ Keep these imperative, and say so where the schema stops:
 
 Preserve superseded evidence rather than overwriting it. An attempt that failed is the record of why the next one differed, and a run that quietly overwrites it cannot answer what changed.
 
+## How a Run Reports Failure
+
+A run's exit is part of its output. A caller that can only see "nonzero" cannot tell a bad flag from a plan whose digest moved, so it cannot decide whether re-invoking, re-reading the artifact, or stopping is correct.
+
+Use the [`sysexits.h`](https://man.freebsd.org/cgi/man.cgi?query=sysexits) codes, which are the nearest thing to a convention for command-line failure classes:
+
+| Code | Class | The caller should |
+|---|---|---|
+| `64` | Usage: bad flag, unknown capability, wrong phase | Fix the invocation |
+| `65` | Data: artifact violates its schema or a recorded digest moved | Fix the artifact, then retry |
+| `69` | Unavailable: a required input or dependency is missing | Provide it |
+| `70` | Software: an internal invariant broke | Report it; retrying will not help |
+| `75` | Temporary: a bounded retry budget was exhausted | Decide whether to start again |
+
+Exhausting a bound is a failure, not a completion. A run that rolls back and exits zero lets a wrapper report it as a success, which defeats the bound.
+
+Emit failures as [RFC 9457 problem details](https://www.rfc-editor.org/rfc/rfc9457) when the caller asks for machine-readable output, with `status` carrying the exit code rather than an HTTP status, because no HTTP request is involved. Diagnostics go to stderr and data to stdout, so a caller can pipe a coordinator's JSON without a failure message landing in the stream.
+
 ## Malformed Evidence Is Not Unsafe Execution
 
 A wrong field type means the run cannot read the evidence yet. Proof that a mutation went outside its bounds means the run did something it should not have.

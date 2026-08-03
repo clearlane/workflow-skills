@@ -609,6 +609,7 @@ def main():
     checks = (
         ("filenames", lambda: run_script(ROOT, "names.py", str(ROOT))),
         ("checker logic", lambda: run_script(ROOT, "check.py", "--self-check")),
+        ("failure contract", lambda: run_script(ROOT, "exits.py")),
         ("shared state primitives", lambda: run_script(ROOT, "state.py")),
         ("document model", lambda: run_script(ROOT, "document.py", "self-check")),
         ("settings resolver", lambda: run_script(ROOT, "settings.py", "--self-check")),

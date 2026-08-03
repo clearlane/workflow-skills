@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from exits import EX_DATAERR, Failure, fail, report_failure, wants_json
 from state import shipped_paths
 
 PORTABLE_STEM = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -131,11 +132,17 @@ def main():
 
     failures = validate(arguments.root.resolve())
     if failures:
+        # Diagnostics on stderr so a caller can pipe the passing case without a
+        # failure appearing in the data stream.
         for path, error in failures:
-            print(f"{path}: {error}")
-        raise SystemExit(1)
+            print(f"{path}: {error}", file=sys.stderr)
+        fail(f"{len(failures)} filename(s) violate the convention", EX_DATAERR)
     print("filename check passed")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Failure as error:
+        report_failure(error, wants_json(sys.argv[1:]), sys.stderr)
+        raise SystemExit(error.code) from error
