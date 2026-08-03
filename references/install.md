@@ -2,7 +2,7 @@
 
 Install agent skills through the open `skills` CLI invoked with `npx`. Do not invent host-specific skill directories, copy files manually, or assume one agent. The CLI owns source resolution, skill discovery, supported-agent paths, scope, lock metadata, and installation mode.
 
-This reference covers installing skills only. For general prerequisite provisioning and readiness reporting, follow [setup.md](../workflows/setup.md).
+This reference covers installing skills only. For general prerequisite provisioning and readiness reporting, follow [setup.md](setup.md).
 
 ## Inputs
 

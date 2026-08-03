@@ -104,7 +104,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `workflows/review.md` — evidence-gated skill review workflow
 - `workflows/absorb.md` — absorption workflow, coordinator entry, invariants, and rollback contract
 - `workflows/restructure.md` — audit-then-approve layout restructuring workflow
-- `workflows/setup.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
+- `references/setup.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
 
 **References** — one canonical contract per concern
 

@@ -77,7 +77,7 @@ ENTRY_DOCUMENTS = (
     "SKILL.md",
     "workflows/design.md",
     "workflows/absorb.md",
-    "workflows/setup.md",
+    "references/setup.md",
     "workflows/restructure.md",
     "workflows/review.md",
 )
@@ -285,6 +285,38 @@ def check_reachability(root):
         for path in sorted((root / directory).glob("*.md")):
             if path.resolve() not in linked:
                 failures.append(f"{path.relative_to(root)}: not linked from SKILL.md or any workflow")
+    return failures
+
+
+def check_workflow_dispatch(root):
+    """A workflow document must hand control to a coordinator, not hold it.
+
+    restructure.md carried six numbered prose steps and an approval gate that
+    nothing could enforce, and setup.md sat in workflows/ describing contracts
+    with no run at all. Both read as workflows to anyone browsing the
+    directory, so the rule SKILL.md states was invisible where it mattered.
+
+    A workflow that names no coordinator either has control flow in prose or is
+    a reference filed in the wrong directory.
+    """
+    failures = []
+    for path in sorted((root / "workflows").glob("*.md")):
+        name = path.relative_to(root)
+        parsed = document.parse(path)
+        coordinators = {
+            fence.strip()
+            for fence in re.findall(r"scripts/([a-z_-]+\.py)", parsed.text)
+            if fence not in {"check.py", "inventory.py"}
+        }
+        if not coordinators:
+            failures.append(
+                f"{name}: names no coordinator; a workflow dispatches to scripts/, "
+                "and a document that only states contracts belongs in references/"
+            )
+            continue
+        for coordinator in sorted(coordinators):
+            if not (root / "scripts" / coordinator).is_file():
+                failures.append(f"{name}: dispatches to scripts/{coordinator}, which does not exist")
     return failures
 
 
@@ -732,6 +764,7 @@ def main():
         ("coordinator verbs", lambda: check_coordinator_verbs(ROOT)),
         ("shared runtime", lambda: check_shared_runtime(ROOT)),
         ("reference skeleton", lambda: check_reference_skeleton(ROOT)),
+        ("workflow dispatch", lambda: check_workflow_dispatch(ROOT)),
         ("phase owners", lambda: check_phase_owners(ROOT)),
         ("documented capabilities", lambda: check_capability_rows(ROOT)),
         ("documented review phases", lambda: check_review_phases(ROOT)),

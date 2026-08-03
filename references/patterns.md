@@ -208,7 +208,7 @@ result = coordinator(request, settings, report)
 
 Keep setup explicit, idempotent, version-aware, and separate from normal activation. Run route-specific pre-flight before mutable run state or worker dispatch. Re-run pre-flight after setup, and revalidate volatile conditions at point of use.
 
-See [setup.md](../workflows/setup.md) for contracts, check classes, remediation, freshness, and focused checks.
+See [setup.md](setup.md) for contracts, check classes, remediation, freshness, and focused checks.
 
 ## Combining Patterns
 

@@ -53,7 +53,7 @@ Separate these concerns. Each row names the one owner of that concern and the re
 | Delegate one bounded independent task | Worker with explicit contract | [workers.md](references/workers.md) |
 | Expose explicit reusable invocation | Thin command entrypoint adapter | [commands.md](references/commands.md) |
 | Make skill behavior configurable | Validated settings adapter | [settings.md](references/settings.md) |
-| Provision prerequisites or prove readiness | Separate setup entrypoint and pre-flight report | [setup.md](workflows/setup.md) |
+| Provision prerequisites or prove readiness | Separate setup entrypoint and pre-flight report | [setup.md](references/setup.md) |
 | Install an agent skill | Discover, install, verify in same scope | [install.md](references/install.md) |
 | Package components for host discovery and distribution | Bundle manifest, conventional component locations, portable bundle-root references | [packaging.md](references/packaging.md) |
 | Route logic, knowledge, samples, and output material | Bundled resources | [structure.md](references/structure.md) |

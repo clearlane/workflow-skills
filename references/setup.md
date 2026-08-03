@@ -117,7 +117,7 @@ Run independent read-only checks concurrently when the runtime bounds concurrenc
 - Record setup changes separately from workflow run state.
 - Re-run pre-flight from fresh observations after setup or repair.
 
-## Focused Checks
+## Checks
 
 Exercise:
 

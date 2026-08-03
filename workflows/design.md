@@ -20,7 +20,7 @@ Then decide which capabilities the skill actually needs. Each one selects its ph
 | `coordinator` | Order, branching, concurrency, retries, or loops need executable control | [patterns.md](../references/patterns.md) |
 | `state` | Work must resume after interruption or partial failure | [state and resume](../references/patterns.md#state-and-resume) |
 | `settings` | Users need stable preferences across runs | [settings.md](../references/settings.md) |
-| `setup` | Prerequisites need provisioning or readiness proof | [setup.md](setup.md) |
+| `setup` | Prerequisites need provisioning or readiness proof | [setup.md](../references/setup.md) |
 | `install` | The workflow installs agent skills | [install.md](../references/install.md) |
 | `events` | Behavior must occur at a host lifecycle boundary | [events.md](../references/events.md) |
 | `tools` | The workflow calls MCP servers or external services | [tools.md](../references/tools.md) |

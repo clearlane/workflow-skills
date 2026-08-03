@@ -47,6 +47,12 @@ Make smallest change that fixes observed behavior. Re-run activation and focused
 
 ## Checks`, always under that name, saying how a violation is detected.
 
+A workflow document is the other half of this: it names the coordinator that
+owns its control flow, and explains why each phase exists rather than restating
+the order the coordinator derives. A document that only states contracts, with
+no run to start, is a reference filed in the wrong directory, and it reads as a
+workflow to anyone browsing for one.
+
 The closing section is the one most likely to drift, because every author has a
 preferred word for it. A reference with no detectable violation states that
 explicitly rather than omitting the section, since a silent omission and a

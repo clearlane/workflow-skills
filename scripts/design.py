@@ -41,7 +41,7 @@ CAPABILITY_PHASES = (
     ("coordinator", "coordinator", "references/patterns.md"),
     ("state", "state", "references/patterns.md#state-and-resume"),
     ("settings", "settings", "references/settings.md"),
-    ("setup", "setup", "workflows/setup.md"),
+    ("setup", "setup", "references/setup.md"),
     ("install", "install", "references/install.md"),
     ("events", "events", "references/events.md"),
     ("tools", "tools", "references/tools.md"),
