@@ -10,7 +10,16 @@ they produced, which is a timeline rather than a per-source fact.
 
 ## Changelog
 
-### 2026-08-02 (latest)
+### 2026-08-03 (latest)
+
+- Replaced local convention with a published standard or a maintained library across the repository, each landing with a `scripts/check.py` assertion confirmed by introducing the violation it names: sysexits exit classes and RFC 9457 problem details, JSON Schema 2020-12 validated with `jsonschema`, RFC 8785 canonical digests, RFC 3339 timestamps, SARIF findings, JSON Lines history, CloudEvents as the default event envelope, and XDG Base Directory as the settings and run-state fallback.
+- Gave the run lifecycle one owner in `state.py`; opening a run, creating one, and deriving the current phase had been byte-identical in all three coordinators, where a fix to one left the others wrong until a run resumed under the wrong one.
+- Bound restructure approval to the manifest it was given for. The workflow governing irreversible file moves had held its gate in prose, so "this exact operation set" named nothing; `scripts/restructure.py` now records approval against a digest and refuses an edited manifest.
+- Required every reference to name how a violation is detected, under one heading rather than eight, and every workflow to dispatch to a coordinator rather than narrate control flow. `setup.md` moved to `references/`, being a contract document with no run to start.
+- Made absorption runs record their own provenance, ending the hand transcription of baselines and plan digests into the registry, and stated explicitly which baselines are upstream commits and which are local snapshot digests.
+- Turned `examples/` into fixtures the checks validate against their declared schemas, covering every agent-authored artifact.
+
+### 2026-08-02
 
 - Absorbed `project-organizer` as the `restructure` workflow with `references/layout.md`, `references/migration.md`, and `scripts/inventory.py`, scoping layout work to skills, bundles, and their repositories.
 - Separated malformed absorption evidence from unsafe execution: a mistyped field now holds the phase and preserves the merge instead of rolling the target back, after this run lost a complete, checked merge to one string-versus-list mistake.
