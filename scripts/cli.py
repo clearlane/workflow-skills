@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Clearlane
-"""Exit codes and the structured failure shape, with no dependencies.
+"""Command-line conventions every script shares: failure classes and self-check.
 
 Separate from `state.py` because the standalone tools are deliberately
 stdlib-only: `settings.py` and `inventory.py` are also examples a skill author
@@ -32,6 +32,35 @@ PROBLEM_TYPES = {
     EX_SOFTWARE: ("software", "An internal invariant broke"),
     EX_TEMPFAIL: ("tempfail", "A bounded retry budget was exhausted"),
 }
+
+
+# The one way to ask any script to check itself. Three spellings of the same
+# capability meant the repository's own checker had to keep a hand-written list
+# of which script used which, and a list like that under-reports the moment
+# someone forgets to add a line to it.
+SELF_CHECK = "self-check"
+
+
+def take_self_check(argv):
+    """Consume a leading `self-check` argument, if present.
+
+    A pre-dispatch rather than an argparse subcommand because several of these
+    scripts take a positional path, and a script cannot have both a bare
+    positional and subcommands without one shadowing the other.
+    """
+    return bool(argv) and argv[0] == SELF_CHECK
+
+
+# The one line a passing self-check prints. The checker matches on it so a
+# script that exits zero without running anything is not read as having checked
+# itself, which is the difference between "verified" and "did nothing".
+PASSED = "self-check passed"
+
+
+def run_self_check(check):
+    """Run a self-check and report the one line the checker looks for."""
+    check()
+    print(PASSED)
 
 
 class Failure(SystemExit):
@@ -116,11 +145,15 @@ def self_check():
 
     assert Failure("m").code == EX_USAGE
     assert "instance" not in Failure("m").problem_details()
+    assert SELF_CHECK == "self-check" and PASSED == "self-check passed"
+    assert take_self_check(["self-check"])
+    assert not take_self_check(["status"]) and not take_self_check([])
     assert wants_json(["status", "--output", "json"])
     assert wants_json(["status", "--output=json"])
     assert not wants_json(["status", "--output", "text"])
-    print("self-check passed")
 
 
 if __name__ == "__main__":
-    self_check()
+    # Answers to its own convention, or it would be asking for a discipline it
+    # does not keep.
+    run_self_check(self_check)

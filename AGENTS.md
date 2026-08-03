@@ -33,7 +33,7 @@ The suite proves structure. These are the judgements it cannot make.
 
 Prefer an existing validator. A new check must be shown to fail on a real violation before it is kept: introduce the violation, watch it fail, revert. A check that cannot fail is indistinguishable from one that passes.
 
-Checks carrying their own logic go behind a `self-check` subcommand, so the checker itself is checked.
+Checks carrying their own logic go behind a `self-check` subcommand, so the checker itself is checked. Every script in `scripts/` answers to that name and prints `self-check passed`; `check.py` finds them by globbing, so a new script is covered without editing a list, and one that exits zero without checking anything fails.
 
 ## Dependencies
 

@@ -15,10 +15,12 @@ import re
 import shutil
 import subprocess
 import sys
+from functools import partial
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import cli
 import design
 import document
 import review
@@ -39,6 +41,7 @@ PHASE_SECTION = "Phases the Coordinator Always Runs"
 DESIGN_WORKFLOW = "workflows/design.md"
 REVIEW_WORKFLOW = "workflows/review.md"
 README = "README.md"
+CHECKER = "check.py"
 README_SECTION = "Structure"
 ARTIFACT_REFERENCE = "references/artifacts.md"
 # common holds shared definitions and skill is reached through inventory, so
@@ -564,7 +567,13 @@ def run_ruff(root, *arguments):
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
-def run_script(root, name, *arguments):
+def run_script(root, name, *arguments, expect=None):
+    """Run a script, optionally requiring proof it did something.
+
+    A self-check that exits zero without running anything is indistinguishable
+    from a passing one on the exit code alone, so the caller can demand the line
+    a real check prints.
+    """
     result = subprocess.run(
         [sys.executable, str(root / "scripts" / name), *arguments],
         capture_output=True,
@@ -573,7 +582,32 @@ def run_script(root, name, *arguments):
     )
     if result.returncode != 0:
         return [f"scripts/{name} failed: {result.stdout.strip()} {result.stderr.strip()}".strip()]
+    if expect is not None and expect not in result.stdout:
+        return [f"scripts/{name}: exited zero without printing {expect!r}; it has no real self-check"]
     return []
+
+
+def discovered_self_checks(root):
+    """Every script's own self-check, found rather than listed.
+
+    A hand-written list silently under-reports: adding a script and forgetting
+    to register it leaves its self-check unrun, and the suite still passes. That
+    is the failure a checker exists to prevent, so the list is derived from the
+    directory instead.
+    """
+    checks = []
+    for path in sorted((root / "scripts").glob("*.py")):
+        name = path.name
+        # check.py runs this list, so it cannot be one of its own entries
+        # without recursing.
+        argument = "--self-check" if name == CHECKER else cli.SELF_CHECK
+        checks.append(
+            (
+                f"{path.stem} self-check",
+                partial(run_script, root, name, argument, expect=cli.PASSED),
+            )
+        )
+    return checks
 
 
 def self_check():
@@ -608,15 +642,7 @@ def main():
         return
     checks = (
         ("filenames", lambda: run_script(ROOT, "names.py", str(ROOT))),
-        ("checker logic", lambda: run_script(ROOT, "check.py", "--self-check")),
-        ("failure contract", lambda: run_script(ROOT, "exits.py")),
-        ("shared state primitives", lambda: run_script(ROOT, "state.py")),
-        ("document model", lambda: run_script(ROOT, "document.py", "self-check")),
-        ("settings resolver", lambda: run_script(ROOT, "settings.py", "--self-check")),
-        ("design coordinator", lambda: run_script(ROOT, "design.py", "self-check")),
-        ("review coordinator", lambda: run_script(ROOT, "review.py", "self-check")),
-        ("absorption coordinator", lambda: run_script(ROOT, "absorb.py", "self-check")),
-        ("structural inventory", lambda: run_script(ROOT, "inventory.py", "--self-check")),
+        *discovered_self_checks(ROOT),
         ("skill contract", lambda: check_skill(ROOT)),
         ("links and anchors", lambda: document.broken_links(ROOT)),
         ("resource reachability", lambda: check_reachability(ROOT)),

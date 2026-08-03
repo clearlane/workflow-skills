@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from exits import EX_DATAERR, Failure, fail, report_failure, wants_json
+from cli import EX_DATAERR, Failure, fail, report_failure, run_self_check, take_self_check, wants_json
 from state import shipped_paths
 
 PORTABLE_STEM = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -120,15 +120,12 @@ def self_check():
 
 
 def main():
+    if take_self_check(sys.argv[1:]):
+        run_self_check(self_check)
+        return
     parser = argparse.ArgumentParser(description="Check portable skill resource filenames.")
     parser.add_argument("root", nargs="?", type=Path, default=Path.cwd())
-    parser.add_argument("--self-check", action="store_true")
     arguments = parser.parse_args()
-
-    if arguments.self_check:
-        self_check()
-        print("self-check passed")
-        return
 
     failures = validate(arguments.root.resolve())
     if failures:

@@ -22,13 +22,16 @@ import jsonschema
 import rfc8785
 from referencing import Registry, Resource
 
-from exits import (
+from cli import (
     EX_DATAERR,
     EX_SOFTWARE,
     EX_UNAVAILABLE,
+    SELF_CHECK,
     Failure,
     fail,
     report_failure,
+    run_self_check,
+    take_self_check,
     wants_json,
 )
 
@@ -482,8 +485,9 @@ def self_check():
     if shipped is not None:
         assert "scripts/state.py" in shipped
         assert not any(name.startswith(".git/") for name in shipped)
-    print("self-check passed")
 
 
 if __name__ == "__main__":
-    self_check()
+    if not take_self_check(sys.argv[1:]):
+        fail(f"Usage: state.py {SELF_CHECK}")
+    run_self_check(self_check)

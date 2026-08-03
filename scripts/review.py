@@ -18,10 +18,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from design import CAPABILITY_PHASES
-from exits import (
+from cli import (
     fail,
 )
+from design import CAPABILITY_PHASES
 from state import (
     VERSION,
     check_version,

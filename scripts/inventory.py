@@ -14,7 +14,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from exits import EX_UNAVAILABLE, EX_USAGE, Failure, fail, report_failure, wants_json
+from cli import (
+    EX_UNAVAILABLE,
+    EX_USAGE,
+    Failure,
+    fail,
+    report_failure,
+    run_self_check,
+    take_self_check,
+    wants_json,
+)
 
 DEFAULT_EXCLUDES = {
     ".git",
@@ -55,7 +64,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", help="write JSON to this file instead of stdout")
     parser.add_argument("--max-files", type=int, default=100_000)
     parser.add_argument("--exclude", action="append", default=[], help="directory basename to skip")
-    parser.add_argument("--self-check", action="store_true", help="verify inventory behavior and exit")
     return parser.parse_args()
 
 
@@ -207,11 +215,10 @@ def self_check() -> None:
 
 
 def main() -> int:
-    args = parse_args()
-    if args.self_check:
-        self_check()
-        print("self-check passed")
+    if take_self_check(sys.argv[1:]):
+        run_self_check(self_check)
         return 0
+    args = parse_args()
     if args.max_files < 1:
         fail("--max-files must be positive")
     scope = Path(args.scope).expanduser().resolve()

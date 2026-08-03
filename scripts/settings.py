@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from exits import EX_DATAERR, Failure, report_failure, wants_json
+from cli import EX_DATAERR, Failure, report_failure, run_self_check, take_self_check, wants_json
 
 
 class SettingsError(Failure):
@@ -128,6 +128,9 @@ def self_check():
 
 
 def main():
+    if take_self_check(sys.argv[1:]):
+        run_self_check(self_check)
+        return
     parser = argparse.ArgumentParser(description="Resolve layered JSON skill settings with provenance.")
     parser.add_argument("--defaults", type=Path)
     parser.add_argument("--user", type=Path)
@@ -135,16 +138,10 @@ def main():
     parser.add_argument("--override", help="Invocation override as JSON object")
     parser.add_argument("--output", type=Path, help="Atomically write resolved result")
     parser.add_argument("--expect-sha256", help="Reject output write when current digest differs")
-    parser.add_argument("--self-check", action="store_true")
     arguments = parser.parse_args()
 
-    if arguments.self_check:
-        self_check()
-        print("self-check passed")
-        return
-
     if arguments.defaults is None:
-        parser.error("--defaults is required unless --self-check is used")
+        parser.error("--defaults is required")
 
     layers = [("default", read_object(arguments.defaults))]
     layers.extend(

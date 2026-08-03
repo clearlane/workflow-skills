@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from exits import (
+from cli import (
     EX_DATAERR,
     EX_SOFTWARE,
     EX_TEMPFAIL,

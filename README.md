@@ -132,7 +132,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `scripts/design.py` — design coordinator deriving phases from the recorded contract, with durable decisions and resume
 - `scripts/review.py` — review coordinator deriving phases from detected surfaces, with a disposition-gated verdict
 - `scripts/absorb.py` — absorption coordinator with durable run state, plan binding, snapshot rollback, and self-check
-- `scripts/exits.py` — sysexits codes and RFC 9457 problem details, dependency-free so every script can import it
+- `scripts/cli.py` — sysexits codes and RFC 9457 problem details, dependency-free so every script can import it
 - `scripts/state.py` — shared durable-run primitives: digests, run state, and schema-validated artifact IO
 - `scripts/document.py` — markdown and YAML document model backing the structural checks
 - `scripts/inventory.py` — deterministic structural inventory for layout audits
@@ -165,7 +165,7 @@ Run every deterministic check with one command:
 python3 scripts/check.py
 ```
 
-It runs the filename convention, the checker's own logic, the shared-state, document-model, settings-resolver, design, review, absorption, and inventory self-checks, the skill contract including the Agent Skills name and description bounds, the size budget, relative-link and anchor resolution, resource reachability, one-canonical-section-per-document, phase-owner distinctness, documented capabilities and review phases, README structure coverage, shebang and executable-bit agreement, and a runtime-neutral token scan.
+It runs the filename convention, every script's own `self-check` (discovered from `scripts/`, not listed, so adding a script adds its check), the skill contract including the Agent Skills name and description bounds, the size budget, relative-link and anchor resolution, resource reachability, one-canonical-section-per-document, phase-owner distinctness, documented capabilities and review phases, README structure coverage, shebang and executable-bit agreement, and a runtime-neutral token scan.
 
 The checks need Python 3.10 or later and the parsers in `requirements.txt`. Lint rules and the supported Python floor live in `pyproject.toml`, so `ruff` reports the same findings everywhere.
 

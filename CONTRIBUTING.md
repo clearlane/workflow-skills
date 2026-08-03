@@ -34,7 +34,7 @@ Most of these exist because the invariant broke once and nothing noticed:
 
 Prefer an existing validator. Add a new one only when nothing already answers the question, and make it fail on a real violation before you keep it: a check that cannot fail is indistinguishable from one that passes.
 
-Checks that carry their own logic belong behind a `self-check` subcommand, so a check that quietly stopped rejecting bad input is itself caught.
+Checks that carry their own logic belong behind a `self-check` subcommand, so a check that quietly stopped rejecting bad input is itself caught. Every script in `scripts/` exposes it under that exact name and prints `self-check passed`: `check.py` discovers them by globbing the directory, so a script that exits zero without checking anything fails rather than passing silently.
 
 ## Changing guidance
 

@@ -67,9 +67,7 @@ python3 scripts/settings.py \
 Run built-in precedence, provenance, atomic-write, and stale-update check:
 
 ```bash
-python3 scripts/settings.py \
-  --defaults examples/skill-settings/defaults.json \
-  --self-check
+python3 scripts/settings.py self-check
 ```
 
 Resolver intentionally performs shallow schema-key replacement. Add schema-specific validation before resolution when target skill needs nested merge, coercion, unknown-field policy, or domain constraints.
