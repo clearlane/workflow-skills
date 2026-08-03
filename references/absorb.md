@@ -200,4 +200,4 @@ Absorption is the one workflow that runs itself against unfamiliar material ever
 
 `feedback.json` records `observations` and `improvements`. Each observation needs `issue`, `evidence`, and a `disposition` of `fixed`, `deferred`, or `accepted`. A `fixed` observation must name the `changed_files` carrying the fix, so the claim is checkable against the diff. A `deferred` or `accepted` observation must state its `reason`.
 
-Coordinator fixes are target edits like any other: bind them through `revise-plan` rather than widening the diff beyond the bound plan.
+Coordinator fixes are target edits like any other, so they stay inside a recorded scope. Record the extra paths with `extend-scope` and a reason, which keeps the correct merge and still confines mutation to the pre-mutation snapshot. Reserve `revise-plan` for a change of intent. Never widen a diff silently: an unrecorded out-of-scope path is still unsafe evidence and still rolls the run back.

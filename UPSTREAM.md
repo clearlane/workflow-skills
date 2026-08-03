@@ -256,6 +256,7 @@ Review upstream releases or source-path changes periodically even when changelog
 - Made rollback non-lossy by preserving the in-progress target under `revisions/` before restoring the snapshot, so an out-of-scope path costs a re-bind rather than the whole merge.
 - Fixed the absorbed inventory script so symlinked directories appear in the inventory instead of disappearing, and added a self-check proving no writes, no symlink following, exclusion handling, and honest truncation.
 - Extended the repository check entrypoint to cover the new workflow's reachability and the inventory self-check.
+- Added `extend-scope` so a repair discovered mid-merge records its extra paths with a reason instead of forcing a rebind-and-remerge, closing the defect deferred during the `project-organizer` run. Extensions stay additive and snapshot-covered, so rollback still reverses them.
 
 ### 2026-08-02 (later)
 

@@ -199,6 +199,19 @@ def validate_plan(root, inventory):
     return value, planned_paths
 
 
+def bound_paths(root, state, inventory):
+    """Paths the run may mutate: the bound plan plus recorded scope extensions.
+
+    Extensions are additive and never replace a planned path, so the bound plan
+    stays the source of intent while a mid-run repair does not require discarding
+    a correct merge.
+    """
+    _, planned = validate_plan(root, inventory)
+    for extension in state.get("scope_extensions", []):
+        planned.update(extension["paths"])
+    return planned
+
+
 def validate_sources_unchanged(inventory):
     for source in inventory["sources"]:
         current = inspect_skill(Path(source["path"]))
@@ -330,10 +343,13 @@ def validate_apply(root, state, inventory):
     changed, deleted, current_skill = target_diff(inventory)
     if declared_changed != changed or declared_deleted != deleted:
         fail(f"{path}: target diff mismatch; actual changed={changed}, actual deleted={deleted}")
-    _, planned_paths = validate_plan(root, inventory)
+    planned_paths = bound_paths(root, state, inventory)
     outside_plan = sorted((set(changed) | set(deleted)) - planned_paths)
     if outside_plan:
-        fail(f"{path}: changed paths outside bound plan: {outside_plan}")
+        fail(
+            f"{path}: changed paths outside bound plan: {outside_plan}; "
+            "record them with extend-scope or revert them"
+        )
     validate_sources_unchanged(inventory)
     write_json(root / "target-after-merge.json", current_skill)
 
@@ -457,6 +473,7 @@ def command_init(args):
         "execution_plan_sha256": None,
         "rollback_scope": None,
         "rollback_reason": None,
+        "scope_extensions": [],
         "created_at": now(),
         "updated_at": now(),
         "history": [],
@@ -528,6 +545,36 @@ def command_advance(args):
     print_status(root, state, inventory)
 
 
+def command_extend_scope(args):
+    """Widen the mutable path set without discarding correct merge work.
+
+    A repair discovered mid-merge - most often a defect in this coordinator -
+    otherwise costs a full rebind and remerge, which makes the safe route the
+    expensive one. Extensions are additive, reasoned, and still confined to the
+    pre-mutation snapshot, so reversibility is unchanged.
+    """
+    root, state, inventory = load_run(args.run_dir)
+    if state["phase"] not in {"merge", "validation"}:
+        fail(f"Cannot extend scope during phase: {state['phase']}")
+    reason = args.reason.strip()
+    if not reason:
+        fail("--reason must be non-empty")
+    _, planned = validate_plan(root, inventory)
+    already = set(planned)
+    for extension in state.get("scope_extensions", []):
+        already.update(extension["paths"])
+    added = sorted(
+        {safe_relative_path(item, "extend-scope path") for item in args.path} - already
+    )
+    if not added:
+        fail("Every requested path is already inside the bound scope")
+    state.setdefault("scope_extensions", []).append(
+        {"paths": added, "reason": reason, "recorded_at": now()}
+    )
+    save_state(root, state, "scope-extended")
+    print_status(root, state, inventory)
+
+
 def command_revise_plan(args):
     root, state, inventory = load_run(args.run_dir)
     if state["phase"] not in {"merge", "validation", "rolled-back"}:
@@ -547,6 +594,8 @@ def command_revise_plan(args):
     state["execution_plan_sha256"] = None
     state["rollback_scope"] = None
     state["rollback_reason"] = None
+    # Extensions authorize paths against one bound plan; a new plan re-decides them.
+    state["scope_extensions"] = []
     remove_path(root / "rollback")
     save_state(root, state, "plan-revision-requested")
     print_status(root, state, inventory)
@@ -690,6 +739,39 @@ def command_self_check(_args):
         assert read_json(run / "state.json")["phase"] == "validation"
         assert (target / "SKILL.md").read_text() == merged
 
+        # A mid-run repair outside the bound plan is recordable, not fatal: the
+        # merge survives, the extension is reasoned, and rollback still reverses it.
+        target, _sources, run, baseline, plan_hash = prepare_run("extend")
+        (target / "SKILL.md").write_text("merged\n")
+        (target / "helper.py").write_text("fix\n")
+        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md", "helper.py"], "deleted_files": [], "notes": []})
+        blocked = execute("advance", "--run-dir", run, check=False)
+        assert blocked.returncode != 0 and "extend-scope" in blocked.stderr
+        assert read_json(run / "state.json")["phase"] == "rolled-back"
+
+        target, _sources, run, baseline, plan_hash = prepare_run("extend-ok", max_attempts=1)
+        (target / "SKILL.md").write_text("merged\n")
+        (target / "helper.py").write_text("fix\n")
+        write_json(run / "apply.json", {"plan_sha256": plan_hash, "changed_files": ["SKILL.md", "helper.py"], "deleted_files": [], "notes": []})
+        execute("extend-scope", "--run-dir", run, "--path", "helper.py", "--reason", "Coordinator fix found during merge")
+        recorded = read_json(run / "state.json")["scope_extensions"]
+        assert recorded and recorded[0]["paths"] == ["helper.py"] and recorded[0]["reason"]
+        # An empty or duplicate extension is rejected rather than silently recorded.
+        assert execute("extend-scope", "--run-dir", run, "--path", "helper.py", "--reason", "again", check=False).returncode != 0
+        assert execute("extend-scope", "--run-dir", run, "--path", "other.py", "--reason", " ", check=False).returncode != 0
+        execute("advance", "--run-dir", run)
+        assert read_json(run / "state.json")["phase"] == "validation"
+        write_json(run / "validation.json", {
+            "plan_sha256": plan_hash, "passed": False,
+            "checks": [{"name": "fails", "command": "self-check", "exit_code": 1}],
+            "remaining_gaps": ["unresolved"], "notes": [],
+        })
+        execute("advance", "--run-dir", run)
+        assert read_json(run / "state.json")["phase"] == "rolled-back"
+        # The extended path is snapshot-covered, so rollback removes it too.
+        assert (target / "SKILL.md").read_text() == baseline
+        assert not (target / "helper.py").exists()
+
         target, _sources, run, baseline, plan_hash = prepare_run("vcs")
         vcs = target / ".git"
         vcs.mkdir()
@@ -748,6 +830,12 @@ def parser():
         command = commands.add_parser(name)
         command.add_argument("--run-dir", type=Path, required=True)
         command.set_defaults(handler=handler)
+
+    extend = commands.add_parser("extend-scope")
+    extend.add_argument("--run-dir", type=Path, required=True)
+    extend.add_argument("--path", action="append", required=True)
+    extend.add_argument("--reason", required=True)
+    extend.set_defaults(handler=command_extend_scope)
 
     self_check = commands.add_parser("self-check")
     self_check.set_defaults(handler=command_self_check)

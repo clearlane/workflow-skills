@@ -74,7 +74,7 @@ Mark every capability `integrate`, `retain`, or `omit`, and every runtime depend
 
 Advancing from planning validates complete mappings, verifies unchanged inputs, binds the canonical plan hash internally, and snapshots the target baseline before any mutation.
 
-This workflow does not pause for approval between planning, merge, repair, validation, and rollback. Its safety comes from reversibility: mutation is confined to the bound plan's paths inside a verified snapshot, and any unsafe evidence restores that snapshot automatically. If the plan must change, run `revise-plan`; the coordinator rolls the target back before returning to planning.
+This workflow does not pause for approval between planning, merge, repair, validation, and rollback. Its safety comes from reversibility: mutation is confined to the bound plan's paths, plus any path recorded with `extend-scope`, and every one of them sits inside a verified snapshot taken before mutation. Any unsafe evidence restores that snapshot automatically. If the plan must change, run `revise-plan`; the coordinator rolls the target back before returning to planning.
 
 ```bash
 python3 scripts/absorb.py revise-plan --run-dir <run-directory>
@@ -104,7 +104,7 @@ Run the checks relevant to the changed skill:
 
 Write `validation.json` with `plan_sha256`, `passed`, `checks`, `remaining_gaps`, and `notes`, then advance. Failed validation returns to merge until the configured attempt bound.
 
-A changed plan, a changed source, an out-of-scope diff, a diff that contradicts the declared evidence, or exhausted attempts restore the snapshot and end the run in `rolled-back`, after preserving the in-progress target under `revisions/`. When repair needs files outside the bound plan, use `revise-plan` instead of widening the diff.
+A changed plan, a changed source, an unrecorded out-of-scope diff, a diff that contradicts the declared evidence, or exhausted attempts restore the snapshot and end the run in `rolled-back`, after preserving the in-progress target under `revisions/`. When repair needs one more file, record it with `extend-scope`; when the intent itself changed, use `revise-plan`.
 
 Evidence the coordinator cannot read, such as a wrong field type or an empty check list, is a reporting mistake rather than unsafe execution. It is rejected without rollback, leaving the target and phase intact so a corrected file advances the run.
 
@@ -134,7 +134,14 @@ Every run is also a test of this workflow and its coordinator against real mater
 
 Use `fixed` only with the files carrying the fix, and `deferred` or `accepted` with an explicit reason. Record an empty `observations` list only when the run genuinely surfaced nothing.
 
-Fixing the coordinator during a run usually needs paths outside the bound plan. Add them through `revise-plan`, which now preserves the in-progress target work under `revisions/` before restoring the baseline, so a revision costs a re-bind rather than the merge itself.
+Fixing the coordinator during a run usually needs paths outside the bound plan. Record those paths with `extend-scope` and keep merging:
+
+```bash
+python3 scripts/absorb.py extend-scope --run-dir <run-directory> \
+  --path scripts/absorb.py --reason "<why this repair is in scope>"
+```
+
+Extensions are additive and reasoned, and they never leave the pre-mutation snapshot, so reversibility is unchanged and rollback still reverses an extended path. Use `revise-plan` when the plan's intent changed rather than its file set; it preserves in-progress work under `revisions/` before restoring the baseline.
 
 This feedback is a completion requirement, not merge evidence: a missing or malformed verdict blocks completion without discarding a correct merge.
 
@@ -146,7 +153,8 @@ This feedback is a completion requirement, not merge evidence: a missing or malf
 - The target contract remains runtime-neutral.
 - The bound plan hash must still match before mutation evidence is accepted.
 - Source skill digests must remain unchanged.
-- The actual target diff must match `apply.json` and the bound plan paths.
+- The actual target diff must match `apply.json` and the bound plan paths, plus any recorded scope extension.
+- Every scope extension is additive and carries an explicit reason; a new plan clears prior extensions.
 - Validation retries remain bounded, and every run snapshots the pre-mutation target.
 - A run completes only after recording an explicit orchestrator verdict.
 
