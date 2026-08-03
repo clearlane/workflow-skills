@@ -125,6 +125,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `pyproject.toml` — pinned lint rules and the supported Python floor for these checks
 - `skills-lock.json` — pinned skill install manifest
 - `UPSTREAM.md` — absorption history and the coordinator changes each run produced
+- `CONTRIBUTING.md` — how to run the checks and what they enforce
 
 ## Checks
 
