@@ -26,6 +26,8 @@ dependencies = [
     "markdown-it-py~=4.0",  # CommonMark parsing: links, headings, fences
     "mdit-py-plugins~=0.6",  # frontmatter block extraction
     "PyYAML~=6.0",  # frontmatter parsing
+    "jsonschema~=4.26",  # artifact validation against schemas/
+    "rfc8785~=0.1",  # RFC 8785 JCS canonicalization for plan-binding digests
 ]
 
 [project.optional-dependencies]
@@ -34,6 +36,7 @@ dependencies = [
 # work; CI installs this extra and therefore enforces them.
 dev = [
     "ruff==0.15.*",
+    "check-jsonschema~=0.37",  # lints schemas/ as schemas, which jsonschema does not
 ]
 
 [tool.setuptools]

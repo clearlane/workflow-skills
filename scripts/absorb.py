@@ -22,12 +22,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from state import (
+    VERSION,
+    check_version,
     copy_manifest_files,
     excluded,
     fail,
     json_sha256,
     now,
     paths_overlap,
+    read_history,
     read_json,
     relative_file_manifest,
     remove_path,
@@ -40,7 +43,6 @@ from state import (
     write_json,
 )
 
-VERSION = 1
 CAPABILITY_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ALLOWED_OPERATIONS = {"create", "update", "delete", "move"}
 ALLOWED_DECISIONS = {"integrate", "retain", "omit"}
@@ -75,8 +77,7 @@ def load_run(run_dir):
     root = run_dir.expanduser().resolve()
     state = read_json(root / "state.json")
     inventory = read_json(root / "inventory.json")
-    if state.get("version") != VERSION:
-        fail(f"Unsupported run version: {state.get('version')}")
+    check_version(state)
     return root, state, inventory
 
 
@@ -495,7 +496,6 @@ def command_init(args):
         "scope_extensions": [],
         "created_at": now(),
         "updated_at": now(),
-        "history": [],
     }
     write_json(root / "inventory.json", inventory)
     save_state(root, state, "initialized")
@@ -504,6 +504,9 @@ def command_init(args):
 
 def command_status(args):
     root, state, inventory = load_run(args.run_dir)
+    if args.history:
+        print(json.dumps(read_history(root), indent=2, sort_keys=True))
+        return
     print_status(root, state, inventory)
 
 
@@ -988,7 +991,13 @@ def parser():
     ):
         command = commands.add_parser(name)
         command.add_argument("--run-dir", type=Path, required=True)
-        command.set_defaults(handler=handler)
+        command.set_defaults(handler=handler, history=False)
+        if name == "status":
+            command.add_argument(
+                "--history",
+                action="store_true",
+                help="show the run's transition log instead of its current status",
+            )
 
     extend = commands.add_parser("extend-scope")
     extend.add_argument("--run-dir", type=Path, required=True)

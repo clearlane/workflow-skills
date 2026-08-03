@@ -3,8 +3,9 @@
 # Copyright (c) 2026 Clearlane
 """Shared durable-run primitives for this repository's coordinators.
 
-Both coordinators persist phase state outside conversation context, so the
-JSON, digest, and validation helpers live here once instead of per script.
+Every coordinator persists phase state outside conversation context, so the
+JSON, digest, timestamp, and validation helpers live here once instead of per
+script. references/artifacts.md owns the contract these implement.
 """
 
 import hashlib
@@ -15,7 +16,15 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+import rfc8785
+
 EXCLUDED_DIRECTORIES = {".git", ".hg", ".svn", "__pycache__", "node_modules"}
+# Bumped when an artifact's meaning changes in a way that makes an in-flight run
+# unresumable rather than merely older. Version 2 changed the digest algorithm
+# to RFC 8785 and moved the transition log out of state.json, so a version 1 run
+# would fail its own plan binding for a reason unrelated to its plan.
+VERSION = 2
+HISTORY_FILE = "history.jsonl"
 
 
 def excluded(relative_parts):
@@ -72,7 +81,15 @@ def fail(message):
 
 
 def now():
-    return datetime.now(timezone.utc).isoformat()
+    """The single timestamp source: RFC 3339 with an explicit UTC offset.
+
+    Every `created_at`, `updated_at`, `recorded_at`, and history `at` field goes
+    through here so a consumer never has to guess whether a local timezone crept
+    in. `datetime.isoformat()` on an aware UTC value is RFC 3339 by
+    construction; the `Z` form is used because it is the one the schemas' own
+    `format: date-time` examples and every other tooling ecosystem expect.
+    """
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def slug(value):
@@ -107,9 +124,21 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+def canonical_sha256(value):
+    """Digest a JSON value through RFC 8785 canonicalization.
+
+    These digests are load-bearing: absorb binds a plan to one and refuses to
+    execute a plan whose digest moved, which is what makes execution
+    reversibility-equivalent to an approval. `json.dumps(sort_keys=True)` is
+    RFC 8785 only by coincidence and diverges on number formatting and non-ASCII
+    text, so the digest would agree with nothing but itself. JCS makes it
+    reproducible by a verifier in another language.
+    """
+    return hashlib.sha256(rfc8785.dumps(value)).hexdigest()
+
+
 def json_sha256(path):
-    encoded = json.dumps(read_json(path), sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    return canonical_sha256(read_json(path))
 
 
 def relative_file_manifest(root):
@@ -143,8 +172,7 @@ def copy_manifest_files(source_root, destination_root, manifest):
 
 
 def tree_sha256(manifest):
-    encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    return canonical_sha256(manifest)
 
 
 def require_list(value, name):
@@ -176,10 +204,113 @@ def remove_path(path):
         shutil.rmtree(path)
 
 
+def check_version(state):
+    """Refuse a run written by an incompatible artifact version, and say why.
+
+    Version 2 changed the digest to RFC 8785 and moved the transition log out of
+    state.json. A version 1 run re-read under version 2 would fail its own plan
+    binding, because the recorded digest was produced by a different algorithm.
+    Failing on the version says that plainly instead of reporting a plan
+    mismatch the operator cannot act on.
+    """
+    found = state.get("version")
+    if found == VERSION:
+        return
+    fail(
+        f"Run artifacts are version {found!r}, this coordinator writes version {VERSION}. "
+        "Digests and the transition log changed shape, so the run cannot be resumed; "
+        "start a new run."
+    )
+
+
+def append_history(root, record):
+    """Append one transition to the run's event log.
+
+    An append-only audit trail does not belong inside the one document that is
+    rewritten on every transition. Keeping it separate means a torn or failed
+    state write cannot take the log with it, and a long run stops rewriting its
+    whole history to record one more line. One JSON object per line, newline
+    terminated, written in a single append so a reader never sees half a record.
+    """
+    path = root / HISTORY_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(record, sort_keys=True) + "\n"
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line)
+
+
+def read_history(root):
+    """Every complete record in the log, skipping a torn final line.
+
+    A crash mid-append can leave a partial line. That is a fact about the
+    interrupted run, not a reason to refuse to report the transitions that did
+    land, so it is dropped rather than raised.
+    """
+    path = root / HISTORY_FILE
+    if not path.exists():
+        return []
+    records = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return records
+
+
 def save_state(root, state, event):
-    state.setdefault("history", []).append({"at": now(), "event": event, "phase": state["phase"]})
+    """Record a transition, then persist the state it produced.
+
+    History is appended first: a state write that fails after the append leaves
+    evidence that the transition was attempted, while the reverse order would
+    lose it entirely.
+    """
     state["updated_at"] = now()
+    append_history(root, {"at": state["updated_at"], "event": event, "phase": state["phase"]})
     write_json(root / "state.json", state)
+
+
+def check_canonical_digests(root):
+    """Prove the digest follows RFC 8785 rather than merely being stable.
+
+    A digest that only agrees with itself passes any round-trip test, so
+    stability proves nothing. These are the two cases where the previous
+    `json.dumps(sort_keys=True)` form diverged from the standard: `ensure_ascii`
+    escaped non-ASCII text that JCS emits as UTF-8, and a float with a zero
+    fraction serialized as `1.0` where JCS requires `1`.
+    """
+    assert rfc8785.dumps({"a": "é"}) == b'{"a":"\xc3\xa9"}'
+    assert rfc8785.dumps({"a": 1.0}) == b'{"a":1}'
+    # Key order in the input must not reach the digest.
+    assert canonical_sha256({"b": 1, "a": 2}) == canonical_sha256({"a": 2, "b": 1})
+    # Values that differ must not collide.
+    assert canonical_sha256({"a": 1}) != canonical_sha256({"a": 2})
+    write_json(root / "digest.json", {"z": "é", "a": 1.0})
+    assert json_sha256(root / "digest.json") == canonical_sha256({"a": 1, "z": "é"})
+
+
+def check_history_survives_state_loss(root):
+    """The transition log must outlive the state document it describes.
+
+    This is the whole reason the two are separate files. Simulating the failure
+    is the only way to show it: destroy state.json exactly as a torn write
+    would, and require that every transition recorded before it is still
+    readable.
+    """
+    state = {"version": VERSION, "phase": "first"}
+    save_state(root, state, "initialized")
+    state["phase"] = "second"
+    save_state(root, state, "advanced")
+    remove_path(root / "state.json")
+    recovered = read_history(root)
+    assert [record["event"] for record in recovered] == ["initialized", "advanced"]
+    assert [record["phase"] for record in recovered] == ["first", "second"]
+    # A record torn by a crash mid-append must not hide the ones that landed.
+    with (root / HISTORY_FILE).open("a", encoding="utf-8") as handle:
+        handle.write('{"at": "2026-01-01T00:00:00')
+    assert len(read_history(root)) == 2
 
 
 def self_check():
@@ -209,6 +340,8 @@ def self_check():
         assert not paths_overlap(Path("/a"), Path("/b"))
         assert slug("Absorb Skills!") == "absorb-skills"
         assert slug("---") == "skill"
+        check_canonical_digests(root)
+        check_history_survives_state_loss(root / "run")
         # Outside a repository there is nothing to ship, so callers must be told
         # to fall back rather than be handed an empty set they would read as
         # "this project ships no files".

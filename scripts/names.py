@@ -37,6 +37,10 @@ EXACT_NAMES = {
     "SKILL.md",
     "UPSTREAM.md",
 }
+# A repository that splits its terms names the parts `LICENSE-<PART>`, and
+# license scanners look for exactly that shape. This is rule 8 of
+# references/naming.md: an ecosystem contract outranks the house convention.
+LICENSE_PART = re.compile(r"^LICENSE-[A-Z0-9]+(?:\.md)?$")
 IGNORED_DIRECTORIES = {".git", ".hg", ".svn", "__pycache__", "node_modules"}
 
 
@@ -57,7 +61,7 @@ def authored_files(root):
 
 
 def filename_error(path):
-    if path.name in EXACT_NAMES:
+    if path.name in EXACT_NAMES or LICENSE_PART.fullmatch(path.name):
         return None
     if path.suffix in MODULE_SUFFIXES:
         return module_error(path)
@@ -96,6 +100,7 @@ def self_check():
         Path("sign_document.py"),
         Path("scripts/__init__.py"),
         Path("state.pyi"),
+        Path("LICENSE-CODE"),
     ]
     invalid = [
         Path("CreateCommand.md"),
@@ -107,6 +112,7 @@ def self_check():
         Path("sign-document.py"),
         Path("SignDocument.py"),
         Path("2fa.py"),
+        Path("LICENSE-code"),
     ]
     assert all(filename_error(path) is None for path in valid)
     assert all(filename_error(path) is not None for path in invalid)

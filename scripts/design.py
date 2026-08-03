@@ -16,17 +16,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from state import (
+    VERSION,
+    check_version,
     fail,
     now,
     paths_overlap,
+    read_history,
     read_json,
     require_text,
     save_state,
     slug,
     write_json,
 )
-
-VERSION = 1
 
 # Capability -> phase that designs it, and the resource holding its contract.
 CAPABILITY_PHASES = (
@@ -70,8 +71,7 @@ def phase_resource(phase):
 def load_run(run_dir):
     root = run_dir.expanduser().resolve()
     state = read_json(root / "state.json")
-    if state.get("version") != VERSION:
-        fail(f"Unsupported run version: {state.get('version')}")
+    check_version(state)
     return root, state
 
 
@@ -129,7 +129,6 @@ def command_init(args):
         "completed": [],
         "created_at": now(),
         "updated_at": now(),
-        "history": [],
     }
     state["phase"] = phases[0]
     save_state(root, state, "initialized")
@@ -138,6 +137,9 @@ def command_init(args):
 
 def command_status(args):
     root, state = load_run(args.run_dir)
+    if args.history:
+        print(json.dumps(read_history(root), indent=2, sort_keys=True))
+        return
     print_status(root, state)
 
 
@@ -311,6 +313,11 @@ def parser():
 
     status = commands.add_parser("status")
     status.add_argument("--run-dir", type=Path, required=True)
+    status.add_argument(
+        "--history",
+        action="store_true",
+        help="show the run's transition log instead of its current status",
+    )
     status.set_defaults(handler=command_status)
 
     complete = commands.add_parser("complete-phase")
