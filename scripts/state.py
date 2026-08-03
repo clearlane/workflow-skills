@@ -42,6 +42,28 @@ def ignored_prefixes(root):
 def ignored(relative_posix, prefixes):
     return any(relative_posix == prefix or relative_posix.startswith(prefix + "/") for prefix in prefixes)
 
+
+def shipped_paths(root):
+    """Repository-relative paths this project actually ships, or None outside git.
+
+    Checks answer questions about the repository's own content. A contributor's
+    untracked scratch file is not that content, and failing on it makes the
+    suite depend on the state of one working tree rather than on what is
+    committed. Git already knows the difference, so ask it. Returning None when
+    git is unavailable lets callers fall back to walking the filesystem.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "ls-files", "--cached", "--exclude-standard", "-z"],
+            cwd=str(root),
+            capture_output=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return frozenset(entry for entry in completed.stdout.decode().split("\0") if entry)
+
+
 def fail(message):
     raise SystemExit(message)
 
@@ -185,6 +207,16 @@ def self_check():
         assert not paths_overlap(Path("/a"), Path("/b"))
         assert slug("Absorb Skills!") == "absorb-skills"
         assert slug("---") == "skill"
+        # Outside a repository there is nothing to ship, so callers must be told
+        # to fall back rather than be handed an empty set they would read as
+        # "this project ships no files".
+        assert shipped_paths(root) is None
+
+    repository = Path(__file__).resolve().parent.parent
+    shipped = shipped_paths(repository)
+    if shipped is not None:
+        assert "scripts/state.py" in shipped
+        assert not any(name.startswith(".git/") for name in shipped)
     print("self-check passed")
 
 

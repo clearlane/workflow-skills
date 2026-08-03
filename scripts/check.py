@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import design
 import document
 import review
+import state
 from design import CAPABILITY_PHASES
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -214,6 +215,7 @@ def check_readme_structure(root):
     for entry in sorted(listed):
         if not (root / entry).exists():
             failures.append(f"{README}: lists {entry}, which does not exist")
+    shipped = state.shipped_paths(root)
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
@@ -224,11 +226,52 @@ def check_readme_structure(root):
         if len(parts) > 1 and parts[0] not in DOCUMENTED_DIRECTORIES:
             continue
         name = relative.as_posix()
+        # The README maps what this repository ships, not a contributor's
+        # untracked working files.
+        if shipped is not None and name not in shipped:
+            continue
         if name in README_EXEMPT or name in listed:
             continue
         if any(entry.endswith("/") and name.startswith(entry) for entry in listed):
             continue
         failures.append(f"{README}: {name} is not listed under {README_SECTION!r}")
+    return failures
+
+
+def check_executable_bits(root):
+    """A shebang and the executable bit must agree on every shipped file.
+
+    A script whose first line names an interpreter is documenting that it can be
+    run directly. If the committed mode says otherwise, `./scripts/check.py`
+    fails for a reason no reader can see from the source, and the two facts
+    drift apart silently. Git owns the mode, so compare against git rather than
+    the local filesystem, where a permissive umask hides the difference.
+    """
+    listing = subprocess.run(
+        ["git", "ls-files", "--stage", "-z"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if listing.returncode != 0:
+        return []
+    failures = []
+    for entry in listing.stdout.split("\0"):
+        if not entry.strip():
+            continue
+        mode, _, remainder = entry.partition(" ")
+        name = remainder.split("\t", 1)[-1]
+        path = root / name
+        if not path.is_file():
+            continue
+        with path.open("rb") as handle:
+            shebang = handle.read(2) == b"#!"
+        executable = mode == "100755"
+        if shebang and not executable:
+            failures.append(f"{name}: declares a shebang but is not executable")
+        elif executable and not shebang:
+            failures.append(f"{name}: is executable but declares no shebang")
     return failures
 
 
@@ -308,6 +351,7 @@ def main():
         ("documented capabilities", lambda: check_capability_rows(ROOT)),
         ("documented review phases", lambda: check_review_phases(ROOT)),
         ("README structure coverage", lambda: check_readme_structure(ROOT)),
+        ("executable bits", lambda: check_executable_bits(ROOT)),
         ("runtime-neutral tokens", lambda: check_vendor_tokens(ROOT)),
         ("python lint", lambda: check_lint(ROOT)),
         ("external links", lambda: check_external_links(ROOT)),

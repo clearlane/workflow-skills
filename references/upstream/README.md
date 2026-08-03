@@ -8,6 +8,10 @@ behavior.
 Provenance scales by adding a file rather than by growing a single registry that
 every future absorption has to edit.
 
+Record only sources a reader can obtain, meaning a skill installable from its
+published repository. Local experiments and one-off scratch skills leave no
+record here, because provenance a reader cannot resolve is not provenance.
+
 | Source | Absorbed on | Record |
 |---|---|---|
 | `designing-workflow-skills` | 2026-08-01 | [designing-workflow-skills.md](designing-workflow-skills.md) |
@@ -17,9 +21,7 @@ every future absorption has to edit.
 | `mcp-integration` | 2026-08-01 | [mcp-integration.md](mcp-integration.md) |
 | `skill-development` | 2026-08-01 | [skill-development.md](skill-development.md) |
 | `plugin-settings` | 2026-08-01 | [plugin-settings.md](plugin-settings.md) |
-| `absorb-skills` | 2026-08-02 | [absorb-skills.md](absorb-skills.md) |
 | `plugin-structure` | 2026-08-02 | [plugin-structure.md](plugin-structure.md) |
-| `project-organizer` | 2026-08-02 | [project-organizer.md](project-organizer.md) |
 
 Anthropic baselines are local skill-tree digests recorded by absorption runs,
 not upstream commit IDs. Future refreshes should record the exact upstream
@@ -30,9 +32,13 @@ Absorption history and coordinator changes live in
 
 ## Adding a Record
 
-After an absorption run completes, add one file named for the source, using the
-existing records as the shape. Add its row to the table above. Do not fold a new
-source into an existing record; one source, one file.
+After an absorption run completes, first confirm the source is installable from
+its published repository. If it is not, record the work in
+[UPSTREAM.md](../../UPSTREAM.md) history and stop here.
+
+Otherwise add one file named for the source, using the existing records as the
+shape. Add its row to the table above. Do not fold a new source into an existing
+record; one source, one file.
 
 ## Refreshing a Source
 

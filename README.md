@@ -113,6 +113,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `scripts/check.py` — single entrypoint running every deterministic repository check
 - `scripts/settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
 - `scripts/names.py` — deterministic portable filename check
+- `scripts/install-fanout.sh` — installs the shared skill set into every sibling project and links this skill live
 
 **Supporting files**
 
@@ -165,15 +166,13 @@ Capabilities added since the fork include evidence-gated skill review with a dis
 
 This project began as an adaptation of Trail of Bits' `designing-workflow-skills` skill and remains licensed under the same terms. Credit for the original design belongs to [Trail of Bits](https://github.com/trailofbits).
 
-Command-entrypoint guidance independently re-expresses generic concepts from project-local `command-development` source. No runtime-specific syntax, files, or examples were copied.
+Command-entrypoint guidance independently re-expresses generic concepts from the upstream `command-development` source. No runtime-specific syntax, files, or examples were copied.
 
-Delegated-worker guidance independently re-expresses generic concepts from project-local `agent-development` source. No runtime-specific syntax, templates, examples, or validator code were copied.
+Delegated-worker guidance independently re-expresses generic concepts from the upstream `agent-development` source. No runtime-specific syntax, templates, examples, or validator code were copied.
 
-Skill-structure, event-hook, and external-tool guidance independently re-express generic concepts from project-local `skill-development`, `hook-development`, and `mcp-integration` sources. No runtime-specific syntax, shell utilities, templates, examples, or validator code were copied.
+Skill-structure, event-hook, and external-tool guidance independently re-express generic concepts from the upstream `skill-development`, `hook-development`, and `mcp-integration` sources. No runtime-specific syntax, shell utilities, templates, examples, or validator code were copied.
 
-Skill-settings guidance independently re-expresses generic concepts from project-local `plugin-settings` source. It separates preferences from mutable workflow state and excludes vendor paths, metadata, reload claims, shell parsers, templates, and examples.
-
-Absorption guidance and its coordinator come from the project-local `absorb-skills` source, absorbed through its own run. Host path interpolation and skill-mention syntax were dropped, its resources were renamed to this repository's filename convention, its separate host metadata file was merged into the existing one, and its legacy approval-run migration path was removed as unreachable here.
+Skill-settings guidance independently re-expresses generic concepts from the upstream `plugin-settings` source. It separates preferences from mutable workflow state and excludes vendor paths, metadata, reload claims, shell parsers, templates, and examples.
 
 See [`references/upstream/`](references/upstream/README.md) for per-source baselines, absorbed coverage, deliberate exclusions, and the refresh procedure, and [`UPSTREAM.md`](UPSTREAM.md) for absorption history.
 

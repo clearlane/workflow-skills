@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Upstream location | Project-local skill `plugin-structure`, previously vendored at `.agents/skills/plugin-structure/` |
+| Upstream location | [`anthropics/claude-code/plugins/plugin-dev/skills/plugin-structure`](https://github.com/anthropics/claude-code/tree/main/plugins/plugin-dev/skills/plugin-structure), vendored at absorption time |
 | Absorbed baseline | Snapshot tree SHA-256 `2ee40187a7a59dab446b2dcfc86c3def0c3c3af987a9fdc17a824abd7876136b` |
 | Absorbed on | 2026-08-02 |
 | Plan hash | `31df13de9ab55a174fe90901edba9fcf53286c7c0041e08e178b798423c06430` |

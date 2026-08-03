@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from state import shipped_paths
 
 PORTABLE_STEM = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 PORTABLE_EXTENSIONS = re.compile(r"^(?:[a-z0-9]+)(?:\.[a-z0-9]+)*$")
@@ -21,10 +26,14 @@ IGNORED_DIRECTORIES = {".git", ".hg", ".svn", "__pycache__", "node_modules"}
 
 
 def authored_files(root):
+    """Files this repository ships, so a local scratch file cannot fail the check."""
+    shipped = shipped_paths(root)
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
         relative = path.relative_to(root)
+        if shipped is not None and relative.as_posix() not in shipped:
+            continue
         if any(part in IGNORED_DIRECTORIES or part.startswith(".") for part in relative.parts[:-1]):
             continue
         if path.name.startswith("."):
