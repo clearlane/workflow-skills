@@ -77,6 +77,7 @@ Each artifact kind has one schema in `schemas/`, and shared vocabulary lives in 
 | `inventory.schema.json` | `inventory.json` | coordinator |
 | `skill.schema.json` | `target-after-merge.json`, and embedded in the inventory | coordinator |
 | `analysis.schema.json` | `analyses/<source-id>.json` | agent |
+| `manifest.schema.json` | `manifest.json` | agent |
 | `plan.schema.json` | `plan.json` | agent |
 | `apply.schema.json` | `apply.json` | agent |
 | `validation.schema.json` | `validation.json` | agent |

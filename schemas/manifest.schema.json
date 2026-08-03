@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/manifest.schema.json",
+  "title": "Restructure operation manifest",
+  "description": "manifest.json. The exact set of file operations a restructure run proposes. Approval binds to this artifact's digest, so 'approved for this exact operation set' becomes a checkable fact rather than a promise in prose.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "created_at",
+    "scope",
+    "operations"
+  ],
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "created_at": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "scope": {
+      "description": "Absolute path of the tree these operations apply to. Recorded so a manifest cannot be executed against a different tree than the one it was proposed for.",
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "rationale": {
+      "description": "Why this structure, in terms of the evidence gathered. layout.md owns what counts as evidence.",
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "operations": {
+      "description": "Every path-level decision, including keeps. A keep is recorded rather than implied, so a reader can tell a considered decision from an overlooked file.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "action",
+          "path",
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "move",
+              "rename",
+              "create",
+              "delete",
+              "keep"
+            ]
+          },
+          "path": {
+            "description": "Current location, relative to scope.",
+            "$ref": "common.schema.json#/$defs/relativePath"
+          },
+          "destination": {
+            "description": "Required for move and rename, forbidden otherwise. Enforced imperatively, because the dependency is between sibling fields.",
+            "$ref": "common.schema.json#/$defs/relativePath"
+          },
+          "reason": {
+            "$ref": "common.schema.json#/$defs/text"
+          },
+          "references": {
+            "description": "Surfaces that name this path and must be repaired with it: imports, manifests, tests, pipelines, documentation, deployment.",
+            "$ref": "common.schema.json#/$defs/textList"
+          }
+        }
+      }
+    }
+  }
+}

@@ -132,6 +132,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `scripts/design.py` — design coordinator deriving phases from the recorded contract, with durable decisions and resume
 - `scripts/review.py` — review coordinator deriving phases from detected surfaces, with a disposition-gated verdict
 - `scripts/absorb.py` — absorption coordinator with durable run state, plan binding, snapshot rollback, and self-check
+- `scripts/restructure.py` — restructure coordinator binding an operation manifest to its approval, so a changed proposal cannot execute
 - `scripts/cli.py` — sysexits codes and RFC 9457 problem details, dependency-free so every script can import it
 - `scripts/state.py` — shared durable-run primitives: digests, run state, and schema-validated artifact IO
 - `scripts/document.py` — markdown and YAML document model backing the structural checks

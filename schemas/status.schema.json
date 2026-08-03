@@ -31,7 +31,8 @@
       "enum": [
         "design",
         "review",
-        "absorb"
+        "absorb",
+        "restructure"
       ]
     },
     "run_dir": {
