@@ -22,6 +22,8 @@ record here, because provenance a reader cannot resolve is not provenance.
 | `skill-development` | 2026-08-01 | [skill-development.md](skill-development.md) |
 | `plugin-settings` | 2026-08-01 | [plugin-settings.md](plugin-settings.md) |
 | `plugin-structure` | 2026-08-02 | [plugin-structure.md](plugin-structure.md) |
+| `skill-improver` | 2026-08-03 | [skill-improver.md](skill-improver.md) |
+| `plugin-dev-components` | 2026-08-03 | [plugin-dev-components.md](plugin-dev-components.md) |
 
 Moving external specifications that guidance generalizes from are tracked the
 same way, because they carry the same refresh risk as an absorbed skill: the

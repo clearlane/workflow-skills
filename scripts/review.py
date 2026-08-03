@@ -216,6 +216,11 @@ def command_init(args):
         "updated_at": now(),
     }
     state["phase"] = phases[0]
+    # Written empty at init so a clean review is a file saying nothing was
+    # found, not a missing file. A consumer cannot tell an absent artifact from
+    # a review that found nothing, and would have to treat a passing skill as
+    # an error, which is the reading remediation hit.
+    save_findings(root, [])
     save_state(root, state, "initialized")
     print_status(root, state)
 
@@ -607,6 +612,14 @@ def command_self_check(_args):
 
         # A run directory inside the reviewed skill would review its own output.
         assert execute("init", "--skill", plain, "--run-dir", plain / "run", check=False).returncode
+
+        # A review that finds nothing still writes findings.json. A consumer
+        # reading an absent file cannot tell a clean subject from a review that
+        # never ran, and would report a passing skill as a broken run.
+        clean = root / "clean-run"
+        execute("init", "--skill", plain, "--run-dir", clean)
+        assert (clean / "findings.json").is_file(), "clean review wrote no findings.json"
+        assert read_json(clean / "findings.json")["findings"] == []
 
     print("self-check passed")
 
