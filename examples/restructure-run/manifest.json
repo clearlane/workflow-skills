@@ -26,9 +26,25 @@
       "reason": "The directory needs an index once it holds more than three files"
     },
     {
-      "action": "keep",
+      "action": "update",
       "path": "SKILL.md",
-      "reason": "Host discovery resolves the skill by this exact path"
+      "reason": "Repoint the links at the moved files; a keep would forbid the edit the moves force",
+      "references": [
+        "links helpers.md, which this manifest moves"
+      ]
+    },
+    {
+      "action": "update",
+      "path": "workflows/run.md",
+      "reason": "Repoint the link at the moved file",
+      "references": [
+        "links helpers.md, which this manifest moves"
+      ]
+    },
+    {
+      "action": "keep",
+      "path": "references/structure.md",
+      "reason": "Names references/naming.md by its new name already, so the rename leaves it byte-identical"
     }
   ],
   "rationale": "Reference material and coordinator scripts shared one directory, so a reader could not predict where a new resource belonged.",
