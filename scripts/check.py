@@ -819,6 +819,68 @@ def run_ruff(root, *arguments):
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
+def third_party_imports(path):
+    """The distributions a module imports that are neither stdlib nor local.
+
+    Read from the source rather than by importing, so the answer is the same on
+    a machine where the dependency happens to be installed as on one where it
+    is not.
+    """
+    local = {sibling.stem for sibling in path.parent.glob("*.py")}
+    imported = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            imported |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            imported.add(node.module.split(".")[0])
+    return imported - set(sys.stdlib_module_names) - local
+
+
+def check_declared_dependencies(root):
+    """Every third-party import must be declared, and must fail actionably.
+
+    `state.py` imported `referencing` that pyproject.toml never declared. It
+    resolved anyway because jsonschema depends on it, so the suite passed on
+    every machine while the repository's stated dependency set was wrong: a
+    jsonschema release that drops it would break every coordinator, and the
+    file naming what this repository needs would not have changed.
+
+    The guard is the same defect seen from the user's side. An undeclared or
+    uninstalled dependency reaches a new user as a traceback ending in
+    ModuleNotFoundError inside state.py, which names this repository's
+    internals instead of the one command that fixes it. document.py had wrapped
+    its own imports for exactly that reason; nothing required the others to.
+    """
+    text = (root / "pyproject.toml").read_text(encoding="utf-8")
+    block = re.search(r"^dependencies\s*=\s*\[(.*?)\]", text, re.S | re.M)
+    if block is None:
+        return ["pyproject.toml declares no dependencies table"]
+    # Distribution names normalise to import names loosely, so compare on the
+    # PEP 503 form of both rather than requiring them to match character for
+    # character: `PyYAML` is imported as `yaml`, `markdown-it-py` as
+    # `markdown_it`. Anything not resolved by normalisation is declared here.
+    declared = {re.sub(r"[-_.]+", "-", name).lower() for name in re.findall(r'"([A-Za-z0-9_.-]+)', block.group(1))}
+    aliases = {"yaml": "pyyaml", "markdown_it": "markdown-it-py", "mdit_py_plugins": "mdit-py-plugins"}
+    failures = []
+    for path in sorted((root / "scripts").glob("*.py")):
+        imports = third_party_imports(path)
+        for module in sorted(imports):
+            distribution = aliases.get(module, re.sub(r"[-_.]+", "-", module).lower())
+            if distribution not in declared:
+                failures.append(
+                    f"scripts/{path.name}: imports {module!r}, which pyproject.toml does not declare; "
+                    "it resolves today only as some other package's transitive dependency"
+                )
+        # A module reached through an import of a guarded one inherits the
+        # guard, so only the modules that import a third party directly need it.
+        if imports and "ModuleNotFoundError" not in path.read_text(encoding="utf-8"):
+            failures.append(
+                f"scripts/{path.name}: imports {', '.join(sorted(imports))} without a ModuleNotFoundError guard; "
+                "a missing dependency reaches the user as a traceback rather than an install command"
+            )
+    return failures
+
+
 def tool_version_mismatches(root):
     """Report a shelled-out tool whose version is not the one pyproject.toml pins.
 
@@ -1049,6 +1111,27 @@ def self_check():
         state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
         assert check_coordinator_registration(tree), "an undeclared state key was accepted"
 
+    # A dependency that resolves only transitively is invisible until the
+    # package that pulled it in stops doing so, so the check has to reject one.
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "scripts").mkdir()
+        (tree / "pyproject.toml").write_text('dependencies = [\n    "declared~=1.0",\n]\n', encoding="utf-8")
+        (tree / "scripts" / "guarded.py").write_text(
+            "try:\n    import declared\nexcept ModuleNotFoundError:\n    raise SystemExit('install it')\n",
+            encoding="utf-8",
+        )
+        assert check_declared_dependencies(tree) == [], "a declared, guarded import was rejected"
+        (tree / "scripts" / "guarded.py").write_text(
+            "try:\n    import undeclared\nexcept ModuleNotFoundError:\n    raise SystemExit('install it')\n",
+            encoding="utf-8",
+        )
+        assert check_declared_dependencies(tree), "an undeclared third-party import was accepted"
+        (tree / "scripts" / "guarded.py").write_text("import declared\n", encoding="utf-8")
+        assert check_declared_dependencies(tree), "an unguarded third-party import was accepted"
+        (tree / "scripts" / "guarded.py").write_text("import json\nimport pathlib\n", encoding="utf-8")
+        assert check_declared_dependencies(tree) == [], "a stdlib-only module was required to carry a guard"
+
     print("self-check passed")
 
 
@@ -1064,6 +1147,7 @@ def main():
         ("self-checks assert", lambda: self_checks_assert_something(ROOT)),
         ("CI tests the floor", lambda: check_ci_floor(ROOT)),
         ("tools match their pins", lambda: tool_version_mismatches(ROOT)),
+        ("dependencies declared", lambda: check_declared_dependencies(ROOT)),
         ("skill contract", lambda: check_skill(ROOT)),
         ("links and anchors", lambda: document.broken_links(ROOT)),
         ("resource reachability", lambda: check_reachability(ROOT)),

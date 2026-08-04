@@ -24,9 +24,19 @@ from datetime import datetime, timezone
 from functools import cache, lru_cache
 from pathlib import Path
 
-import jsonschema
-import rfc8785
-from referencing import Registry, Resource
+try:
+    import jsonschema
+    import rfc8785
+    from referencing import Registry, Resource
+except ModuleNotFoundError as error:  # pragma: no cover - environment guard
+    # Every coordinator imports this module, so an uninstalled dependency is
+    # the first thing a new user meets. Unguarded it arrived as a traceback
+    # naming state.py, which points at this repository's internals rather than
+    # at the one action that fixes it. document.py already guarded its own
+    # three; the coordinators' three were left to fail raw.
+    raise SystemExit(
+        f"Missing dependency {error.name!r}. Install with: python3 -m pip install -r requirements.txt"
+    ) from error
 
 from cli import (
     EX_DATAERR,

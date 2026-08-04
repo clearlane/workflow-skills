@@ -27,6 +27,7 @@ dependencies = [
     "mdit-py-plugins~=0.6",  # frontmatter block extraction
     "PyYAML~=6.0",  # frontmatter parsing
     "jsonschema~=4.26",  # artifact validation against schemas/
+    "referencing~=0.37",  # cross-schema $ref resolution against a local registry
     "rfc8785~=0.1",  # RFC 8785 JCS canonicalization for plan-binding digests
 ]
 
