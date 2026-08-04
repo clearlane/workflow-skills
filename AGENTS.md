@@ -23,7 +23,7 @@ The suite proves structure. These are the judgements it cannot make.
 
 **Control flow belongs in a coordinator.** If a change adds ordering, branching, a bound, a retry, or a resume point to a workflow document in prose, it belongs in `scripts/` instead. Prose cannot resume and cannot prove a bound held.
 
-**Guidance stays runtime-neutral.** Core guidance names capabilities, never a specific host's syntax, tool names, or file paths. Host-specific material belongs in an adapter document or `agents/`. The token scan covers `references/`, `workflows/`, and the top-level guidance documents, and knows the common host names; it cannot recognise a host it has never been told about, so adding one to `HOST_TOKENS` is part of noticing it.
+**Guidance stays runtime-neutral.** Core guidance names capabilities, never a specific host's syntax, tool names, or file paths. Host-specific material belongs in an adapter document or `agents/`. The scan covers `references/`, `workflows/`, and the top-level guidance documents. It knows the common host names, and it also recognises a host by the shape of the path it owns: the per-user dotfile directory it configures itself in, and the project-local directory it scans for skills, commands, or prompts. That is what catches a host nobody has listed. Adding a name to `HOST_TOKENS` still helps for a host named only in prose, since no path shape can see one.
 
 **Explain why, not what.** Comments and commit messages state what the previous state got wrong. The code already says what it does. Existing history and existing docstrings are the reference for tone and depth.
 

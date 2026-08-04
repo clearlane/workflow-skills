@@ -173,7 +173,7 @@ Run every deterministic check with one command:
 python3 scripts/check.py
 ```
 
-It runs the filename convention, every script's own `self-check` (discovered from `scripts/`, not listed, so adding a script adds its check), the skill contract including the Agent Skills name and description bounds, the size budget, relative-link and anchor resolution, resource reachability, one-canonical-section-per-document, phase-owner distinctness, documented capabilities and review phases, README structure coverage, shebang and executable-bit agreement, and a runtime-neutral token scan.
+It runs the filename convention, every script's own `self-check` (discovered from `scripts/`, not listed, so adding a script adds its check), the skill contract including the Agent Skills name and description bounds, the size budget, relative-link and anchor resolution, resource reachability, one-canonical-section-per-document, phase-owner distinctness, documented capabilities and review phases, README structure coverage, shebang and executable-bit agreement, and a runtime-neutral scan that recognises a host by name or by the shape of the path it owns.
 
 The checks need Python 3.10 or later and the parsers in `requirements.txt`. Lint rules and the supported Python floor live in `pyproject.toml`, so `ruff` reports the same findings everywhere.
 
@@ -200,7 +200,7 @@ The original was a prose skill: numbered steps an agent read and tried to follow
 
 - **Control flow is executable.** Ordering, branching, concurrency, retry, and resume logic live in roughly 1,700 lines across `scripts/design.py`, `scripts/review.py`, and `scripts/absorb.py`, not in instructions a model has to remember. An interrupted run resumes from artifacts on disk.
 - **Phases are derived, not fixed.** The phase list comes from a recorded capability contract, so a skill without settings never walks a settings phase.
-- **Guidance is runtime-neutral.** Runtime-specific tool advice became capability guidance, enforced by an automated token scan rather than by review.
+- **Guidance is runtime-neutral.** Runtime-specific tool advice became capability guidance, enforced by an automated scan rather than by review. A host is caught by the shape of the path it owns as well as by its name, so one nobody has listed does not pass.
 - **Scope grew past the original.** Seven further sources were absorbed, and evidence-gated review with a disposition-gated verdict, evidence-bound absorption with snapshot rollback, layout restructuring, bundle packaging, validated skill settings, and a single deterministic check entrypoint did not exist in the original.
 - **Dropped along the way.** Obsolete task tools, fixed batching advice, mandatory prompt-level verification, generic authoring guidance now covered by host tooling, and Trail of Bits branding.
 
