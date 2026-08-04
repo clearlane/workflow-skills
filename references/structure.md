@@ -47,7 +47,10 @@ workflow to anyone browsing for one.
 The closing section is the one most likely to drift, because every author has a
 preferred word for it. A reference with no detectable violation states that
 explicitly rather than omitting the section, since a silent omission and a
-deliberate one are indistinguishable to the next reader.
+deliberate one are indistinguishable to the next reader. Leaving the heading
+with nothing under it is the same omission wearing the section's name, so it is
+rejected too: routing to the reference that owns the boundary is an answer,
+saying nothing is not.
 
 ## Progressive Disclosure
 

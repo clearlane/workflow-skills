@@ -73,6 +73,10 @@ NEUTRAL_EXEMPT = ("references/upstream",)
 PHASE_SECTION = "Phases the Coordinator Always Runs"
 DESIGN_WORKFLOW = "workflows/design.md"
 REVIEW_WORKFLOW = "workflows/review.md"
+# The document review.py parses its questions out of. Taken from the
+# coordinator rather than spelled again, so the check and the parser cannot
+# come to disagree about which file the contract is in.
+REVIEW_CONTRACT = f"references/{review.REVIEW_CONTRACT.name}"
 ABSORB_WORKFLOW = "workflows/absorb.md"
 RESTRUCTURE_WORKFLOW = "workflows/restructure.md"
 REMEDIATE_WORKFLOW = "workflows/remediate.md"
@@ -407,7 +411,7 @@ def check_review_phases(root, contract=None):
         if phase == "verdict":
             continue
         if not questions.get(phase):
-            failures.append(f"references/review.md: phase {phase!r} asks no reviewable question, so its gate is empty")
+            failures.append(f"{REVIEW_CONTRACT}: phase {phase!r} asks no reviewable question, so its gate is empty")
 
     # Each anchor maps an automatic finding onto the question it answers, by
     # matching a phrase rather than a position. Rewording that phrase would
@@ -434,6 +438,80 @@ def check_review_phases(root, contract=None):
         failures.append(f"scripts/review.py: {source!r} is seeded as a finding but answers no contract question")
     for source in sorted(review.UNREACHABLE_RULES - emittable):
         failures.append(f"scripts/review.py: {source!r} is exempted as unreachable but no rule emits it")
+    return failures
+
+
+def check_contract_rules_are_asked(root, contract=None):
+    """A rule written into a phase's contract section must reach the reviewer as a question.
+
+    `review.py` seeds a run's question set from the review contract, and
+    selects the bullets by shape: one ending in a question mark is a question,
+    anything else is prose. That filter is right about the document as it
+    stands, because the contract also bullets the evidence ranking and the
+    disposition vocabulary, and neither asks anything.
+
+    It is silently wrong about the next edit. The sections it harvests are the
+    per-phase contracts, where every bullet is there to be a rule; a rule
+    phrased as a statement rather than a question is dropped with no error and
+    never appears in `questions.open`, so the phase closes reporting full
+    coverage of a contract it never asked. Proven by adding "The description
+    must name the non-activation cases." to the `activation` section: the
+    phase still asked four questions, the run still closed clean, and no
+    existing check said anything.
+
+    The fix is a documentation edit, not a parser that guesses at declarative
+    English. A rule stated to a reviewer has to be answerable `holds`,
+    `violated`, or `not-applicable` against the skill, and phrasing it as a
+    question is what makes that possible; the checker asking for it is the
+    cheapest place to notice. `contract` overrides the document's text so the
+    self-check can put a violating one in front of this without editing a
+    tracked file; otherwise the text comes from the tree under check rather
+    than from the coordinator's own installed path, so this reports on the
+    repository it was pointed at.
+    """
+    failures = []
+    contract = contract or (root / REVIEW_CONTRACT).read_text(encoding="utf-8")
+    asked = review.parse_questions(contract)
+    for phase, items in sorted(review.contract_bullets(contract).items()):
+        for item in items:
+            if item not in asked.get(phase, []):
+                failures.append(
+                    f"{REVIEW_CONTRACT}: the {phase!r} contract states a rule the review never asks, "
+                    f"because it is not phrased as a question: {item!r}"
+                )
+    # Surface phases share one bullet list, so a single dropped bullet is
+    # reported once per surface. Deduplicated on the message rather than the
+    # bullet: a rule dropped from two different phases is two problems.
+    return sorted(set(failures))
+
+
+def check_reference_checks_state_something(root):
+    """A reference's closing section must say how a violation is detected.
+
+    `references/structure.md` requires the section and says a reference with no
+    detectable violation states that explicitly, because a silent omission and
+    a deliberate one read the same to the next reader. `check_reference_skeleton`
+    proves the heading is present and last, which is the part that drifts by
+    accident, and stops there: a heading with nothing under it satisfies it.
+
+    That is the shape an interrupted edit leaves behind, and it is worse than a
+    missing section. The document passes every check, the skeleton says its
+    contract is enforced somewhere, and the section that was supposed to say
+    where is empty. Three references legitimately have no bullets and route to
+    the reference that owns the boundary instead, so prose counts; what does
+    not count is nothing at all.
+    """
+    failures = []
+    for path in sorted((root / "references").glob("*.md")):
+        parsed = document.parse(path)
+        if REFERENCE_CLOSING not in [heading.text for heading in parsed.headings_at(2)]:
+            continue  # check_reference_skeleton owns the missing-section case.
+        body = parsed.section(REFERENCE_CLOSING)
+        if not (body or "").strip():
+            failures.append(
+                f"{path.relative_to(root)}: '{REFERENCE_CLOSING}' section is empty, so the document "
+                f"claims its contract is enforced without saying where"
+            )
     return failures
 
 
@@ -1706,6 +1784,49 @@ def self_check():
         review.UNREACHABLE_RULES.update(exempt)
     assert check_review_phases(ROOT) == [], "the cases above did not restore the real tables"
 
+    # A rule the contract states in a phase section but never asks. The
+    # question set is selected by shape, so a bullet not ending in a question
+    # mark is dropped in silence: the phase closes reporting full coverage of a
+    # contract that gained a rule nobody was shown. Both a per-phase section
+    # and the list every surface shares are replayed, because the two are
+    # harvested by different code paths and only one was ever exercised.
+    assert check_contract_rules_are_asked(ROOT) == [], "the real contract states a rule it never asks"
+    stated = original.replace(
+        "- Are prerequisites and inputs discoverable before the first mutation?",
+        "- Are prerequisites and inputs discoverable before the first mutation?\n"
+        "- The description must name its non-activation cases.",
+    )
+    assert stated != original, "the declarative rule was not inserted, so the case proves nothing"
+    assert len(review.parse_questions(stated)["activation"]) == 4, (
+        "the inserted rule was parsed as a question, so it is not the case this check is for"
+    )
+    assert check_contract_rules_are_asked(ROOT, contract=stated), "a stated rule the review never asks was accepted"
+
+    shared = original.replace(
+        "- Does this surface own exactly its own boundary, leaving global state to the coordinator?",
+        "- Does this surface own exactly its own boundary, leaving global state to the coordinator?\n"
+        "- Every surface validates its own inputs.",
+    )
+    assert shared != original, "the shared-list rule was not inserted"
+    assert check_contract_rules_are_asked(ROOT, contract=shared), "a stated rule shared by every surface was accepted"
+
+    # A closing section with a heading and nothing under it. The skeleton check
+    # reads only the heading list, so it accepts this: the document claims its
+    # contract is enforced and never says where.
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "references").mkdir(parents=True)
+        stub = tree / "references" / "empty.md"
+        stub.write_text(f"# T\n\nOpening.\n\n## Topic\n\nx\n\n## {REFERENCE_CLOSING}\n\n- how a violation is found\n")
+        assert check_reference_checks_state_something(tree) == [], "a section stating something was rejected"
+        # Prose counts: three references legitimately route to the reference
+        # owning the boundary rather than listing bullets of their own.
+        stub.write_text(f"# T\n\nOpening.\n\n## Topic\n\nx\n\n## {REFERENCE_CLOSING}\n\nThe owner proves it.\n")
+        assert check_reference_checks_state_something(tree) == [], "a section stating it in prose was rejected"
+        stub.write_text(f"# T\n\nOpening.\n\n## Topic\n\nx\n\n## {REFERENCE_CLOSING}\n")
+        assert check_reference_skeleton(tree) == [], "the case does not reproduce the hole in the skeleton check"
+        assert check_reference_checks_state_something(tree), "an empty closing section was accepted"
+
     # The registration check exists because a new coordinator and a newly
     # closed schema merge without conflict and produce a tree that cannot run.
     # Both halves are replayed here against a copy of the real contracts, since
@@ -2054,6 +2175,8 @@ def main():
         ("phase owners", lambda: check_phase_owners(ROOT)),
         ("documented capabilities", lambda: check_capability_rows(ROOT)),
         ("documented review phases", lambda: check_review_phases(ROOT)),
+        ("contract rules are asked", lambda: check_contract_rules_are_asked(ROOT)),
+        ("reference checks state something", lambda: check_reference_checks_state_something(ROOT)),
         ("README structure coverage", lambda: check_readme_structure(ROOT)),
         ("executable bits", lambda: check_executable_bits(ROOT)),
         ("runtime-neutral tokens", lambda: check_vendor_tokens(ROOT)),
