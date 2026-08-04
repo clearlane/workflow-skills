@@ -40,6 +40,8 @@ It exits non-zero on an error, zero on warnings alone, and takes `--json` for a 
 
 Init seeds the safety phase too, with the shapes that phase asks about which a pattern can locate: a recursive or unquoted delete of a path built from a variable, code fetched at runtime and executed, a query assembled by interpolation, a literal that looks like a credential. These are leads, not verdicts. Whether a given one is a defect depends on where the value came from, which only a reader can settle, so they arrive as `major` and carry file and line evidence. Disposition each one as `confirmed` or `rejected` with a note saying which. A conformant skill can still do all of these, and the phase used to open with nothing recorded at all.
 
+The structure phase is seeded with one more: a reference or workflow file that no other file in the skill names, which an agent following the skill can therefore never load. Matching is generous on purpose, so a resource listed by bare name in a README counts as reachable. Link it from the resource that owns the concern, or delete it.
+
 Correct the plan when the evidence disagrees with the skill:
 
 ```bash

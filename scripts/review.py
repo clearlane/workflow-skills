@@ -274,6 +274,66 @@ def safety_findings(skill_root):
     return findings
 
 
+RESOURCE_DIRS = frozenset({"references", "reference", "workflows", "docs"})
+
+
+def unreachable_findings(skill_root):
+    """Name the prose resources nothing else in the skill points at.
+
+    The structure phase asks whether every resource is actually reachable
+    from the core instructions. A resource no other file mentions cannot be
+    loaded by an agent following the skill: it is shipped weight that reads
+    like coverage, and reviewers miss it because absence is what you have to
+    notice, and nothing draws the eye to a file that is never named.
+
+    Matches a bare basename anywhere, not a well-formed link, which is
+    deliberately generous. A resource listed by name in a README is reachable
+    enough for a reader to find, and over-reporting a reachable file trains
+    reviewers to skip the whole category. A file naming itself proves nothing
+    and is excluded.
+    """
+    resources = {}
+    for path in skill_root.rglob("*.md"):
+        relative = path.relative_to(skill_root)
+        if not path.is_file() or excluded(relative.parts):
+            continue
+        if len(relative.parts) > 1 and relative.parts[0] in RESOURCE_DIRS:
+            resources[relative.as_posix()] = path
+    if not resources:
+        return []
+
+    named = set()
+    for path in skill_root.rglob("*"):
+        relative = path.relative_to(skill_root)
+        if not path.is_file() or excluded(relative.parts):
+            continue
+        if path.suffix.lower() not in TEXT_SUFFIXES or path.stat().st_size > MAX_BYTES:
+            continue
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            continue
+        for key, target in resources.items():
+            if target != path and target.name in text:
+                named.add(key)
+
+    return [
+        {
+            "phase": "structure",
+            "severity": "major",
+            "summary": f"{key} is named by no other file, so nothing can route an agent to it",
+            "evidence": key,
+            "remedy": "link it from the resource that owns the concern, or delete it if its content lives elsewhere",
+            "disposition": None,
+            "disposition_note": None,
+            "source": "structure:unreachable",
+            "recorded_at": now(),
+        }
+        for key in sorted(resources)
+        if key not in named
+    ]
+
+
 def conformance_findings(skill_root):
     """Findings a parser can settle, recorded before any judgement is spent.
 
@@ -366,7 +426,7 @@ def command_init(args):
     # Non-empty when the format's own bounds are already broken: those have
     # exact answers, so spending a reviewer's judgement to rediscover them
     # wastes the expensive resource on the cheap question.
-    seeded = conformance_findings(skill_root) + safety_findings(skill_root)
+    seeded = conformance_findings(skill_root) + safety_findings(skill_root) + unreachable_findings(skill_root)
     for index, finding in enumerate(seeded, start=1):
         finding["id"] = f"F{index}"
     save_findings(root, seeded)
@@ -728,6 +788,36 @@ def command_self_check(_args):
         # And silent on a skill that does none of it, or the leads are noise
         # a reviewer learns to skip past.
         assert safety_findings(plain) == [], safety_findings(plain)
+
+        # A reference nothing names is unreachable: an agent following the
+        # skill can never load it. Reviewers miss this because it is an
+        # absence, and no file draws attention to the file that is missing
+        # from it. Two corpus skills ship references in exactly this state.
+        stranded = root / "stranded"
+        (stranded / "references").mkdir(parents=True)
+        (stranded / "SKILL.md").write_text(
+            "---\nname: stranded\ndescription: d\n---\n\n# Stranded\n\nSee [linked](references/linked.md).\n"
+        )
+        (stranded / "references" / "linked.md").write_text("# Linked\n")
+        (stranded / "references" / "orphan.md").write_text("# Orphan\n\nNothing points here.\n")
+        stray = unreachable_findings(stranded)
+        assert [item["evidence"] for item in stray] == ["references/orphan.md"], stray
+        assert stray[0]["phase"] == "structure", stray
+        # Naming it anywhere is enough. A reference a README lists by bare
+        # name is findable, and reporting it would train reviewers to skip
+        # the category wholesale.
+        (stranded / "README.md").write_text("Background lives in orphan.md.\n")
+        assert unreachable_findings(stranded) == [], unreachable_findings(stranded)
+        # A file naming only itself is still stranded.
+        (stranded / "README.md").unlink()
+        (stranded / "references" / "orphan.md").write_text("# Orphan\n\nSee orphan.md above.\n")
+        assert [item["evidence"] for item in unreachable_findings(stranded)] == ["references/orphan.md"]
+        # Asserted through init, not just the function: computing a finding
+        # and never seeding it leaves the reviewer exactly as uninformed.
+        stranded_run = root / "stranded-run"
+        execute("init", "--skill", stranded, "--run-dir", stranded_run)
+        sources = [item["source"] for item in json.loads((stranded_run / "findings.json").read_text())["findings"]]
+        assert "structure:unreachable" in sources, sources
 
         state = read_status(result.stdout)
         assert state["phases"] == list(ALWAYS_FIRST + ALWAYS_LAST), state["phases"]
