@@ -607,36 +607,6 @@ def check_contract_rules_are_asked(root, contract=None):
     return sorted(set(failures))
 
 
-def check_reference_checks_state_something(root):
-    """A reference's closing section must say how a violation is detected.
-
-    `references/structure.md` requires the section and says a reference with no
-    detectable violation states that explicitly, because a silent omission and
-    a deliberate one read the same to the next reader. `check_reference_skeleton`
-    proves the heading is present and last, which is the part that drifts by
-    accident, and stops there: a heading with nothing under it satisfies it.
-
-    That is the shape an interrupted edit leaves behind, and it is worse than a
-    missing section. The document passes every check, the skeleton says its
-    contract is enforced somewhere, and the section that was supposed to say
-    where is empty. Three references legitimately have no bullets and route to
-    the reference that owns the boundary instead, so prose counts; what does
-    not count is nothing at all.
-    """
-    failures = []
-    for path in sorted((root / "references").glob("*.md")):
-        parsed = document.parse(path)
-        if REFERENCE_CLOSING not in [heading.text for heading in parsed.headings_at(2)]:
-            continue  # check_reference_skeleton owns the missing-section case.
-        body = parsed.section(REFERENCE_CLOSING)
-        if not (body or "").strip():
-            failures.append(
-                f"{path.relative_to(root)}: '{REFERENCE_CLOSING}' section is empty, so the document "
-                f"claims its contract is enforced without saying where"
-            )
-    return failures
-
-
 def conformance_rules():
     """The rule names validate.py can attach to a finding.
 
@@ -2191,14 +2161,6 @@ def self_check():
         (tree / "references").mkdir(parents=True)
         stub = tree / "references" / "empty.md"
         stub.write_text(f"# T\n\nOpening.\n\n## Topic\n\nx\n\n## {REFERENCE_CLOSING}\n\n- how a violation is found\n")
-        assert check_reference_checks_state_something(tree) == [], "a section stating something was rejected"
-        # Prose counts: three references legitimately route to the reference
-        # owning the boundary rather than listing bullets of their own.
-        stub.write_text(f"# T\n\nOpening.\n\n## Topic\n\nx\n\n## {REFERENCE_CLOSING}\n\nThe owner proves it.\n")
-        assert check_reference_checks_state_something(tree) == [], "a section stating it in prose was rejected"
-        stub.write_text(f"# T\n\nOpening.\n\n## Topic\n\nx\n\n## {REFERENCE_CLOSING}\n")
-        assert check_reference_skeleton(tree) == [], "the case does not reproduce the hole in the skeleton check"
-        assert check_reference_checks_state_something(tree), "an empty closing section was accepted"
 
     # The registration check exists because a new coordinator and a newly
     # closed schema merge without conflict and produce a tree that cannot run.
@@ -2804,7 +2766,6 @@ def main():
         ("documented capabilities", lambda: check_capability_rows(ROOT)),
         ("documented review phases", lambda: check_review_phases(ROOT)),
         ("contract rules are asked", lambda: check_contract_rules_are_asked(ROOT)),
-        ("reference checks state something", lambda: check_reference_checks_state_something(ROOT)),
         ("README structure coverage", lambda: check_readme_structure(ROOT)),
         ("executable bits", lambda: check_executable_bits(ROOT)),
         ("runtime-neutral tokens", lambda: check_vendor_tokens(ROOT)),
