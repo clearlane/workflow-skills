@@ -221,7 +221,7 @@ def declared_verbs(module):
     return verbs
 
 
-def check_coordinator_verbs(root):
+def check_coordinator_verbs(root, modules=None):
     """The coordinators must drive a run with the same commands.
 
     An author who learns one coordinator should be able to drive the others, and
@@ -234,10 +234,15 @@ def check_coordinator_verbs(root):
     renaming `init` to `begin` while mentioning the old name in a sentence left
     the check reporting the verb present when no such subcommand existed. What
     the parser accepts is the fact this check is about, so it is what is asked.
+
+    The coordinator set is a parameter so a stand-in can be passed. Without
+    that seam the check reads only from imports, no fixture can reach it, and
+    against a conforming tree an empty result is indistinguishable from a
+    working one.
     """
     del root  # the coordinators are imported, so this reads the same tree
     failures = []
-    for module in (design, review, absorb, restructure, remediate):
+    for module in modules if modules is not None else (design, review, absorb, restructure, remediate):
         verbs = declared_verbs(module)
         missing = [verb for verb in CORE_VERBS if verb not in verbs]
         if missing:
@@ -308,13 +313,17 @@ def state_keys_written(path):
     return keys
 
 
-def check_phase_owners(root):
+def check_phase_owners(root, coordinators=None):
     """Every derived phase must resolve to a distinct owning contract that exists.
 
     A phase whose resource is the document that dispatched the coordinator
     answers "what do I read now?" with "the file you came from". Requiring a
     distinct existing owner is a stronger guarantee than scanning prose for
     phase names, and it fails the moment a phase is added without a contract.
+
+    The coordinator table is a parameter for the same reason the verb check
+    takes one: read only from imports, no fixture can reach the body, so a
+    conforming tree cannot tell a working check from an empty result.
     """
     failures = []
     entry_documents = {
@@ -325,7 +334,7 @@ def check_phase_owners(root):
         REMEDIATE_WORKFLOW,
         "SKILL.md",
     }
-    coordinators = (
+    coordinators = coordinators or (
         ("design", design.derive_phases(design.CAPABILITIES), design.phase_resource),
         ("review", review.derive_phases(review.SURFACES), review.phase_resource),
         ("absorb", absorb.derive_phases(), absorb.phase_resource),
@@ -1990,15 +1999,80 @@ def self_check():
         guidance(tree, README, "# R\n\n## Elsewhere\n\ntext\n")
         assert check_readme_structure(tree), f"a README with no '{README_SECTION}' section was accepted"
 
-    # The remaining checks delegate to a tool that owns the answer, so a
-    # fixture here would test ruff, lychee, or check-jsonschema rather than
-    # this file. What is worth proving is the part this file owns: that a
-    # missing tool is a skip and not a silent pass.
+    # The remaining checks delegate to a tool that owns the answer. Asserting
+    # only that a missing tool is a skip was the previous bar, and it left all
+    # four indistinguishable from a stub: against a tree that already passes,
+    # a working delegation and an empty result agree. What each case adds is a
+    # fixture the tool must reject, so the wiring is observed carrying a real
+    # verdict back rather than merely being present.
     assert check_lint(ROOT) == [] or shutil.which("ruff"), "lint reported failures with no ruff installed"
     assert check_format(ROOT) == [] or shutil.which("ruff"), "format reported failures with no ruff installed"
+    if shutil.which("ruff"):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            (tree / "scripts").mkdir()
+            # An unused import is a lint error and not a formatting one; the
+            # spacing is a formatting error and not a lint one. Keeping them
+            # in separate files stops either case from passing on the other's
+            # finding.
+            (tree / "scripts" / "unlinted.py").write_text("import os\n", encoding="utf-8")
+            assert check_lint(tree), "ruff accepted an unused import"
+            (tree / "scripts" / "unlinted.py").unlink()
+            (tree / "scripts" / "unformatted.py").write_text("x = {  'a' :1}\n", encoding="utf-8")
+            assert check_format(tree), "ruff accepted misformatted source"
+
     assert check_schema_lint(ROOT) == [] or shutil.which("check-jsonschema")
+    if shutil.which("check-jsonschema"):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            (tree / "schemas").mkdir()
+            assert check_schema_lint(tree), "a schemas directory with no schemas was accepted"
+            # Valid JSON, invalid schema: `type` takes a string or a list of
+            # them, so this is exactly the fault jsonschema would not report
+            # when validating an instance, which is why the metaschema pass
+            # exists.
+            (tree / "schemas" / "broken.schema.json").write_text('{"type": 7}', encoding="utf-8")
+            assert check_schema_lint(tree), "check-jsonschema accepted an invalid schema"
+
     assert os.environ.get("CHECK_EXTERNAL_LINKS") == "1" or check_external_links(ROOT) == []
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        shutil.copy(ROOT / "lychee.toml", tree / "lychee.toml")
+        # A port nothing listens on fails without reaching the network, so the
+        # case is deterministic and offline while still exercising the path
+        # where lychee exits nonzero and this function must report something.
+        (tree / "rotted.md").write_text("[gone](http://127.0.0.1:9/missing)\n", encoding="utf-8")
+        previous = os.environ.get("CHECK_EXTERNAL_LINKS")
+        os.environ["CHECK_EXTERNAL_LINKS"] = "1"
+        try:
+            reported = check_external_links(tree)
+        finally:
+            if previous is None:
+                del os.environ["CHECK_EXTERNAL_LINKS"]
+            else:
+                os.environ["CHECK_EXTERNAL_LINKS"] = previous
+        assert reported, "an unreachable URL was accepted, or a nonzero lychee exit reported nothing"
+
     assert check_executable_bits(ROOT) == [], "the shipped tree disagrees with git about executable bits"
+    # Git owns the mode, so the case needs a repository rather than a
+    # directory. Both directions of the disagreement are replayed, since the
+    # check reports each with a different message and an implementation
+    # covering only one would still pass a single-sided case.
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+
+        def git(*arguments):
+            return subprocess.run(["git", *arguments], cwd=str(tree), capture_output=True, text=True, check=True)
+
+        git("init", "--quiet")
+        (tree / "runnable.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        (tree / "plain.py").write_text("value = 1\n", encoding="utf-8")
+        git("add", "-A")
+        assert check_executable_bits(tree), "a shebang with no executable bit was accepted"
+        git("update-index", "--chmod=+x", "runnable.py")
+        assert check_executable_bits(tree) == [], "an agreeing pair was rejected"
+        git("update-index", "--chmod=+x", "plain.py")
+        assert check_executable_bits(tree), "an executable bit with no shebang was accepted"
     # The old form of this check substring-matched --help, so a coordinator
     # that renamed a verb and mentioned the old name in its description passed.
     # A stand-in parser replays exactly that.
@@ -2017,7 +2091,47 @@ def self_check():
 
     assert declared_verbs(Renamed) == set(CORE_VERBS) - {"init"} | {"begin"}
     assert "init" in Renamed.parser().format_help(), "the case does not reproduce the substring hole"
+    # Reading declared_verbs is not enough on its own: it proves the helper
+    # while leaving the check that consumes it unobserved. Passing the
+    # stand-in through the check is what ties the two together.
+    assert check_coordinator_verbs(ROOT, modules=(Renamed,)), "a coordinator missing a core verb was accepted"
+
     assert check_phase_owners(ROOT) == [], "a derived phase lost its owning contract"
+    # Each way a phase can lose its contract is replayed separately, since the
+    # check reports them with different messages and an implementation
+    # covering one would pass a case that only exercised another.
+    assert check_phase_owners(ROOT, coordinators=[("stub", ["one"], lambda _: DESIGN_WORKFLOW)]), (
+        "a phase owned by the document that dispatched it was accepted"
+    )
+    assert check_phase_owners(ROOT, coordinators=[("stub", ["one"], lambda _: "references/absent.md")]), (
+        "a phase owned by a file that does not exist was accepted"
+    )
+    assert check_phase_owners(
+        ROOT, coordinators=[("stub", ["one"], lambda _: f"{ARTIFACT_REFERENCE}#no-such-heading")]
+    ), "a phase owned by a heading that does not exist was accepted"
+    assert check_phase_owners(ROOT, coordinators=[("stub", ["one", "two"], lambda _: ARTIFACT_REFERENCE)]), (
+        "two phases sharing one owner were accepted"
+    )
+    assert check_phase_owners(ROOT, coordinators=[("stub", ["one"], lambda _: ARTIFACT_REFERENCE)]) == [], (
+        "a phase with a distinct existing owner was rejected"
+    )
+
+    # check_skill is the one check registered_checks exempts, because the
+    # bounds belong to validate.py and restating them here is the duplication
+    # that let the old copy drift. What is left for this file to prove is that
+    # it reports what the validator returns and that the strict frontmatter
+    # parse it keeps locally is reached, so neither half can quietly go empty.
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "SKILL.md").write_text(
+            "---\nname: workflow-skills\ndescription: " + "x" * 2000 + "\n---\n\n# S\n",
+            encoding="utf-8",
+        )
+        assert check_skill(tree), "a description past the format bound was accepted"
+        (tree / "SKILL.md").write_text("---\nname: [unclosed\n---\n\n# S\n", encoding="utf-8")
+        assert any("invalid frontmatter" in failure for failure in check_skill(tree)), (
+            "malformed frontmatter was not reported; validate.py reads a flat subset and cannot see it"
+        )
 
     print("self-check passed")
 
