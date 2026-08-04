@@ -160,6 +160,37 @@ def load_findings(review_run):
     return value
 
 
+def require_review_of(skill_root, review_run):
+    """Refuse a review that was not about the skill this run is fixing.
+
+    The findings are obligations inherited from another run, so which skill
+    that run examined decides whether they mean anything here. Nothing tied the
+    two together: a review of one skill could be handed to a remediation of
+    another, and the run would inherit obligations recorded against a tree it
+    will never touch, then report them resolved when a re-review of a different
+    skill came back clean.
+
+    The path is what is compared, not the digest. The skill is expected to
+    change, since fixing it is the point; what must hold is that both runs are
+    talking about the same skill.
+
+    findings.json is the contract this coordinator consumes, and a review's
+    state.json is not part of it, so a findings set produced by other means is
+    still accepted. The check applies to what a review run does record, rather
+    than making a second artifact mandatory.
+    """
+    state_path = review_run / "state.json"
+    if not state_path.is_file():
+        return
+    reviewed = (read_json(state_path).get("skill") or {}).get("path")
+    if reviewed and Path(reviewed).resolve() != skill_root:
+        fail(
+            f"{review_run}: reviewed {reviewed}, not {skill_root}; its findings are obligations about another skill",
+            EX_DATAERR,
+            review_run,
+        )
+
+
 def obligations(findings):
     """Finding IDs a run may not complete while they remain open.
 
@@ -178,6 +209,7 @@ def command_init(args):
     if args.max_iterations < 1:
         fail("--max-iterations must be at least 1", EX_DATAERR)
     findings = load_findings(review_run)["findings"]
+    require_review_of(skill_root, review_run)
     root = create_run(
         args.run_dir,
         (skill_root, "the skill being remediated"),
@@ -428,6 +460,51 @@ def command_self_check(_args):
         state = read_json(run / "state.json")
         assert state["phase"] == "verdict", state["phase"]
         assert state["accepted_obligations"] == ["F1"], state["accepted_obligations"]
+
+        # Findings are obligations inherited from another run, so they mean
+        # something here only if that run examined this skill. A review naming a
+        # different skill would otherwise be accepted, and its obligations
+        # reported resolved once a re-review of an unrelated tree came back
+        # clean. A review that records no subject is still accepted, because
+        # findings.json is the contract and its state.json is not part of it.
+        other = skill(root, "other-subject")
+        stated = root / "stated-review"
+        write_json(
+            stated / "findings.json",
+            {
+                "schema": "https://clearlane.github.io/workflow-skills/schemas/findings.schema.json",
+                "version": VERSION,
+                "findings": findings,
+            },
+        )
+        write_json(stated / "state.json", {"skill": {"name": "other", "path": str(other)}})
+        mismatched = execute(
+            "init",
+            "--skill",
+            subject,
+            "--review-run",
+            stated,
+            "--run-dir",
+            root / "mismatched",
+            "--max-iterations",
+            2,
+            check=False,
+        )
+        assert mismatched.returncode == EX_DATAERR, mismatched.returncode
+        assert "obligations about another skill" in mismatched.stderr, mismatched.stderr
+        matched = execute(
+            "init",
+            "--skill",
+            other,
+            "--review-run",
+            stated,
+            "--run-dir",
+            root / "matched",
+            "--max-iterations",
+            2,
+            check=False,
+        )
+        assert matched.returncode == 0, matched.stderr
 
         # Recording an iteration before the verdict is accepted is refused.
         result = execute("record-iteration", "--run-dir", run, "--note", "early", check=False)
