@@ -19,8 +19,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import document
 from cli import (
     EX_DATAERR,
+    EX_USAGE,
     fail,
 )
 from design import CAPABILITY_PHASES
@@ -94,6 +96,90 @@ MAX_BYTES = 2_000_000
 
 SEVERITIES = ("blocking", "major", "minor")
 DISPOSITIONS = ("fixed", "accepted", "deferred")
+# `not-applicable` is a real answer, not an escape hatch: a skill with no
+# destructive action genuinely cannot gate one. It still costs evidence, so
+# the claim that the case does not arise is on the record and checkable.
+VERDICTS = ("holds", "violated", "not-applicable")
+
+# The contract every phase is reviewed against. Its questions are parsed rather
+# than restated here, because a copy is a second place to change and the
+# failure mode is silent: prose gains a question, the coordinator keeps gating
+# on the old list, and the run reports full coverage of a contract it no longer
+# matches.
+REVIEW_CONTRACT = Path(__file__).resolve().parent.parent / "references" / "review.md"
+
+
+def parse_questions(text=None):
+    """Extract each phase's review questions from the contract document.
+
+    Returns a mapping of phase name to the questions that phase must answer.
+    Only interrogative bullets count: the contract also uses bullets for the
+    disposition vocabulary and the evidence ranking, which are statements, and
+    treating those as questions would demand answers to things that ask
+    nothing.
+
+    Surface phases share one list, and `coordinator` and `state` carry a
+    second, exactly as the document says. That is read off the two bullet
+    lists under the surface heading rather than hardcoded, so adding a question
+    to either is a documentation edit the gate picks up.
+
+    Markdown is parsed by `document.py`, which owns the model for this
+    repository. An earlier version sliced the text by hand and had to decide
+    for itself what separated two lists, which is CommonMark's job.
+    """
+    parsed = document.parse(REVIEW_CONTRACT, text)
+
+    def asked(items):
+        return [item for item in items if item.endswith("?")]
+
+    questions = {}
+    for heading in parsed.headings_at(3):
+        items = asked(item for group in parsed.section_lists(heading.text, level=3) for item in group)
+        if items:
+            questions[heading.text] = items
+
+    blocks = [items for items in (asked(group) for group in parsed.section_lists("Surface Phases")) if items]
+    shared = blocks[0] if blocks else []
+    delegating = blocks[1] if len(blocks) > 1 else []
+    for surface in SURFACES:
+        # The two phases that own what every other surface delegates answer for
+        # ordering, resumability, and concurrency as well.
+        items = shared + (delegating if surface in ("coordinator", "state") else [])
+        if items:
+            questions[surface] = items
+    return questions
+
+
+def phase_questions(phase, contract=None):
+    """Return `(id, text)` for each question the phase must answer."""
+    asked = parse_questions(contract).get(phase, [])
+    return [(f"{phase}.{index}", text) for index, text in enumerate(asked, start=1)]
+
+
+# Which contract question each automatic finding already answers, keyed by the
+# finding's source. Anchored on a distinctive phrase rather than an index, so
+# reordering the prose cannot silently remap an answer onto a different
+# question; `check.py` fails when an anchor stops resolving.
+ANSWER_ANCHORS = {
+    "conformance:description": ("activation", "observable user intent"),
+    "conformance:name": ("activation", "observable user intent"),
+    "conformance:size": ("structure", "size stay within budget"),
+    "structure:unreachable": ("structure", "every resource reachable"),
+    "structure:naming": ("structure", "filenames follow"),
+    "safety-scan": ("safety", "no raw shell interpolation"),
+}
+
+
+def anchored_question(source, contract=None):
+    """Resolve a finding source to the question id it answers, if any."""
+    anchor = ANSWER_ANCHORS.get(source)
+    if anchor is None:
+        return None
+    phase, needle = anchor
+    for identifier, text in phase_questions(phase, contract):
+        if needle in text:
+            return identifier
+    raise AssertionError(f"anchor {needle!r} no longer matches any {phase} question")
 
 
 def derive_phases(surfaces):
@@ -154,12 +240,55 @@ def unresolved_blocking(findings):
     return [item["id"] for item in findings if item["severity"] == "blocking" and not item["disposition"]]
 
 
+def load_answers(root):
+    path = root / "answers.json"
+    if not path.exists():
+        return {}
+    return read_json(path).get("answers", {})
+
+
+def save_answers(root, answers):
+    write_artifact(root / "answers.json", "answers.schema.json", {"answers": answers})
+
+
+def answered_by_findings(findings):
+    """Question ids a seeded finding already settles.
+
+    A scan that located a defect has answered its question in the only way
+    that matters: with evidence. Asking the reviewer to retype an answer the
+    run already holds is how a gate becomes a formality people click through.
+    """
+    answered = {}
+    for item in findings:
+        identifier = anchored_question(item.get("source", ""))
+        if identifier:
+            answered.setdefault(identifier, item["id"])
+    return answered
+
+
+def outstanding_questions(root, phase, findings=None):
+    """Questions this phase must still answer before it can close."""
+    findings = load_findings(root) if findings is None else findings
+    settled = set(load_answers(root)) | set(answered_by_findings(findings))
+    return [(identifier, text) for identifier, text in phase_questions(phase) if identifier not in settled]
+
+
 def print_status(root, state):
     phase = pending_phase(state)
     findings = load_findings(root)
     blocking = unresolved_blocking(findings)
+    outstanding = outstanding_questions(root, phase, findings) if phase else []
     if phase == "verdict" and blocking:
         action = "Resolve blocking findings before the verdict: " + ", ".join(blocking) + " (use resolve-finding)."
+    elif outstanding:
+        # Naming the next question, rather than only the phase, means the gate
+        # tells the agent what it is waiting for. A gate that refuses without
+        # saying what would satisfy it gets worked around instead of answered.
+        action = (
+            f"Answer the open '{phase}' questions against {phase_resource(phase)}: "
+            + "; ".join(f"{identifier} {text}" for identifier, text in outstanding)
+            + " (use answer, then complete-phase)."
+        )
     elif phase:
         action = (
             f"Review '{phase}' against {phase_resource(phase)}, record findings, then run "
@@ -179,6 +308,10 @@ def print_status(root, state):
             "skill": state["skill"],
             "surfaces": state["surfaces"],
             "findings": {"total": len(findings), "blocking_unresolved": blocking},
+            "questions": {
+                "open": [{"id": identifier, "text": text} for identifier, text in outstanding],
+                "answered": len(load_answers(root)),
+            },
         },
     )
 
@@ -584,6 +717,14 @@ def command_complete_phase(args):
     blocking = unresolved_blocking(findings)
     if expected == "verdict" and blocking:
         fail(f"Cannot close the verdict with unresolved blocking findings: {', '.join(blocking)}")
+    # A phase closed on a note alone reported the same way whether its
+    # contract was worked through or skimmed, so coverage was a matter of who
+    # was reviewing. Every question the contract asks of this phase is now
+    # either answered here or already settled by a finding.
+    outstanding = outstanding_questions(root, expected, findings)
+    if outstanding:
+        listed = "; ".join(f"{identifier} {text}" for identifier, text in outstanding)
+        fail(f"Phase {expected!r} has unanswered review questions (use answer): {listed}")
     write_artifact(
         root / "decisions" / f"{expected}.json",
         "decision.schema.json",
@@ -600,6 +741,59 @@ def command_complete_phase(args):
     if state["phase"] == "complete":
         write_report(root, state, findings)
     print_status(root, state)
+
+
+def command_answer(args):
+    """Settle one contract question with evidence.
+
+    A phase used to close on a single free-text note, so a five-question
+    contract was satisfiable by one sentence. Whichever question the reviewer
+    happened to think about got answered and the rest were passed over in
+    silence, indistinguishable in the record from questions that were asked
+    and held.
+
+    `holds` demands evidence exactly as `violated` does. A pass is a claim
+    about the skill, and an unevidenced pass is the thing this gate exists to
+    stop being cheap.
+    """
+    root, state = open_run(args.run_dir)
+    require_unchanged_skill(state)
+    phase = pending_phase(state)
+    reached = state["completed"] + ([phase] if phase else [])
+    # A question id is `<phase>.<n>`. Splitting before validating would read a
+    # bare word as a phase name and hand it to the parser, which is how a typo
+    # became a traceback instead of a sentence saying which id was wrong.
+    asked_in, _, _ = args.question.partition(".")
+    known = dict(phase_questions(asked_in))
+    if args.question not in known:
+        fail(f"Unknown question id: {args.question}")
+    if asked_in not in reached:
+        fail(f"Phase {asked_in!r} is not reached yet; reached phases: {', '.join(reached)}")
+    if args.verdict not in VERDICTS:
+        fail(f"Verdict must be one of {', '.join(VERDICTS)}")
+    # Redundant with the schema's `text` type, which also rejects whitespace,
+    # and kept for the message: the schema failure names a JSON pointer, this
+    # names the flag the caller passed.
+    require_text(args.evidence, "--evidence")
+    findings = load_findings(root)
+    if args.finding and not any(item["id"] == args.finding for item in findings):
+        fail(f"Unknown finding id: {args.finding}")
+    # A question the reviewer answers `violated` states a defect, and a defect
+    # the run does not carry as a finding never reaches the report or the
+    # remediation that follows it.
+    if args.verdict == "violated" and not args.finding:
+        fail("A violated question needs --finding naming the finding that records it")
+    answers = load_answers(root)
+    answers[args.question] = {
+        "question": known[args.question],
+        "verdict": args.verdict,
+        "evidence": args.evidence,
+        "finding": args.finding or None,
+        "recorded_at": now(),
+    }
+    save_answers(root, answers)
+    save_state(root, state, f"question-answered:{args.question}")
+    print(json.dumps(answers[args.question], indent=2, sort_keys=True))
 
 
 def command_add_surface(args):
@@ -636,6 +830,10 @@ def command_add_surface(args):
 
 def write_report(root, state, findings):
     counts = {level: sum(1 for item in findings if item["severity"] == level) for level in SEVERITIES}
+    answers = load_answers(root)
+    asked = [identifier for phase in state["phases"] for identifier, _ in phase_questions(phase)]
+    settled = set(answers) | set(answered_by_findings(findings))
+    covered = [identifier for identifier in asked if identifier in settled]
     lines = [
         f"# Skill Review: {state['skill']['name']}",
         "",
@@ -643,6 +841,7 @@ def write_report(root, state, findings):
         f"- Surfaces reviewed: {', '.join(state['surfaces']) or 'none'}",
         f"- Phases: {', '.join(state['phases'])}",
         f"- Findings: {counts['blocking']} blocking, {counts['major']} major, {counts['minor']} minor",
+        f"- Contract questions answered: {len(covered)}/{len(asked)}",
         "",
         "## Findings",
         "",
@@ -662,6 +861,24 @@ def write_report(root, state, findings):
             )
     else:
         lines.append("No findings recorded.")
+    # A reader who was not present cannot tell a question that held from one
+    # nobody asked unless the answers are in the report. Listing them is what
+    # makes "reviewed" mean something specific rather than a claim about
+    # effort.
+    lines.extend(["", "## Contract Questions", ""])
+    lines.append("| Question | Verdict | Evidence |")
+    lines.append("|---|---|---|")
+    by_finding = answered_by_findings(findings)
+    for identifier in asked:
+        answer = answers.get(identifier)
+        if answer:
+            verdict, evidence = answer["verdict"], answer["evidence"]
+        elif identifier in by_finding:
+            verdict, evidence = "violated", f"see {by_finding[identifier]}"
+        else:
+            verdict, evidence = "unanswered", ""
+        text = dict(phase_questions(identifier.split(".")[0])).get(identifier, identifier)
+        lines.append(f"| {identifier} {text.replace('|', chr(92) + '|')} | {verdict} | {evidence} |")
     lines.extend(["", "## Phase Decisions", ""])
     for phase in state["phases"]:
         decision = read_json(root / "decisions" / f"{phase}.json")
@@ -772,6 +989,26 @@ def command_self_check(_args):
             capture_output=True,
             text=True,
         )
+
+    def settle(run, phase):
+        """Answer whatever the phase still asks, for cases testing something else.
+
+        Cases about drift detection or note validation should not have to
+        restate the whole contract to reach the code they exercise.
+        """
+        for identifier, _ in phase_questions(phase):
+            execute(
+                "answer",
+                "--run-dir",
+                run,
+                "--question",
+                identifier,
+                "--verdict",
+                "holds",
+                "--evidence",
+                "SKILL.md:1 checked",
+                check=False,
+            )
 
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -970,6 +1207,7 @@ def command_self_check(_args):
         blocked = execute("complete-phase", "--run-dir", late_run, "--phase", "activation", "--note", "x", check=False)
         assert blocked.returncode == EX_DATAERR, blocked.returncode
         execute("add-surface", "--run-dir", late_run, "--surface", "coordinator")
+        settle(late_run, "activation")
         resumed = execute("complete-phase", "--run-dir", late_run, "--phase", "activation", "--note", "x", check=False)
         assert resumed.returncode == 0, resumed.stderr
         assert "coordinator" in read_json(late_run / "state.json")["phases"]
@@ -1013,7 +1251,112 @@ def command_self_check(_args):
         assert closed.returncode == EX_DATAERR, closed.returncode
         assert "changed since this review began" in closed.stderr, closed.stderr
 
+        # A phase used to close on one free-text note, so a contract asking
+        # five questions was satisfiable by one sentence about whichever came
+        # to mind. Questions passed over in silence were indistinguishable in
+        # the record from questions asked and held.
+        unanswered = execute(
+            "complete-phase", "--run-dir", run, "--phase", "activation", "--note", "looks fine", check=False
+        )
+        assert unanswered.returncode, "a phase closed with its contract unanswered"
+        assert "unanswered review questions" in (unanswered.stdout + unanswered.stderr), unanswered.stdout
+        # The refusal names what would satisfy it. A gate that refuses without
+        # saying what it wants gets worked around rather than answered.
+        assert "activation.1" in (unanswered.stdout + unanswered.stderr), unanswered.stdout
+
+        # An answer costs evidence whatever its verdict: `holds` is a claim
+        # about the skill exactly as much as `violated` is, and an unevidenced
+        # pass is what this gate exists to stop being cheap.
+        #
+        # Each case asserts the exit code a refusal carries, not merely a
+        # non-zero one. A crash also exits non-zero, so the looser assertion
+        # went on passing while the coordinator raised a traceback instead of
+        # explaining itself.
+        def refused(question, verdict, evidence):
+            return execute(
+                "answer",
+                "--run-dir",
+                run,
+                "--question",
+                question,
+                "--verdict",
+                verdict,
+                "--evidence",
+                evidence,
+                check=False,
+            )
+
+        blank = refused("activation.1", "holds", " ")
+        assert blank.returncode == EX_DATAERR, (blank.returncode, blank.stderr)
+        # A question answered `violated` states a defect, and a defect the run
+        # does not carry as a finding never reaches the report or remediation.
+        no_finding = refused("activation.1", "violated", "SKILL.md:2")
+        assert no_finding.returncode == EX_USAGE, (no_finding.returncode, no_finding.stderr)
+        # Questions belong to phases, and a phase not yet reached has not been
+        # examined, so an answer about it would be a guess on the record.
+        unreached = refused("safety.1", "holds", "x.sh:1")
+        assert unreached.returncode == EX_USAGE, (unreached.returncode, unreached.stderr)
+        unknown = refused("activation.99", "holds", "x")
+        assert unknown.returncode == EX_USAGE, (unknown.returncode, unknown.stderr)
+        assert "Unknown question" in (unknown.stdout + unknown.stderr), unknown.stdout
+
+        # The contract is parsed as CommonMark rather than scanned for lines
+        # starting with a dash. Each case below was wrong under that scan: it
+        # read a fenced example as a real question, and lost questions written
+        # in two spellings CommonMark considers ordinary. A gate built on a
+        # question list that disagrees with the document asks something nobody
+        # wrote, and stays silent about something somebody did.
+        contract = REVIEW_CONTRACT.read_text()
+        fenced = contract.replace("### safety\n", "### safety\n\n```bash\n- Is this a question?\n```\n", 1)
+        assert not any("Is this a question?" in text for text in parse_questions(fenced)["safety"]), (
+            "a bullet inside a fence was read as a review question"
+        )
+        asterisk = contract.replace(
+            "- Does a near-miss request route to the correct other skill?",
+            "* Does a near-miss request route to the correct other skill?",
+        )
+        assert parse_questions(asterisk)["activation"] == parse_questions(contract)["activation"], (
+            "an asterisk bullet was dropped, though CommonMark treats it as a list"
+        )
+        wrapped = contract.replace(
+            "- Are prerequisites and inputs discoverable before the first mutation?",
+            "- Are prerequisites and inputs\n  discoverable before the first mutation?",
+        )
+        assert len(parse_questions(wrapped)["activation"]) == 4, parse_questions(wrapped)["activation"]
+
+        # Only interrogative bullets are questions. Every bullet in the phase
+        # sections happens to be one today, so this is checked against a
+        # contract carrying a note among them: an assertion against the real
+        # document would pass whether or not the filter existed.
+        noted = contract.replace(
+            "- Are secrets kept out of settings, logs, and run artifacts?",
+            "- Are secrets kept out of settings, logs, and run artifacts?\n- See patterns.md for worked examples.",
+        )
+        assert noted != contract, "the note was not inserted, so the case proves nothing"
+        safety = parse_questions(noted)["safety"]
+        assert all(text.endswith("?") for text in safety), safety
+        assert len(safety) == len(parse_questions(contract)["safety"]), safety
+
+        # A scan that located a defect has answered its question with evidence,
+        # which is the strongest form there is. Demanding the reviewer retype
+        # that answer is how a gate becomes a formality people click through,
+        # so a seeded finding settles the question it was anchored to.
+        assert anchored_question("safety-scan") == "safety.3", anchored_question("safety-scan")
+        assert answered_by_findings([{"id": "F9", "source": "safety-scan"}]) == {"safety.3": "F9"}
+        assert answered_by_findings([{"id": "F9", "source": "recorded-by-hand"}]) == {}
+
+        # The two phases owning what every other surface delegates answer for
+        # ordering, resumability, and concurrency as well, so their gate is
+        # strictly larger than a plain surface's. Collapsing them to the shared
+        # list would drop those questions from every run without failing.
+        shared = {text for _, text in phase_questions("workers")}
+        delegating = {text for _, text in phase_questions("coordinator")}
+        assert shared < delegating, sorted(delegating - shared)
+        assert any("resumable" in text for text in delegating - shared), sorted(delegating - shared)
+        assert phase_questions("state") and set(phase_questions("state")) != set(phase_questions("workers"))
+
         # Phases close in order, and only with a decision note.
+        settle(run, "activation")
         assert execute(
             "complete-phase", "--run-dir", run, "--phase", "structure", "--note", "x", check=False
         ).returncode
@@ -1075,7 +1418,9 @@ def command_self_check(_args):
             "--note",
             "by design",
         )
+        settle(run, "structure")
         execute("complete-phase", "--run-dir", run, "--phase", "structure", "--note", "one canonical home")
+        settle(run, "safety")
         execute("complete-phase", "--run-dir", run, "--phase", "safety", "--note", "gate missing")
 
         # The verdict is gated on every blocking finding having a disposition.
@@ -1112,6 +1457,7 @@ def command_self_check(_args):
         # Late surface discovery extends the plan without dropping progress.
         late = root / "late-run"
         execute("init", "--skill", plain, "--run-dir", late)
+        settle(late, "activation")
         execute("complete-phase", "--run-dir", late, "--phase", "activation", "--note", "ok")
         result = execute("add-surface", "--run-dir", late, "--surface", "workers")
         state = read_status(result.stdout)
@@ -1180,6 +1526,14 @@ def main():
     resolve.add_argument("--disposition", required=True, choices=DISPOSITIONS)
     resolve.add_argument("--note", required=True)
     resolve.set_defaults(handler=command_resolve_finding)
+
+    answer = subparsers.add_parser("answer", help="settle one contract question with evidence")
+    answer.add_argument("--run-dir", type=Path, required=True)
+    answer.add_argument("--question", required=True, help="question id, as shown by status")
+    answer.add_argument("--verdict", required=True, choices=VERDICTS)
+    answer.add_argument("--evidence", required=True, help="a path, a path and line, or a command and its result")
+    answer.add_argument("--finding", help="the finding recording this defect; required when the verdict is violated")
+    answer.set_defaults(handler=command_answer)
 
     complete = subparsers.add_parser("complete-phase", help="close the current phase with a decision note")
     complete.add_argument("--run-dir", type=Path, required=True)

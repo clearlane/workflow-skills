@@ -100,4 +100,8 @@ An `accepted` or `deferred` finding is emitted as a suppressed result, never omi
 
 ## Checks
 
-A review passes when a reader who was not present can act on `report.md`: each finding names a place, a contract, and a consequence. If a phase closed with no finding and no note explaining what held, the phase was not reviewed.
+A review passes when a reader who was not present can act on `report.md`: each finding names a place, a contract, and a consequence.
+
+Every question above is answered, with evidence, before the phase asking it closes. The coordinator parses this document for them, so a question added here becomes a question the next run must settle, and reports the count in `report.md` as `answered/asked`. A phase can close with no finding, and often should; it cannot close with a question nobody addressed, because that reads in the record exactly like a question that was asked and held.
+
+`not-applicable` is a real answer. A skill with no destructive action cannot gate one, and saying so on the record is different from staying silent. It still costs evidence, because the claim that a case cannot arise is a claim about the skill.

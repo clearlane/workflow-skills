@@ -92,6 +92,7 @@ Each artifact kind has one schema in `schemas/`, and shared vocabulary lives in 
 | `state.schema.json` | `state.json` | coordinator |
 | `decision.schema.json` | `decisions/<phase>.json` | coordinator |
 | `findings.schema.json` | `findings.json` | coordinator |
+| `answers.schema.json` | `answers.json` | coordinator |
 | `status.schema.json` | printed status, not written to disk | coordinator |
 | `inventory.schema.json` | `inventory.json` | coordinator |
 | `skill.schema.json` | `target-after-merge.json`, and embedded in the inventory | coordinator |

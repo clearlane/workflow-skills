@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clearlane.github.io/workflow-skills/schemas/answers.schema.json",
+  "title": "Skill review question answers",
+  "description": "answers.json. One entry per review question the contract asks, recording how the reviewer settled it. A phase cannot close while any of its questions is missing here, so this file is the evidence that the review covered its contract rather than a sample of it.",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "answers"
+  ],
+  "properties": {
+    "schema": {
+      "$ref": "common.schema.json#/$defs/schemaRef"
+    },
+    "version": {
+      "$ref": "common.schema.json#/$defs/version"
+    },
+    "answers": {
+      "type": "object",
+      "description": "Keyed by question id, which is the phase name and the question's position in the contract document.",
+      "propertyNames": {
+        "pattern": "^[a-z]+\\.[0-9]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/answer"
+      }
+    }
+  },
+  "$defs": {
+    "answer": {
+      "type": "object",
+      "required": [
+        "question",
+        "verdict",
+        "evidence",
+        "recorded_at"
+      ],
+      "properties": {
+        "question": {
+          "description": "The question text as it stood when answered. Kept so a later edit to the contract is visible as a mismatch rather than silently rewriting what the reviewer was asked.",
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "holds",
+            "violated",
+            "not-applicable"
+          ]
+        },
+        "evidence": {
+          "description": "A path, a path and line, or a command and its result. Required for every verdict: 'holds' is a claim about the skill exactly as much as 'violated' is, and an unevidenced pass is the failure this file exists to prevent.",
+          "$ref": "common.schema.json#/$defs/text"
+        },
+        "finding": {
+          "description": "Set when a recorded finding is what settled the question, whether seeded by a scan or entered by the reviewer.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recorded_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

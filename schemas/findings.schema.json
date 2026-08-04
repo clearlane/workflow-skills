@@ -65,6 +65,10 @@
             "null"
           ]
         },
+        "source": {
+          "description": "Which check seeded this finding, absent when a reviewer recorded it by hand. Maps the finding onto the contract question it answers, so a scan that already found a defect does not also demand the reviewer retype the answer.",
+          "type": "string"
+        },
         "disposition": {
           "description": "Null until resolved. A blocking finding must leave this state before the verdict phase will complete.",
           "type": [

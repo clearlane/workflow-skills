@@ -336,12 +336,15 @@ def check_capability_rows(root):
     return failures
 
 
-def check_review_phases(root):
+def check_review_phases(root, contract=None):
     """Every designable capability must be reviewable, and every review phase documented.
 
     review.py imports its surfaces from design.py, so the vocabularies cannot
     drift in code. This check covers the prose side: an always-run review phase
     added without explanation would otherwise pass silently.
+
+    `contract` overrides the review contract's text, so the self-check can put
+    a broken one in front of this function without editing a tracked file.
     """
     failures = []
     declared = {name for name, _, _ in CAPABILITY_PHASES}
@@ -357,6 +360,29 @@ def check_review_phases(root):
     for phase in review.ALWAYS_FIRST + review.ALWAYS_LAST:
         if TICK + phase + TICK not in scope:
             failures.append(f"{REVIEW_WORKFLOW}: always-run phase {phase!r} is not described under {PHASE_SECTION!r}")
+
+    # The gate closing a phase is driven by the questions parsed out of the
+    # contract, so a phase the contract asks nothing of closes on a note alone
+    # and reports the same as one that was worked through. Only `verdict` is
+    # legitimately question-free: it decides what to do about answers the other
+    # phases produced rather than asking anything new.
+    questions = review.parse_questions(contract)
+    for phase in review.ALWAYS_FIRST + review.ALWAYS_LAST + review.SURFACES:
+        if phase == "verdict":
+            continue
+        if not questions.get(phase):
+            failures.append(f"references/review.md: phase {phase!r} asks no reviewable question, so its gate is empty")
+
+    # Each anchor maps an automatic finding onto the question it answers, by
+    # matching a phrase rather than a position. Rewording that phrase would
+    # otherwise silently stop the finding from answering anything, and the run
+    # would demand a hand-written answer to a question it had already settled.
+    for source in review.ANSWER_ANCHORS:
+        try:
+            if review.anchored_question(source, contract) is None:
+                failures.append(f"scripts/review.py: answer anchor {source!r} resolves to nothing")
+        except AssertionError as error:
+            failures.append(f"scripts/review.py: {error}")
     return failures
 
 
@@ -1150,6 +1176,37 @@ def self_check():
             assert tool_version_mismatches(tree), "a ruff differing from the pin was accepted"
         project.write_text('dev = ["ruff"]\n', encoding="utf-8")
         assert tool_version_mismatches(tree), "a dev extra pinning nothing was accepted"
+
+    # The review gate is driven by questions parsed out of the contract, so
+    # both halves of that coupling are replayed against the real document: a
+    # phase the prose stops asking anything of, and an anchor whose phrase has
+    # been reworded. Each leaves a review that still passes while covering less
+    # than it reports, which is the failure the parse was introduced to remove.
+    #
+    # The contract is copied rather than edited in place. A self-check that
+    # mutates a tracked file leaves the repository broken if it is interrupted,
+    # and this one deliberately runs failing cases.
+    original = (ROOT / "references" / "review.md").read_text(encoding="utf-8")
+    assert check_review_phases(ROOT) == [], "the real contract should agree with the coordinator"
+
+    # Emptied of the questions every surface phase shares. That leaves those
+    # phases gating on nothing while the anchors, which point only at
+    # always-run phases, still resolve: the empty-gate check is the only thing
+    # that can catch it, so this case isolates it.
+    head, marker, tail = original.partition("## Surface Phases")
+    assert marker, "the contract no longer has a surface phase section"
+    body, output_marker, rest = tail.partition("## Machine-Readable Output")
+    assert output_marker, "the contract no longer has a machine-readable output section"
+    emptied = head + marker + re.sub(r"^- .*\n", "", body, flags=re.MULTILINE) + output_marker + rest
+    assert emptied != original, "the surface questions were not removed, so the case proves nothing"
+    assert check_review_phases(ROOT, contract=emptied), "a phase asking no question was accepted"
+
+    # Reworded so an anchor stops matching. The finding it belongs to would go
+    # on being seeded while answering no question, and the run would demand a
+    # hand-written answer to something it had already settled.
+    reworded = original.replace("no raw shell interpolation", "no unchecked shell interpolation")
+    assert reworded != original, "the anchor phrase was not reworded"
+    assert check_review_phases(ROOT, contract=reworded), "an anchor that answers nothing was accepted"
 
     # The registration check exists because a new coordinator and a newly
     # closed schema merge without conflict and produce a tree that cannot run.

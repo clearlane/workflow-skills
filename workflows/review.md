@@ -72,6 +72,18 @@ python3 scripts/review.py record-finding \
 
 Every finding needs evidence in the reviewed skill. A claim with no path is an opinion, and the coordinator rejects it. `--remedy` is optional, because a review that names a defect it cannot yet fix is still a review; record it when known so a remediation run triages against this run's own statement. Severity meanings, the fix obligation each carries, and the question set for each phase live in [review.md](../references/review.md).
 
+Then settle every question that phase asks. `status` lists the open ones by id under `questions.open`, read straight from the contract, and the phase will not close while any remains:
+
+```bash
+python3 scripts/review.py answer \
+  --run-dir <run-directory> \
+  --question <phase>.<n> \
+  --verdict holds \
+  --evidence <path>:<line>
+```
+
+A verdict is `holds`, `violated`, or `not-applicable`, and each costs evidence. `holds` is a claim about the skill exactly as much as `violated` is, so an unevidenced pass is refused; `not-applicable` is legitimate when the case genuinely cannot arise, and the evidence is what shows that. A `violated` answer needs `--finding` naming the finding that records the defect, since a defect the run does not carry never reaches the report or the remediation after it. Questions a seeded check already settled are answered automatically and do not appear as open.
+
 Close the phase with the judgement it reached:
 
 ```bash
