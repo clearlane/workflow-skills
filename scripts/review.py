@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import document
+import names
 from cli import (
     EX_DATAERR,
     EX_USAGE,
@@ -430,44 +431,44 @@ def safety_findings(skill_root):
     return findings
 
 
-RESOURCE_DIRS = frozenset({"references", "reference", "workflows", "docs"})
-
-# Filenames whose case is a cross-ecosystem convention older than any skill
-# format, so a skill that follows it is right and the naming rule does not
-# reach them.
-CONVENTIONAL_STEMS = frozenset(
-    {"README", "LICENSE", "LICENCE", "CONTRIBUTING", "CHANGELOG", "AGENTS", "SKILL", "CLAUDE", "NOTICE", "CODEOWNERS"}
+# Directories whose prose is a resource an agent is meant to reach. Executables
+# and data are excluded on purpose: a script is reached by being run, not by
+# being named, so reporting it unreferenced would be noise. Naming is checked
+# across the whole tree by names.py, which owns that rule.
+RESOURCE_DIRS = frozenset(
+    {"references", "reference", "workflows", "docs", "doc", "guides", "lib", "commands", "agents"}
 )
-RESOURCE_STEM = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def naming_findings(skill_root):
-    """Flag resource filenames outside the one-word or family-first convention.
+    """Flag filenames outside the one-word or family-first convention.
 
     `references/naming.md` states the rule and a reviewer was left to apply
     it by eye across every file in the tree, which is the kind of uniform
     mechanical sweep attention is worst at: one `SCREAMING_CASE.md` among
     thirty conforming names reads as unremarkable.
 
-    Scoped to resource directories, since a skill's top-level files answer to
-    ecosystem conventions this rule does not own.
+    scripts/names.py owns the rule, including the PEP 8 carve-out for
+    importable modules and the ecosystem names that outrank the convention, and
+    self-checks nineteen cases against it. This used to restate a subset of
+    that: a stem pattern, a stem allowlist, and `*.md` under four directory
+    names. The subset was the problem. A skill keeping its resources in `lib/`
+    or its executables in `bin/` was not partially checked but entirely
+    unchecked, and a `HelperUtils.md` there passed while the same file one
+    directory over failed. Two implementations of one rule also drift, and the
+    one being maintained was not this one.
     """
     findings = []
-    for path in sorted(skill_root.rglob("*.md")):
-        relative = path.relative_to(skill_root)
-        if not path.is_file() or excluded(relative.parts) or len(relative.parts) < 2:
-            continue
-        if relative.parts[0] not in RESOURCE_DIRS or path.stem in CONVENTIONAL_STEMS:
-            continue
-        if RESOURCE_STEM.match(path.stem):
+    for relative, error in names.validate(skill_root):
+        if excluded(relative.parts):
             continue
         findings.append(
             {
                 "phase": "structure",
                 "severity": "minor",
-                "summary": f"{relative.as_posix()} is outside the lowercase one-word or family-first convention",
+                "summary": f"{relative.as_posix()} is outside the filename convention: {error}",
                 "evidence": relative.as_posix(),
-                "remedy": "rename to a single lowercase word, or a family-first hyphenated stem",
+                "remedy": error,
                 "disposition": None,
                 "disposition_note": None,
                 "source": "structure:naming",
@@ -1157,13 +1158,25 @@ def command_self_check(_args):
         (stranded / "references" / "README.md").write_text("# Readme\n")
         (stranded / "references" / "state-machine.md").write_text("# Family first\n")
         assert [item["evidence"] for item in naming_findings(stranded)] == ["references/Bad_Name.md"]
-        # Top-level files answer to ecosystem conventions this rule does not own.
-        (stranded / "Makefile.md").write_text("# Top level\n")
-        # So does a non-resource directory: an asset named for the artefact it
-        # produces is not a reference, and the naming rule governs references.
+        # The exact ecosystem names outrank the convention wherever they sit,
+        # and only those: `Makefile` is one, `Makefile.md` is a markdown file
+        # borrowing its case.
+        (stranded / "Makefile").write_text("all:\n")
+        (stranded / "LICENSE").write_text("MIT\n")
+        assert [item["evidence"] for item in naming_findings(stranded)] == ["references/Bad_Name.md"]
+        # Every directory is checked, not a list of resource directories. The
+        # rule is about a name being portable and predictable, which does not
+        # stop being true one directory over, and scoping it to four names left
+        # a skill keeping its files anywhere else entirely unchecked.
         (stranded / "assets").mkdir()
         (stranded / "assets" / "Brand_Brief.md").write_text("# Asset\n")
-        assert [item["evidence"] for item in naming_findings(stranded)] == ["references/Bad_Name.md"]
+        (stranded / "bin").mkdir()
+        (stranded / "bin" / "SignDocument.py").write_text("x = 1\n")
+        assert [item["evidence"] for item in naming_findings(stranded)] == [
+            "assets/Brand_Brief.md",
+            "bin/SignDocument.py",
+            "references/Bad_Name.md",
+        ], naming_findings(stranded)
         naming_run = root / "naming-run"
         execute("init", "--skill", stranded, "--run-dir", naming_run)
         sources = [item["source"] for item in json.loads((naming_run / "findings.json").read_text())["findings"]]
