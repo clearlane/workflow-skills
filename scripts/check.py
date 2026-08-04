@@ -213,6 +213,69 @@ def check_coordinator_verbs(root):
     return failures
 
 
+def check_coordinator_registration(root):
+    """Every coordinator must be admitted by the closed contracts it writes to.
+
+    A coordinator added on one branch and a schema closed on another merge
+    without textual conflict and produce a tree where the new coordinator
+    cannot write its own state: the conflict is between a new writer and a new
+    constraint, which no textual merge can see. `state.schema.json` is closed
+    to declared keys and `status.schema.json`'s `kind` is a closed enum, so
+    joining either without the other is a merge that type-checks and does not
+    run.
+    """
+    failures = []
+    kinds = json.loads((root / "schemas" / "status.schema.json").read_text(encoding="utf-8"))
+    declared = set(kinds["properties"]["kind"]["enum"])
+    expected = {name.removesuffix(".py") for name in COORDINATORS}
+    for missing in sorted(expected - declared):
+        failures.append(f"schemas/status.schema.json: kind enum omits coordinator {missing!r}")
+    for extra in sorted(declared - expected):
+        failures.append(f"schemas/status.schema.json: kind {extra!r} has no scripts/{extra}.py")
+
+    # The keys each coordinator seeds into shared state, read from the source
+    # rather than from a list here, so adding a key to a coordinator cannot
+    # drift from what the schema admits.
+    state_schema = json.loads((root / "schemas" / "state.schema.json").read_text(encoding="utf-8"))
+    allowed = set(state_schema.get("properties", {}))
+    for name in COORDINATORS:
+        for key in sorted(state_keys_written(root / "scripts" / name) - allowed):
+            failures.append(f"scripts/{name}: writes state key {key!r} that state.schema.json does not declare")
+    return failures
+
+
+def state_keys_written(path):
+    """Literal keys a coordinator assigns into its run state.
+
+    Parsed rather than executed: the point is to fail before anything runs, and
+    a coordinator that cannot write its state has no way to report that itself.
+    Only literal keys are recoverable this way, which is the shape every
+    coordinator uses to seed a run.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    keys = set()
+    for node in ast.walk(tree):
+        # state = {"key": ...}
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict):
+            targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if "state" in targets:
+                keys.update(
+                    key.value for key in node.value.keys if isinstance(key, ast.Constant) and isinstance(key.value, str)
+                )
+        # state["key"] = ...
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "state"
+                    and isinstance(target.slice, ast.Constant)
+                    and isinstance(target.slice.value, str)
+                ):
+                    keys.add(target.slice.value)
+    return keys
+
+
 def check_phase_owners(root):
     """Every derived phase must resolve to a distinct owning contract that exists.
 
@@ -958,6 +1021,34 @@ def self_check():
         project.write_text('dev = ["ruff"]\n', encoding="utf-8")
         assert tool_version_mismatches(tree), "a dev extra pinning nothing was accepted"
 
+    # The registration check exists because a new coordinator and a newly
+    # closed schema merge without conflict and produce a tree that cannot run.
+    # Both halves are replayed here against a copy of the real contracts, since
+    # a check that only ever sees a correct tree proves nothing.
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "schemas").mkdir()
+        (tree / "scripts").mkdir()
+        for name in ("status.schema.json", "state.schema.json"):
+            shutil.copy2(ROOT / "schemas" / name, tree / "schemas" / name)
+        for name in COORDINATORS:
+            shutil.copy2(ROOT / "scripts" / name, tree / "scripts" / name)
+        assert check_coordinator_registration(tree) == [], "the real contracts should agree"
+
+        status_path = tree / "schemas" / "status.schema.json"
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+        dropped = status["properties"]["kind"]["enum"].pop()
+        status_path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
+        assert check_coordinator_registration(tree), f"a coordinator missing from the kind enum was accepted: {dropped}"
+        status["properties"]["kind"]["enum"].append(dropped)
+        status_path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
+
+        state_path = tree / "schemas" / "state.schema.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["properties"].pop("phase")
+        state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        assert check_coordinator_registration(tree), "an undeclared state key was accepted"
+
     print("self-check passed")
 
 
@@ -978,6 +1069,7 @@ def main():
         ("resource reachability", lambda: check_reachability(ROOT)),
         ("canonical sections", lambda: check_duplicate_headings(ROOT)),
         ("coordinator verbs", lambda: check_coordinator_verbs(ROOT)),
+        ("coordinator registration", lambda: check_coordinator_registration(ROOT)),
         ("shared runtime", lambda: check_shared_runtime(ROOT)),
         ("reference skeleton", lambda: check_reference_skeleton(ROOT)),
         ("workflow dispatch", lambda: check_workflow_dispatch(ROOT)),
