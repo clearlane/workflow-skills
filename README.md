@@ -105,7 +105,6 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `workflows/remediate.md` — bounded fix-and-recheck loop driving a reviewed skill to the bar
 - `workflows/absorb.md` — absorption workflow, coordinator entry, invariants, and rollback contract
 - `workflows/restructure.md` — audit-then-approve layout restructuring workflow
-- `references/setup.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
 
 **References** — one canonical contract per concern
 
@@ -114,7 +113,8 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `references/artifacts.md` — run directory layout, artifact stamping, ownership, and the standards behind digests and timestamps
 - `references/naming.md` — one-word and family-first hierarchical filename convention
 - `references/checks.md` — where checks and approval gates belong so failure stays actionable
-- `references/closure.md` — owner-boundary questions that close a design run
+- `references/closure.md` — what closing a design run adds to the review questions
+- `references/setup.md` — executable setup and pre-flight process, readiness reports, remediation, freshness, and revalidation
 - `references/install.md` — agent-skill discovery, canonical install, and same-scope verification
 - `references/events.md` — event-boundary handler design
 - `references/tools.md` — MCP and external-service adapter design
