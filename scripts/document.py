@@ -74,6 +74,7 @@ class Document:
     headings: list = field(default_factory=list)
     links: list = field(default_factory=list)
     fences: list = field(default_factory=list)
+    lists: list = field(default_factory=list)
 
     @property
     def line_count(self):
@@ -87,13 +88,30 @@ class Document:
 
     def section(self, title, level=2):
         """Body lines under one heading, ending at the next same-or-higher heading."""
-        start = next((heading for heading in self.headings_at(level) if heading.text == title), None)
+        start, end = self._section_bounds(title, level)
         if start is None:
             return None
+        return "\n".join(self.text.splitlines()[start.line : end])
+
+    def _section_bounds(self, title, level):
+        start = next((heading for heading in self.headings_at(level) if heading.text == title), None)
+        if start is None:
+            return None, None
         lines = self.text.splitlines()
         following = [heading.line for heading in self.headings if heading.line > start.line and heading.level <= level]
-        end = following[0] - 1 if following else len(lines)
-        return "\n".join(lines[start.line : end])
+        return start, (following[0] - 1 if following else len(lines))
+
+    def section_lists(self, title, level=2):
+        """Bullet lists under one heading, each still a separate list.
+
+        Two lists separated by a paragraph mean two different things, and the
+        distinction is the parser's to make: a caller counting blank lines is
+        reimplementing CommonMark and will disagree with it at the margins.
+        """
+        start, end = self._section_bounds(title, level)
+        if start is None:
+            return []
+        return [items for line, items in self.lists if start.line < line <= end]
 
 
 def parser():
@@ -101,7 +119,19 @@ def parser():
 
 
 def _inline_text(token):
-    return "".join(child.content for child in token.children or [] if child.type == "text")
+    """Flatten an inline token to its text, with wrapped lines rejoined.
+
+    A softbreak is where the author wrapped a line, and the words either side
+    of it are separate. Dropping it silently glued them into one, which then
+    failed to match the same sentence written on one line.
+    """
+    parts = []
+    for child in token.children or []:
+        if child.type == "text":
+            parts.append(child.content)
+        elif child.type == "softbreak":
+            parts.append(" ")
+    return "".join(parts)
 
 
 def _collect_links(inline, parsed, line):
@@ -128,10 +158,13 @@ def _collect_links(inline, parsed, line):
 
 
 def parse(path, text=None):
-    """Parse one markdown file into headings, links, fences, and frontmatter."""
+    """Parse one markdown file into headings, links, fences, lists, and frontmatter."""
     path = Path(path)
     parsed = Document(path=path, text=text if text is not None else path.read_text())
     pending = None
+    list_depth = 0
+    items = None
+    list_line = 0
     for token in parser().parse(parsed.text):
         line = (token.map[0] + 1) if token.map else 0
         if token.type == "front_matter":
@@ -148,10 +181,24 @@ def parse(path, text=None):
             pending = (int(token.tag[1:]), line)
         elif token.type == "fence":
             parsed.fences.append((token.info.strip(), token.content, line))
+        elif token.type in {"bullet_list_open", "ordered_list_open"}:
+            # Only the outermost list is collected. A nested list elaborates
+            # its parent item rather than standing as a separate list, and
+            # flattening the two would merge distinctions the author drew.
+            if list_depth == 0:
+                items, list_line = [], line
+            list_depth += 1
+        elif token.type in {"bullet_list_close", "ordered_list_close"}:
+            list_depth -= 1
+            if list_depth == 0:
+                parsed.lists.append((list_line, items))
+                items = None
         elif token.type == "inline":
             if pending:
                 parsed.headings.append(Heading(level=pending[0], text=_inline_text(token), line=pending[1]))
                 pending = None
+            elif items is not None and list_depth == 1:
+                items.append(_inline_text(token))
             _collect_links(token, parsed, line)
     return parsed
 
@@ -211,6 +258,15 @@ SELF_CHECK_SOURCE = "\n".join(
         "",
         "Self [anchor](#deep-section) and [external](https://example.com/x.md).",
         "",
+        "- first",
+        "- second",
+        "  wrapped onto a second line",
+        "",
+        "A paragraph between two lists.",
+        "",
+        "* third",
+        "  - nested under third",
+        "",
         "![shot](img/shot.png)",
         "",
     ]
@@ -228,6 +284,21 @@ def self_check():
     targets = [link.target for link in parsed.links]
     # Inline code and fenced blocks hold no links; a real parser knows this.
     assert "nope.md" not in targets and "missing.md" not in targets
+
+    # Lists are exposed so callers do not scan for lines starting with a dash.
+    # A paragraph between two lists separates them, and that boundary carries
+    # meaning a caller may depend on, so it is the parser's to draw.
+    groups = parsed.section_lists("Deep Section")
+    assert [len(group) for group in groups] == [2, 1], groups
+    # A wrapped item is one item, and an asterisk opens a list as surely as a
+    # dash does. Both were mishandled by the line scan this replaced.
+    assert groups[0][1] == "second wrapped onto a second line", groups[0]
+    assert groups[1][0] == "third", groups[1]
+    # A nested list elaborates its parent item rather than standing alone, so
+    # flattening it here would merge a distinction the author drew.
+    assert all("nested under third" not in item for group in groups for item in group), groups
+    # A bullet inside a fence is an example, not a list.
+    assert all("fenced" not in item for group in groups for item in group), groups
     assert targets == [
         "other.md",
         "other.md#deep-section",
