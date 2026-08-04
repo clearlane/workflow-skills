@@ -33,6 +33,10 @@ dependencies = [
     # The stdlib gained this parser in 3.11. Installed only on the declared
     # floor, so a supported runtime never carries a package it already ships.
     "tomli~=2.0; python_version < '3.11'",
+    # Which modules the standard library contained on a given release. Needed
+    # because sys.stdlib_module_names answers only for the running interpreter,
+    # and the supported range spans a release that moved tomllib into it.
+    "stdlib-list~=0.11",
 ]
 
 [project.optional-dependencies]

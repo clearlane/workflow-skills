@@ -17,7 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from functools import partial
+from functools import cache, partial
 from pathlib import Path
 
 # tomllib entered the standard library in 3.11, and the supported floor is
@@ -38,6 +38,7 @@ try:
     from packaging.requirements import Requirement
     from packaging.specifiers import SpecifierSet
     from packaging.utils import canonicalize_name
+    from stdlib_list import short_versions, stdlib_list
 except ModuleNotFoundError as error:
     raise SystemExit(f"check.py needs {error.name}: python3 -m pip install -r requirements.txt") from error
 
@@ -1472,21 +1473,115 @@ def run_ruff(root, *arguments):
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
-def third_party_imports(path):
-    """The distributions a module imports that are neither stdlib nor local.
+def supported_versions(root):
+    """The Python versions this repository claims to run on, as (major, minor).
+
+    `requires-python` is the claim, and it is open-ended: `>=3.10` says nothing
+    about the newest release. The upper end therefore comes from stdlib-list,
+    which is the thing that knows what the standard library contained on each
+    release; asking about a version it has no data for would silently answer
+    "not stdlib" for every module.
+    """
+    requires = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["requires-python"]
+    known = [tuple(int(part) for part in name.split(".")) for name in short_versions]
+    return sorted(
+        version for version in known if version[0] == 3 and SpecifierSet(requires).contains(".".join(map(str, version)))
+    )
+
+
+def version_guard(test):
+    """The version bound a `sys.version_info` comparison states, if it is one.
+
+    Returned as a predicate over (major, minor) rather than a parsed bound, so
+    the caller does not restate the comparison operators a second time.
+    """
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1 or len(test.comparators) != 1:
+        return None
+    left = ast.unparse(test.left)
+    if left not in {"sys.version_info", "version_info"}:
+        return None
+    other = test.comparators[0]
+    if not isinstance(other, ast.Tuple) or not all(isinstance(part, ast.Constant) for part in other.elts):
+        return None
+    bound = tuple(part.value for part in other.elts)
+    operators = {
+        ast.GtE: lambda version: version >= bound,
+        ast.Gt: lambda version: version > bound,
+        ast.LtE: lambda version: version <= bound,
+        ast.Lt: lambda version: version < bound,
+    }
+    return operators.get(type(test.ops[0]))
+
+
+def imports_by_version(path, versions):
+    """Each imported top-level module, and the versions that actually import it.
+
+    A `sys.version_info` branch is the reason this is not one flat set. check.py
+    imports tomllib on 3.11 and later and tomli before that, and both spellings
+    are present in the source; reading the file as a flat set claims every
+    runtime imports both, so whichever one is stdlib on the reader's machine
+    decides the verdict. That is how a green local suite and a red 3.10 job
+    disagreed about the same commit.
 
     Read from the source rather than by importing, so the answer is the same on
     a machine where the dependency happens to be installed as on one where it
-    is not.
+    is not, and the same on a machine that cannot run the floor at all.
     """
     local = {sibling.stem for sibling in path.parent.glob("*.py")}
-    imported = set()
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if isinstance(node, ast.Import):
-            imported |= {alias.name.split(".")[0] for alias in node.names}
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            imported.add(node.module.split(".")[0])
-    return imported - set(sys.stdlib_module_names) - local
+    found = {}
+
+    # Takes the nodes to visit rather than their parent. Descending by asking a
+    # node for its children skips the node handed in, so a guarded `import x`
+    # written directly under the `if` was missed while the same import one level
+    # deeper inside a `try` was found: the guard was read, and the thing it
+    # guarded was not.
+    def walk(nodes, applicable):
+        for node in nodes:
+            if isinstance(node, ast.Import):
+                names = {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names = {node.module.split(".")[0]}
+            else:
+                names = set()
+            for name in names - local:
+                found.setdefault(name, set()).update(applicable)
+            if isinstance(node, ast.If) and (predicate := version_guard(node.test)) is not None:
+                admitted = {version for version in applicable if predicate(version)}
+                walk(node.body, admitted)
+                walk(node.orelse, applicable - admitted)
+            else:
+                walk(ast.iter_child_nodes(node), applicable)
+
+    walk([ast.parse(path.read_text(encoding="utf-8"))], set(versions))
+    return found
+
+
+def third_party_imports(path, versions=None):
+    """The modules a file imports that no supported version provides itself.
+
+    Kept as the flat question the guard rule asks, since a module needing a
+    ModuleNotFoundError guard needs it on every runtime that imports it.
+    """
+    versions = versions or supported_versions(ROOT)
+    return {
+        module
+        for module, applicable in imports_by_version(path, versions).items()
+        if any(module not in stdlib_modules(version) for version in applicable)
+    }
+
+
+@cache
+def stdlib_modules(version):
+    """What the standard library contained on one release.
+
+    `sys.stdlib_module_names` answers for the interpreter running the check,
+    which is the wrong question whenever the supported range spans a release
+    that moved a module in or out of the standard library. It reported tomllib
+    as stdlib on 3.13 and as an undeclared third-party import on the 3.10 floor,
+    from the identical source, so the suite's verdict depended on which
+    interpreter ran it and no local run could show it.
+    """
+    return set(stdlib_list(".".join(str(part) for part in version)))
 
 
 def declared_requirements(root, extra=None):
@@ -1508,6 +1603,28 @@ def declared_requirements(root, extra=None):
     return {canonicalize_name(Requirement(spec).name) for spec in table}
 
 
+def declared_for(root, version):
+    """The distributions declared for one Python version, markers evaluated.
+
+    An environment marker is how a dependency needed only below some release is
+    declared, and `tomli~=2.0; python_version < '3.11'` is exactly that. Reading
+    the table as one flat set ignores the marker, so a dependency declared for
+    the floor alone reads as declared everywhere and one declared nowhere reads
+    the same as one whose marker excludes the version being asked about.
+
+    packaging evaluates the marker, so the comparison semantics are its problem
+    rather than a second implementation here.
+    """
+    data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = set()
+    environment = {"python_version": ".".join(str(part) for part in version)}
+    for spec in data.get("project", {}).get("dependencies", []):
+        requirement = Requirement(spec)
+        if requirement.marker is None or requirement.marker.evaluate(environment):
+            declared.add(canonicalize_name(requirement.name))
+    return declared
+
+
 def check_declared_dependencies(root):
     """Every third-party import must be declared, and must fail actionably.
 
@@ -1523,8 +1640,7 @@ def check_declared_dependencies(root):
     internals instead of the one command that fixes it. document.py had wrapped
     its own imports for exactly that reason; nothing required the others to.
     """
-    declared = declared_requirements(root)
-    if not declared:
+    if not declared_requirements(root):
         return ["pyproject.toml declares no dependencies table"]
     # An import name is not a distribution name, and the mapping is not
     # recoverable without the package installed. Resolving it through the
@@ -1532,16 +1648,31 @@ def check_declared_dependencies(root):
     # present, which is the state this check exists to detect, so the few
     # names that do not normalise are stated here.
     aliases = {"yaml": "pyyaml", "markdown_it": "markdown-it-py", "mdit_py_plugins": "mdit-py-plugins"}
+    versions = supported_versions(root)
+    if not versions:
+        return ["pyproject.toml's requires-python admits no known release, so nothing was checked"]
+    declared = {version: declared_for(root, version) for version in versions}
     failures = []
     for path in sorted((root / "scripts").glob("*.py")):
-        imports = third_party_imports(path)
-        for module in sorted(imports):
+        # Asked per version rather than once, because both halves of a version
+        # branch are in the source and only one of them runs on any given
+        # release. The runtimes that import a module and cannot provide it are
+        # the ones that need it declared, and they are named in the failure so
+        # a reader is not left to reproduce the matrix to find out which.
+        for module, applicable in sorted(imports_by_version(path, versions).items()):
             distribution = canonicalize_name(aliases.get(module, module))
-            if distribution not in declared:
+            missing = sorted(
+                version
+                for version in applicable
+                if module not in stdlib_modules(version) and distribution not in declared[version]
+            )
+            if missing:
+                where = ", ".join(f"{major}.{minor}" for major, minor in missing)
                 failures.append(
-                    f"scripts/{path.name}: imports {module!r}, which pyproject.toml does not declare; "
-                    "it resolves today only as some other package's transitive dependency"
+                    f"scripts/{path.name}: imports {module!r} on Python {where}, which pyproject.toml does "
+                    "not declare there; it resolves today only as some other package's transitive dependency"
                 )
+        imports = third_party_imports(path, versions)
         # A module reached through an import of a guarded one inherits the
         # guard, so only the modules that import a third party directly need it.
         if imports and "ModuleNotFoundError" not in path.read_text(encoding="utf-8"):
@@ -2196,7 +2327,7 @@ def self_check():
         tree = Path(directory)
         (tree / "scripts").mkdir()
         (tree / "pyproject.toml").write_text(
-            '[project]\ndependencies = [\n    "declared~=1.0",\n]\n',
+            '[project]\nrequires-python = ">=3.10"\ndependencies = [\n    "declared~=1.0",\n]\n',
             encoding="utf-8",
         )
         (tree / "scripts" / "guarded.py").write_text(
@@ -2213,6 +2344,86 @@ def self_check():
         assert check_declared_dependencies(tree), "an unguarded third-party import was accepted"
         (tree / "scripts" / "guarded.py").write_text("import json\nimport pathlib\n", encoding="utf-8")
         assert check_declared_dependencies(tree) == [], "a stdlib-only module was required to carry a guard"
+
+        # The case this whole shape exists for. tomllib is stdlib from 3.11 and
+        # a package before it, so a fixture importing it under a version guard
+        # has to pass while the same import unguarded fails, and it has to do
+        # so identically on every interpreter that runs this file. Read against
+        # the running interpreter's own stdlib set, exactly one of these two
+        # holds and which one depends on who is running the suite.
+        (tree / "pyproject.toml").write_text(
+            '[project]\nrequires-python = ">=3.10"\n'
+            "dependencies = [\n    \"tomli~=2.0; python_version < '3.11'\",\n]\n",
+            encoding="utf-8",
+        )
+        (tree / "scripts" / "guarded.py").write_text(
+            "import sys\n\ntry:\n"
+            "    if sys.version_info >= (3, 11):\n        import tomllib\n"
+            "    else:\n        import tomli as tomllib\n"
+            "except ModuleNotFoundError:\n    raise SystemExit('install it')\n",
+            encoding="utf-8",
+        )
+        assert check_declared_dependencies(tree) == [], (
+            "the version-guarded parser was rejected; the check read the source as one flat set of imports"
+        )
+        # Without the guard both spellings apply to every runtime, and 3.11
+        # onwards has no tomli to import.
+        (tree / "scripts" / "guarded.py").write_text(
+            "try:\n    import tomli\nexcept ModuleNotFoundError:\n    raise SystemExit('install it')\n",
+            encoding="utf-8",
+        )
+        assert any("3.11" in failure for failure in check_declared_dependencies(tree)), (
+            "a dependency declared only below 3.11 was accepted as declared above it; the marker was ignored"
+        )
+        # And the failure this all started from: stdlib on the newest supported
+        # release, absent on the floor, declared nowhere.
+        (tree / "pyproject.toml").write_text(
+            '[project]\nrequires-python = ">=3.10"\ndependencies = [\n    "declared~=1.0",\n]\n',
+            encoding="utf-8",
+        )
+        (tree / "scripts" / "guarded.py").write_text(
+            "try:\n    import tomllib\nexcept ModuleNotFoundError:\n    raise SystemExit('install it')\n",
+            encoding="utf-8",
+        )
+        failures = check_declared_dependencies(tree)
+        assert any("3.10" in failure for failure in failures), "the floor's missing parser was not reported"
+        assert not any("3.13" in failure for failure in failures), (
+            "a module the release ships itself was demanded as a declared dependency"
+        )
+
+        # Attribution, not just presence. An import written directly under the
+        # guard was skipped while one nested deeper inside it was found, so
+        # this repository's own header read as importing tomli and never
+        # tomllib: half the branch, and the half that passes either way.
+        source = tree / "scripts" / "branch.py"
+        source.write_text(
+            "import sys\n\n"
+            "if sys.version_info >= (3, 11):\n    import newer\n"
+            "else:\n    try:\n        import older\n    except ModuleNotFoundError:\n        raise\n",
+            encoding="utf-8",
+        )
+        seen = imports_by_version(source, [(3, 10), (3, 11), (3, 13)])
+        assert sorted(seen["newer"]) == [(3, 11), (3, 13)], seen
+        assert sorted(seen["older"]) == [(3, 10)], seen
+        assert version_guard(ast.parse("sys.version_info < (3, 11)").body[0].value)((3, 10))
+        assert version_guard(ast.parse("len(x) >= (3, 11)").body[0].value) is None, (
+            "a comparison that is not a version bound was read as one"
+        )
+
+    # A supported range is what pyproject.toml claims, not what the machine
+    # running the suite happens to have. Asserted directly because every case
+    # above depends on this spanning the release that moved tomllib.
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "pyproject.toml").write_text('[project]\nrequires-python = ">=3.10"\n', encoding="utf-8")
+        versions = supported_versions(tree)
+        assert (3, 10) in versions and (3, 13) in versions, versions
+        assert (3, 9) not in versions, "a version the floor excludes was admitted"
+        (tree / "pyproject.toml").write_text('[project]\nrequires-python = ">=3.12"\n', encoding="utf-8")
+        assert (3, 10) not in supported_versions(tree), "requires-python did not select the range"
+        assert "tomllib" in stdlib_modules((3, 13)) and "tomllib" not in stdlib_modules((3, 10)), (
+            "the per-version stdlib answer is not per-version, so the check cannot be either"
+        )
 
     # The path contract is only worth stating where a workflow shows a command,
     # so the check must key on that rather than demand the section always.
