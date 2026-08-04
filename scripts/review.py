@@ -47,6 +47,7 @@ from state import (
 from state import (
     print_status as print_envelope,
 )
+from validate import validate as validate_skill
 
 # Review concerns every skill has, regardless of which surfaces it exposes.
 ALWAYS_FIRST = ("activation", "structure")
@@ -181,6 +182,39 @@ def print_status(root, state):
     )
 
 
+def conformance_findings(skill_root):
+    """Findings a parser can settle, recorded before any judgement is spent.
+
+    A review used to open with an empty findings file and ask a human every
+    question, including the ones with exact answers: a name over 64 characters
+    or a link to a file that does not exist is not a matter of opinion, and a
+    reviewer who happened not to check left the skill rejected at install time
+    with a passing verdict.
+
+    Seeding them at init also fixes the ordering. These are cheap and certain,
+    so they belong before the expensive uncertain questions, and a reviewer
+    reading `findings.json` first sees what is already known.
+
+    Severity maps by whether the format rejects the skill: an error means a
+    host will not load it, which blocks; a warning is guidance an author may
+    knowingly accept, which does not.
+    """
+    return [
+        {
+            "phase": "activation",
+            "severity": "blocking" if finding.severity == "error" else "minor",
+            "summary": finding.message,
+            "evidence": "SKILL.md",
+            "remedy": None,
+            "disposition": None,
+            "disposition_note": None,
+            "source": f"conformance:{finding.rule}",
+            "recorded_at": now(),
+        }
+        for finding in validate_skill(skill_root)
+    ]
+
+
 def command_init(args):
     skill_root = args.skill.expanduser().resolve()
     if not (skill_root / "SKILL.md").is_file():
@@ -228,11 +262,18 @@ def command_init(args):
         "updated_at": now(),
     }
     state["phase"] = phases[0]
-    # Written empty at init so a clean review is a file saying nothing was
-    # found, not a missing file. A consumer cannot tell an absent artifact from
-    # a review that found nothing, and would have to treat a passing skill as
-    # an error, which is the reading remediation hit.
-    save_findings(root, [])
+    # Written at init so a clean review is a file saying nothing was found,
+    # not a missing file. A consumer cannot tell an absent artifact from a
+    # review that found nothing, and would have to treat a passing skill as an
+    # error, which is the reading remediation hit.
+    #
+    # Non-empty when the format's own bounds are already broken: those have
+    # exact answers, so spending a reviewer's judgement to rediscover them
+    # wastes the expensive resource on the cheap question.
+    seeded = conformance_findings(skill_root)
+    for index, finding in enumerate(seeded, start=1):
+        finding["id"] = f"F{index}"
+    save_findings(root, seeded)
     save_state(root, state, "initialized")
     print_status(root, state)
 
@@ -533,9 +574,31 @@ def command_self_check(_args):
         # A plain skill with no workflow surfaces walks only mandatory phases.
         plain = root / "plain"
         plain.mkdir()
-        (plain / "SKILL.md").write_text("# Plain\n\nDo one thing directly.\n")
+        # Frontmatter included because init now seeds the findings a parser can
+        # settle, and a fixture that is not a valid skill would open every run
+        # with conformance findings the rest of this check did not record.
+        (plain / "SKILL.md").write_text(
+            "---\nname: plain\ndescription: Does one thing directly.\n---\n\n# Plain\n\nDo one thing directly.\n"
+        )
         run = root / "plain-run"
         result = execute("init", "--skill", plain, "--run-dir", run)
+        # A conformant skill opens with nothing already known against it, so a
+        # seeded finding always means the validator found something real.
+        assert json.loads((run / "findings.json").read_text())["findings"] == []
+
+        # A skill the format would reject opens with that already recorded, and
+        # blocking, so the verdict gate cannot close over it unanswered. Before
+        # this, a reviewer who did not happen to count the description's
+        # characters passed a skill no host would load.
+        broken = root / "broken"
+        broken.mkdir()
+        (broken / "SKILL.md").write_text(f"---\nname: broken\ndescription: {'d' * 1100}\n---\n\n# Broken\n")
+        broken_run = root / "broken-run"
+        execute("init", "--skill", broken, "--run-dir", broken_run)
+        seeded = json.loads((broken_run / "findings.json").read_text())["findings"]
+        assert [item["severity"] for item in seeded] == ["blocking"], seeded
+        assert seeded[0]["source"] == "conformance:description", seeded
+        assert seeded[0]["id"] == "F1", seeded
         state = read_status(result.stdout)
         assert state["phases"] == list(ALWAYS_FIRST + ALWAYS_LAST), state["phases"]
         assert state["detail"]["surfaces"] == [], state
