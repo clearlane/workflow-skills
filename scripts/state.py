@@ -346,24 +346,30 @@ def relative_file_manifest(root):
         relative = path.relative_to(root)
         if excluded(relative.parts) or ignored(relative.as_posix(), prefixes):
             continue
-        # is_file() follows the link, so a symlink out of the tree would be
-        # recorded as an ordinary file whose bytes live somewhere this manifest
-        # does not describe. That breaks both directions of a rollback: the
-        # snapshot copies the link rather than the content, so the baseline is
-        # never really captured, and the digest moves whenever the outside file
-        # changes, so a restore that put every tracked path back still reports
-        # that it could not. Refusing is right rather than merely safe, because
-        # a skill whose content lives outside itself cannot be copied, shipped,
-        # or restored as a unit.
+        # A symlink's content is the path it points at, and recording it that
+        # way is what makes a tree containing one snapshot and restore
+        # correctly. Digesting the bytes it resolves to instead was the cause
+        # of a defect this refused rather than fixed: `copy_manifest_files`
+        # copies the link itself, so a baseline captured by resolving it was
+        # never the thing restored, and the digest moved whenever a file
+        # outside the tree changed even though the skill had not. Reading the
+        # link closes both, because the link round-trips exactly.
+        #
+        # Refusing was also the wrong instrument. A dangling link is a real
+        # defect, but it is a fact about a skill that a reviewer should be told
+        # about, not a reason for the tooling to decline to look: measured on
+        # the author's corpus, 21 of 198 skills aborted here and were reviewed
+        # for nothing at all, and 17 of those aborted on a link a host had
+        # created to install a dependency. `review.portability_findings` owns
+        # reporting it now, so the manifest's job is only to describe.
         if path.is_symlink():
-            destination = path.resolve()
-            if not destination.is_relative_to(root):
-                fail(
-                    f"{path}: symlink leaves the tree ({destination}); "
-                    "a skill must contain its own content to be snapshotted",
-                    EX_DATAERR,
-                    path,
-                )
+            target = os.readlink(path)
+            manifest[relative.as_posix()] = {
+                "sha256": hashlib.sha256(target.encode()).hexdigest(),
+                "size": len(target.encode()),
+                "target": target,
+            }
+            continue
         if not path.is_file():
             continue
         manifest[relative.as_posix()] = {
@@ -1029,23 +1035,39 @@ def self_check():
         manifest = relative_file_manifest(root)
         assert "keep/f.txt" in manifest
         assert not any(key.startswith(".git") for key in manifest)
-        # A manifest is the promise that a tree can be snapshotted and restored
-        # as a unit, so a link to content outside it must be refused rather than
-        # recorded as an ordinary file. A link within the tree is fine: its
-        # content is captured either way.
+        # A symlink is recorded by the path it points at, which is the only
+        # description that survives the snapshot: copy_manifest_files copies
+        # the link rather than what it resolves to, so a manifest that digested
+        # the resolved bytes described something the restore never put back.
         (root / "keep" / "inside.txt").symlink_to(root / "keep" / "f.txt")
-        assert "keep/inside.txt" in relative_file_manifest(root)
+        linked = relative_file_manifest(root)["keep/inside.txt"]
+        assert linked["target"] == str(root / "keep" / "f.txt"), linked
+        # Asserting the exact digest, because the rejected rule -- digest the
+        # bytes the link resolves to -- also produces *a* digest, and "it has
+        # one" holds under either rule.
+        assert linked["sha256"] == hashlib.sha256(linked["target"].encode()).hexdigest(), linked
+        assert linked["sha256"] != file_sha256(root / "keep" / "f.txt"), (
+            "a link was digested by the bytes it resolves to, not by its target path"
+        )
         outside = Path(temporary).parent / f"outside-{os.getpid()}.txt"
         outside.write_text("not mine")
         try:
             (root / "keep" / "escape.txt").symlink_to(outside)
-            try:
-                relative_file_manifest(root)
-            except Failure as error:
-                assert error.code == EX_DATAERR, error.code
-                assert "leaves the tree" in error.message, error.message
-            else:
-                raise AssertionError("manifest recorded content living outside the tree")
+            # A link out of the tree is described rather than refused. Refusing
+            # abandoned the whole tree over one file: on the author's corpus 21
+            # of 198 skills aborted here, 17 of them on a link a host had made
+            # to install a dependency, and every other check the run would have
+            # made was lost with it. review.portability_findings reports it.
+            escaped = relative_file_manifest(root)
+            assert escaped["keep/escape.txt"]["target"] == str(outside), escaped
+            # And the property refusing was meant to protect now actually
+            # holds: editing the outside file cannot move this tree's digest,
+            # because the link's target path has not changed.
+            before = tree_sha256(relative_file_manifest(root))
+            outside.write_text("changed out from under the skill")
+            assert tree_sha256(relative_file_manifest(root)) == before, (
+                "a file outside the tree moved the tree's digest"
+            )
         finally:
             outside.unlink()
             (root / "keep" / "escape.txt").unlink()

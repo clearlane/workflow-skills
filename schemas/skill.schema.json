@@ -58,6 +58,10 @@
         "size": {
           "type": "integer",
           "minimum": 0
+        },
+        "target": {
+          "description": "For a symlink, the path it points at. A link's content is its target, so that is what is digested; recording it keeps a tree containing one snapshot-and-restore correct.",
+          "$ref": "common.schema.json#/$defs/text"
         }
       }
     }

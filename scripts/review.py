@@ -254,6 +254,7 @@ ANSWER_ANCHORS = {
     "structure:unreachable": ("structure", "every resource reachable"),
     "structure:naming": ("structure", "filenames follow"),
     "structure:neutrality": ("structure", "name capabilities rather than a host"),
+    "structure:portability": ("structure", "contain every file it reads"),
     "safety-scan": ("safety", "no raw shell interpolation"),
 }
 
@@ -721,8 +722,14 @@ def naming_findings(skill_root):
     one being maintained was not this one.
     """
     findings = []
+    # A vendored copy is someone else's skill, and its filenames are their
+    # convention to keep. Measured on the author's corpus, 25 of 120 naming
+    # findings named a file inside a bundled dependency, which asks an author
+    # to rename a file they do not own and cannot change without the change
+    # being erased on the next install.
+    own = {relative.as_posix() for _, relative in own_files(skill_root)}
     for relative, error in names.validate(skill_root):
-        if excluded(relative.parts):
+        if excluded(relative.parts) or relative.as_posix() not in own:
             continue
         findings.append(
             {
@@ -734,6 +741,64 @@ def naming_findings(skill_root):
                 "disposition": None,
                 "disposition_note": None,
                 "source": "structure:naming",
+                "recorded_at": now(),
+            }
+        )
+    return findings
+
+
+def portability_findings(skill_root):
+    """Report a symlink whose target the skill does not contain.
+
+    A skill is distributed by copying its directory, so a link out of the tree
+    resolves to nothing on the machine that receives it: the content is simply
+    absent, and the failure appears at the moment an agent reads the file
+    rather than at install time.
+
+    state.relative_file_manifest used to refuse to build a manifest at all when
+    it found one, which stopped `init` before a run existed. That turned one
+    portability defect into a review that never happened: 21 of 198 skills in
+    the author's corpus aborted there and were checked for nothing, and 17 of
+    them aborted on a link a host had created to install a dependency, which is
+    the host's own bookkeeping rather than a defect in the skill. Refusing also
+    reported it to whoever ran the tool instead of into the findings the review
+    exists to produce.
+
+    Links a host manages are excluded on the same ownership boundary the other
+    finders use, since a skill cannot answer for how its dependencies were
+    installed.
+    """
+    findings = []
+    nested = nested_skill_roots(skill_root)
+    prefixes = ignored_prefixes(skill_root)
+    for path in sorted(skill_root.rglob("*")):
+        if not path.is_symlink():
+            continue
+        relative = path.relative_to(skill_root)
+        if excluded(relative.parts) or ignored(relative.as_posix(), prefixes):
+            continue
+        if any(path.is_relative_to(other) for other in nested):
+            continue
+        destination = path.resolve()
+        # A link pointing at another skill is a dependency the host installed,
+        # not content this skill authored.
+        if destination.is_dir() and (destination / "SKILL.md").is_file():
+            continue
+        if destination.is_relative_to(skill_root):
+            continue
+        findings.append(
+            {
+                "phase": "structure",
+                "severity": "major",
+                "summary": (
+                    f"{relative.as_posix()} is a symlink to {destination}, which is outside the skill; "
+                    "copying the skill leaves it dangling"
+                ),
+                "evidence": relative.as_posix(),
+                "remedy": "move the content inside the skill, or generate it during setup rather than linking to it",
+                "disposition": None,
+                "disposition_note": None,
+                "source": "structure:portability",
                 "recorded_at": now(),
             }
         )
@@ -1026,6 +1091,7 @@ def command_init(args):
         + unreachable_findings(skill_root)
         + naming_findings(skill_root)
         + neutrality_findings(skill_root)
+        + portability_findings(skill_root)
     )
     for index, finding in enumerate(seeded, start=1):
         finding["id"] = f"F{index}"
@@ -1634,6 +1700,36 @@ def command_self_check(_args):
         # The finding must settle the contract question it is anchored to, or
         # the run asks the reviewer to establish by hand what it already knows.
         assert anchored_question("structure:neutrality") is not None, "the neutrality anchor resolves to nothing"
+        assert anchored_question("structure:portability") is not None, "the portability anchor resolves to nothing"
+
+        # A skill is distributed by copying its directory, so a link out of the
+        # tree arrives dangling. This used to be enforced by refusing to build a
+        # manifest at all, which aborted `init` and reviewed the skill for
+        # nothing: 21 of 198 skills in the author's corpus stopped there.
+        outside = root / "outside-the-skill"
+        outside.mkdir(exist_ok=True)
+        (outside / "shared.md").write_text("# Shared\n")
+        (stranded / "borrowed.md").symlink_to(outside / "shared.md")
+        borrowed = portability_findings(stranded)
+        assert [item["evidence"] for item in borrowed] == ["borrowed.md"], borrowed
+        assert borrowed[0]["phase"] == "structure" and borrowed[0]["severity"] == "major", borrowed
+        # A link that stays inside the skill travels with it, so it is not a
+        # portability defect and reporting it would argue against a legitimate
+        # way to give one file two names.
+        (stranded / "borrowed.md").unlink()
+        (stranded / "alias.md").symlink_to(stranded / "references" / "linked.md")
+        assert portability_findings(stranded) == [], portability_findings(stranded)
+        (stranded / "alias.md").unlink()
+        # A host installs dependencies by linking whole skills into the tree.
+        # That is the host's bookkeeping, and 17 of those 21 aborted runs
+        # aborted on one, so a skill must not be told to answer for it.
+        vendored = root / "vendored-elsewhere"
+        (vendored / "references").mkdir(parents=True, exist_ok=True)
+        (vendored / "SKILL.md").write_text("---\nname: vendored\ndescription: d\n---\n")
+        (stranded / ".agents").mkdir(exist_ok=True)
+        (stranded / ".agents" / "dependency").symlink_to(vendored, target_is_directory=True)
+        assert portability_findings(stranded) == [], portability_findings(stranded)
+        (stranded / ".agents" / "dependency").unlink()
         (stranded / "references" / "linked.md").write_text("# Linked\n")
         # Naming it anywhere is enough. A reference a README lists by bare
         # name is findable, and reporting it would train reviewers to skip
@@ -1752,6 +1848,20 @@ def command_self_check(_args):
             "bin/SignDocument.py",
             "references/Bad_Name.md",
         ], naming_findings(stranded)
+        # A vendored dependency is another author's skill, and its filenames
+        # are their convention to keep: a rename here is erased by the next
+        # install. 25 of 120 naming findings across the author's corpus named a
+        # file inside one, so this is the boundary every other finder uses.
+        # Vendored into a plain directory because that is where the corpus
+        # puts them, and because names.py skips dot-directories outright: a
+        # fixture using one would assert the boundary while exercising nothing.
+        bundled = stranded / "skills" / "dependency"
+        bundled.mkdir(parents=True)
+        (bundled / "SKILL.md").write_text("---\nname: dependency\ndescription: d\n---\n")
+        (bundled / "Their_Name.md").write_text("# Theirs\n")
+        assert "\n".join(item["evidence"] for item in naming_findings(stranded)).find("Their_Name") == -1, (
+            "a filename inside a vendored skill was reported against this skill"
+        )
         naming_run = root / "naming-run"
         execute("init", "--skill", stranded, "--run-dir", naming_run)
         sources = [item["source"] for item in json.loads((naming_run / "findings.json").read_text())["findings"]]
