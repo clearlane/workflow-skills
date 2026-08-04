@@ -20,6 +20,27 @@ import tempfile
 from functools import partial
 from pathlib import Path
 
+# tomllib entered the standard library in 3.11, and the supported floor is
+# 3.10. `tomli` is the same parser under its pre-adoption name, so the floor
+# needs the dependency and every later runtime does not.
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover - exercised by the CI job that runs the floor
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError as error:
+        raise SystemExit(
+            "check.py needs a TOML parser on Python 3.10: python3 -m pip install -r requirements.txt"
+        ) from error
+
+try:
+    import yaml
+    from packaging.requirements import Requirement
+    from packaging.specifiers import SpecifierSet
+    from packaging.utils import canonicalize_name
+except ModuleNotFoundError as error:
+    raise SystemExit(f"check.py needs {error.name}: python3 -m pip install -r requirements.txt") from error
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import absorb
@@ -962,6 +983,25 @@ def third_party_imports(path):
     return imported - set(sys.stdlib_module_names) - local
 
 
+def declared_requirements(root, extra=None):
+    """Distribution names one dependency table declares, canonicalised.
+
+    Read with a TOML parser rather than by matching the array's text. The
+    regex this replaces matched every quoted word between the brackets, so a
+    comment inside the array naming a package read as a declaration of it.
+    Dropping `referencing` from the array while explaining the removal in a
+    comment left the check reporting the dependency as declared: the one
+    defect the check exists to catch, hidden by the way the check looked.
+
+    `packaging` parses the requirement, so an extra, a marker, or a version
+    specifier is the parser's problem rather than another pattern here.
+    """
+    data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    project = data.get("project", {})
+    table = project.get("optional-dependencies", {}).get(extra, []) if extra else project.get("dependencies", [])
+    return {canonicalize_name(Requirement(spec).name) for spec in table}
+
+
 def check_declared_dependencies(root):
     """Every third-party import must be declared, and must fail actionably.
 
@@ -977,21 +1017,20 @@ def check_declared_dependencies(root):
     internals instead of the one command that fixes it. document.py had wrapped
     its own imports for exactly that reason; nothing required the others to.
     """
-    text = (root / "pyproject.toml").read_text(encoding="utf-8")
-    block = re.search(r"^dependencies\s*=\s*\[(.*?)\]", text, re.S | re.M)
-    if block is None:
+    declared = declared_requirements(root)
+    if not declared:
         return ["pyproject.toml declares no dependencies table"]
-    # Distribution names normalise to import names loosely, so compare on the
-    # PEP 503 form of both rather than requiring them to match character for
-    # character: `PyYAML` is imported as `yaml`, `markdown-it-py` as
-    # `markdown_it`. Anything not resolved by normalisation is declared here.
-    declared = {re.sub(r"[-_.]+", "-", name).lower() for name in re.findall(r'"([A-Za-z0-9_.-]+)', block.group(1))}
+    # An import name is not a distribution name, and the mapping is not
+    # recoverable without the package installed. Resolving it through the
+    # installed metadata would make the answer depend on what happens to be
+    # present, which is the state this check exists to detect, so the few
+    # names that do not normalise are stated here.
     aliases = {"yaml": "pyyaml", "markdown_it": "markdown-it-py", "mdit_py_plugins": "mdit-py-plugins"}
     failures = []
     for path in sorted((root / "scripts").glob("*.py")):
         imports = third_party_imports(path)
         for module in sorted(imports):
-            distribution = aliases.get(module, re.sub(r"[-_.]+", "-", module).lower())
+            distribution = canonicalize_name(aliases.get(module, module))
             if distribution not in declared:
                 failures.append(
                     f"scripts/{path.name}: imports {module!r}, which pyproject.toml does not declare; "
@@ -1058,12 +1097,22 @@ def tool_version_mismatches(root):
     because a contributor with a different version should still be able to run
     the suite; the point is that they can see the substitution.
     """
-    text = (root / "pyproject.toml").read_text(encoding="utf-8")
-    extra = re.search(r"dev\s*=\s*\[(.*?)\]", text, re.S)
-    if extra is None:
+    data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    extra = data.get("project", {}).get("optional-dependencies", {}).get("dev")
+    if not extra:
         return ["pyproject.toml declares no dev extra; the tool versions are unbounded"]
     failures = []
-    pinned = re.findall(r'"([A-Za-z0-9_.-]+)\s*[=~]=\s*([0-9]+)\.([0-9]+)', extra.group(1))
+    # A specifier is a set of clauses, not a string to match: `ruff==0.16.*`
+    # and `check-jsonschema~=0.37` both bound a major.minor, and the parser
+    # says which. The pattern this replaces read the array's text, so a pin
+    # commented out inside the array still counted as pinned.
+    pinned = []
+    for spec in extra:
+        requirement = Requirement(spec)
+        version = next((str(clause.version) for clause in requirement.specifier), None)
+        parts = version.split(".") if version else []
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            pinned.append((requirement.name, parts[0], parts[1]))
     if not pinned:
         return ["pyproject.toml pins no tool versions; the rule sets are unbounded"]
     for name, major, minor in pinned:
@@ -1136,22 +1185,33 @@ def check_ci_floor(root):
     workflow = root / ".github" / "workflows" / "checks.yml"
     if not pyproject.exists() or not workflow.exists():
         return []
-    declared = re.search(
-        r"""requires-python\s*=\s*["'][>=~^\s]*([0-9.]+)""",
-        pyproject.read_text(encoding="utf-8"),
-    )
-    matrix = re.search(
-        r"""python-version:\s*\[([^\]]+)\]""",
-        workflow.read_text(encoding="utf-8"),
-    )
-    if not declared or not matrix:
+    # Both files are read by their own parsers rather than by pattern. The
+    # matrix pattern this replaces required a flow sequence on one line, so
+    # rewriting the same list as a YAML block sequence, which is the more
+    # common style and changes nothing, made the check report that it could
+    # not find the matrix instead of comparing it.
+    requires = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project", {}).get("requires-python")
+    matrix = None
+    for job in (yaml.safe_load(workflow.read_text(encoding="utf-8")) or {}).get("jobs", {}).values():
+        found = job.get("strategy", {}).get("matrix", {}).get("python-version")
+        if found:
+            matrix = [str(entry) for entry in found]
+            break
+    if not requires or not matrix:
         return ["could not read the Python floor from pyproject.toml or the CI matrix"]
-    versions = [entry.strip().strip("\"'") for entry in matrix.group(1).split(",")]
-    if versions[0] != declared.group(1):
+    # The floor is the lowest version the specifier admits, which the
+    # specifier itself knows: `>=3.10` and `>=3.10,<4` state the same floor
+    # and the pattern would have read only the first number it saw.
+    floor = next(
+        (str(clause.version) for clause in SpecifierSet(requires) if clause.operator in {">=", "==", "~="}), None
+    )
+    if floor is None:
+        return [f"pyproject.toml declares {requires!r}, which states no floor to test"]
+    if matrix[0] != floor:
         return [
             (
-                f"checks.yml tests {versions[0]} first but pyproject.toml declares "
-                f">={declared.group(1)}; the declared floor would go untested"
+                f"checks.yml tests {matrix[0]} first but pyproject.toml declares "
+                f">={floor}; the declared floor would go untested"
             )
         ]
     return []
@@ -1216,21 +1276,61 @@ def self_check():
         (tree / ".github" / "workflows").mkdir(parents=True)
         project = tree / "pyproject.toml"
         matrix = tree / ".github" / "workflows" / "checks.yml"
-        project.write_text('requires-python = ">=3.10"\n', encoding="utf-8")
-        matrix.write_text('        python-version: ["3.10", "3.13"]\n', encoding="utf-8")
+
+        def write_floor(requires, versions, style="flow"):
+            project.write_text(f'[project]\nrequires-python = "{requires}"\n', encoding="utf-8")
+            if style == "flow":
+                listed = "[" + ", ".join(f'"{version}"' for version in versions) + "]"
+                entries = f"        python-version: {listed}\n"
+            else:
+                entries = "        python-version:\n" + "".join(f'          - "{v}"\n' for v in versions)
+            matrix.write_text(
+                "jobs:\n  checks:\n    strategy:\n      matrix:\n" + entries,
+                encoding="utf-8",
+            )
+
+        write_floor(">=3.10", ["3.10", "3.13"])
         assert check_ci_floor(tree) == []
-        project.write_text('requires-python = ">=3.11"\n', encoding="utf-8")
+        write_floor(">=3.11", ["3.10", "3.13"])
         assert check_ci_floor(tree), "a CI matrix below the declared floor was accepted"
-        matrix.write_text('        python-version: ["3.11"]\n', encoding="utf-8")
+        write_floor(">=3.11", ["3.11"])
         assert check_ci_floor(tree) == []
+        # A block sequence is the same list written the other way. The pattern
+        # this replaced saw no matrix at all and reported that it could not
+        # read one, which is not the same answer as "the floor is untested".
+        write_floor(">=3.11", ["3.10"], style="block")
+        assert check_ci_floor(tree), "a block-sequence matrix below the floor was accepted"
+        write_floor(">=3.11", ["3.11"], style="block")
+        assert check_ci_floor(tree) == [], "a block-sequence matrix at the floor was rejected"
+        # A bounded specifier states the same floor as a bare one.
+        write_floor(">=3.11,<4", ["3.11"])
+        assert check_ci_floor(tree) == [], "a bounded requires-python was misread"
+        # A specifier stating only a ceiling names no version to test on, and
+        # saying so is different from silently comparing against nothing.
+        write_floor("<4", ["3.11"])
+        assert check_ci_floor(tree), "a requires-python stating no floor was accepted"
+
+        # A heading that leaves an inline-code marker unclosed is a truncated
+        # sentence promoted to a title, which is how this repository lost a
+        # section for two commits.
+        (tree / "references").mkdir()
+        (tree / "references" / "sane.md").write_text("# Title\n\n## `code` and prose\n", encoding="utf-8")
+        assert check_heading_code_markers(tree) == [], "a balanced code span in a heading was rejected"
+        (tree / "references" / "sane.md").write_text(
+            "# Title\n\n## Checks`, always under that name\n", encoding="utf-8"
+        )
+        assert check_heading_code_markers(tree), "a heading with an unclosed code marker was accepted"
 
         # The pin check must notice a version that differs from the pin, and a
         # dev extra that pins nothing at all; both leave the rule set as
         # whatever the machine happens to have.
-        project.write_text('dev = ["ruff==0.1.*"]\n', encoding="utf-8")
+        project.write_text(
+            '[project.optional-dependencies]\ndev = ["ruff==0.1.*"]\n',
+            encoding="utf-8",
+        )
         if shutil.which("ruff") is not None:
             assert tool_version_mismatches(tree), "a ruff differing from the pin was accepted"
-        project.write_text('dev = ["ruff"]\n', encoding="utf-8")
+        project.write_text('[project.optional-dependencies]\ndev = ["ruff"]\n', encoding="utf-8")
         assert tool_version_mismatches(tree), "a dev extra pinning nothing was accepted"
 
     # The review gate is driven by questions parsed out of the contract, so
@@ -1323,7 +1423,10 @@ def self_check():
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
         (tree / "scripts").mkdir()
-        (tree / "pyproject.toml").write_text('dependencies = [\n    "declared~=1.0",\n]\n', encoding="utf-8")
+        (tree / "pyproject.toml").write_text(
+            '[project]\ndependencies = [\n    "declared~=1.0",\n]\n',
+            encoding="utf-8",
+        )
         (tree / "scripts" / "guarded.py").write_text(
             "try:\n    import declared\nexcept ModuleNotFoundError:\n    raise SystemExit('install it')\n",
             encoding="utf-8",
