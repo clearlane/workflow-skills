@@ -198,6 +198,10 @@ def conformance_findings(skill_root):
     Severity maps by whether the format rejects the skill: an error means a
     host will not load it, which blocks; a warning is guidance an author may
     knowingly accept, which does not.
+
+    The remedy comes from the validator rather than being left for the
+    reviewer: record-finding requires one from a human, and a seeded finding
+    without it would reach remediate.py as an obligation with no stated fix.
     """
     return [
         {
@@ -205,7 +209,7 @@ def conformance_findings(skill_root):
             "severity": "blocking" if finding.severity == "error" else "minor",
             "summary": finding.message,
             "evidence": "SKILL.md",
-            "remedy": None,
+            "remedy": finding.remedy,
             "disposition": None,
             "disposition_note": None,
             "source": f"conformance:{finding.rule}",

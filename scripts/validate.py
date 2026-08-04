@@ -53,15 +53,28 @@ class Finding:
     Severity is the distinction that matters to a caller: `error` is the format
     rejecting the skill, `warning` is guidance the author may knowingly ignore.
     Collapsing the two would make the exit status useless for gating.
+
+    Each also carries its remedy, because this is the only place that knows it.
+    A rule that can name the exact defect can name the exact fix, and a caller
+    handing these on as obligations — review.py seeds findings.json from them,
+    and remediate.py inherits that file — would otherwise pass along a defect
+    with no stated resolution, which is precisely what record-finding refuses
+    to accept from a human reviewer.
     """
 
-    def __init__(self, severity, rule, message):
+    def __init__(self, severity, rule, message, remedy):
         self.severity = severity
         self.rule = rule
         self.message = message
+        self.remedy = remedy
 
     def as_dict(self):
-        return {"severity": self.severity, "rule": self.rule, "message": self.message}
+        return {
+            "severity": self.severity,
+            "rule": self.rule,
+            "message": self.message,
+            "remedy": self.remedy,
+        }
 
 
 def split_frontmatter(text):
@@ -107,27 +120,65 @@ def parse_scalars(block):
 def check_frontmatter(values, findings):
     for field in REQUIRED_FIELDS:
         if not values.get(field):
-            findings.append(Finding("error", "frontmatter", f"frontmatter missing non-empty {field}"))
+            findings.append(
+                Finding(
+                    "error",
+                    "frontmatter",
+                    f"frontmatter missing non-empty {field}",
+                    f"add a {field} to the SKILL.md frontmatter",
+                )
+            )
 
     name = values.get("name", "")
     if name:
         if len(name) > NAME_LIMIT:
-            findings.append(Finding("error", "name", f"name is {len(name)} characters, over the {NAME_LIMIT} limit"))
+            findings.append(
+                Finding(
+                    "error",
+                    "name",
+                    f"name is {len(name)} characters, over the {NAME_LIMIT} limit",
+                    f"shorten the name to {NAME_LIMIT} characters or fewer",
+                )
+            )
         if "--" in name:
-            findings.append(Finding("error", "name", f"name {name!r} contains consecutive hyphens"))
+            findings.append(
+                Finding(
+                    "error",
+                    "name",
+                    f"name {name!r} contains consecutive hyphens",
+                    "collapse each run of hyphens in the name to a single hyphen",
+                )
+            )
         elif not SKILL_NAME.fullmatch(name):
             findings.append(
-                Finding("error", "name", f"name {name!r} must be lowercase letters, digits, and inner hyphens")
+                Finding(
+                    "error",
+                    "name",
+                    f"name {name!r} must be lowercase letters, digits, and inner hyphens",
+                    "rewrite the name in lowercase, replacing every other separator with a hyphen",
+                )
             )
 
     for field, limit in (("description", DESCRIPTION_LIMIT), ("compatibility", COMPATIBILITY_LIMIT)):
         value = values.get(field)
         if value is not None and len(value) > limit:
-            findings.append(Finding("error", field, f"{field} is {len(value)} characters, over the {limit} limit"))
+            findings.append(
+                Finding(
+                    "error",
+                    field,
+                    f"{field} is {len(value)} characters, over the {limit} limit",
+                    f"cut the {field} to {limit} characters or fewer",
+                )
+            )
 
     for field in sorted(set(values) - KNOWN_FIELDS):
         findings.append(
-            Finding("warning", "frontmatter", f"frontmatter field {field!r} is not in the Agent Skills format")
+            Finding(
+                "warning",
+                "frontmatter",
+                f"frontmatter field {field!r} is not in the Agent Skills format",
+                f"drop {field!r} or move it under the metadata field, which the format leaves open",
+            )
         )
 
 
@@ -154,7 +205,14 @@ def check_links(skill, text, findings):
         if not path or re.match(r"^[a-z][a-z0-9+.-]*:", path) or path.startswith("/"):
             continue
         if not (skill / path).exists():
-            findings.append(Finding("error", "links", f"SKILL.md links {path}, which does not exist"))
+            findings.append(
+                Finding(
+                    "error",
+                    "links",
+                    f"SKILL.md links {path}, which does not exist",
+                    f"create {path}, correct the link target, or remove the link",
+                )
+            )
 
 
 def validate(skill):
@@ -162,12 +220,26 @@ def validate(skill):
     findings = []
     core = skill / "SKILL.md"
     if not core.is_file():
-        return [Finding("error", "structure", f"{skill}: no SKILL.md; a skill is a directory containing one")]
+        return [
+            Finding(
+                "error",
+                "structure",
+                f"{skill}: no SKILL.md; a skill is a directory containing one",
+                "add a SKILL.md at the root of the skill directory",
+            )
+        ]
 
     text = core.read_text(encoding="utf-8", errors="replace")
     block, line_count = split_frontmatter(text)
     if block is None:
-        findings.append(Finding("error", "frontmatter", "SKILL.md has no frontmatter block opening on line 1"))
+        findings.append(
+            Finding(
+                "error",
+                "frontmatter",
+                "SKILL.md has no frontmatter block opening on line 1",
+                "open SKILL.md with a --- delimited frontmatter block carrying name and description",
+            )
+        )
     else:
         values = parse_scalars(block)
         check_frontmatter(values, findings)
@@ -186,12 +258,18 @@ def validate(skill):
                     "name",
                     f"name {name!r} does not match the directory name {skill.name!r}; "
                     "the format requires them to agree once installed",
+                    f"install this skill into a directory named {name!r}, or rename the skill to match",
                 )
             )
 
     if line_count > LINE_BUDGET:
         findings.append(
-            Finding("warning", "size", f"SKILL.md is {line_count} lines, over the recommended {LINE_BUDGET}")
+            Finding(
+                "warning",
+                "size",
+                f"SKILL.md is {line_count} lines, over the recommended {LINE_BUDGET}",
+                "move detail into a resource file and link to it, leaving SKILL.md as routing",
+            )
         )
     check_links(skill, text, findings)
     return findings
@@ -249,6 +327,29 @@ def self_check():
         missing = Path(directory) / "not-a-skill"
         missing.mkdir()
         assert "structure" in rules(validate(missing)), "a directory with no SKILL.md was accepted"
+
+        # A finding with no remedy reaches remediate.py as an obligation with
+        # no stated fix, which is the one thing record-finding refuses to
+        # accept from a human. Every rule that can fire is exercised above, so
+        # collecting their findings here covers each one.
+        core.write_text(
+            f"---\nname: Bad--Name{'x' * 70}\ndescription: {'d' * (DESCRIPTION_LIMIT + 1)}\n"
+            f"compatibility: {'c' * (COMPATIBILITY_LIMIT + 1)}\nodd: 1\n---\n"
+            "[x](references/missing.md)\n" + "\n" * 600,
+            encoding="utf-8",
+        )
+        produced = validate(skill) + validate(missing)
+        assert {f.rule for f in produced} >= {
+            "name",
+            "description",
+            "compatibility",
+            "links",
+            "size",
+            "frontmatter",
+            "structure",
+        }, "a rule stopped firing, so its remedy is unproven"
+        for finding in produced:
+            assert finding.remedy, f"{finding.rule} states no remedy"
 
 
 def main():
