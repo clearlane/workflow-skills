@@ -83,7 +83,15 @@ class Document:
     links: list = field(default_factory=list)
     fences: list = field(default_factory=list)
     lists: list = field(default_factory=list)
+    # Two views of the same blocks, because two callers need different
+    # things and collapsing them loses one. `paragraphs` is the raw source
+    # span, which keeps table pipes and line breaks that sentence splitting
+    # depends on. `prose` is the rendered inline text of blocks at the top
+    # level only, which is what a question about what a section states
+    # should see: a paragraph inside a list item or a blockquote elaborates
+    # its container rather than standing on its own.
     paragraphs: list = field(default_factory=list)
+    prose: list = field(default_factory=list)
 
     @property
     def line_count(self):
@@ -94,6 +102,23 @@ class Document:
 
     def headings_at(self, level):
         return [heading for heading in self.headings if heading.level == level]
+
+    def heading_paths(self):
+        """Each heading paired with the titles of the headings it sits under.
+
+        Whether two headings are the same section or two parallel ones depends
+        on what they hang off, and recovering that from a flat list means every
+        caller re-deriving the same trail. A level skipped by the author is
+        carried as written rather than repaired: the ancestry is what the
+        document says, not what it would say if it were well-formed.
+        """
+        trail = {}
+        paths = []
+        for heading in self.headings:
+            trail = {level: text for level, text in trail.items() if level < heading.level}
+            paths.append((tuple(trail[level] for level in sorted(trail)), heading))
+            trail[heading.level] = heading.text
+        return paths
 
     def section(self, title, level=2):
         """Body lines under one heading, ending at the next same-or-higher heading."""
@@ -144,6 +169,35 @@ class Document:
                         stripped = SENTENCE_LEAD.sub("", piece).strip().strip("*_`\"' ")
                         if stripped:
                             yield offset, stripped
+
+    def section_paragraphs(self, title, level=2):
+        """Prose paragraphs under one heading, in document order.
+
+        Paired with section_lists, this answers whether a section says anything
+        at all. A caller stripping the section text would count an HTML comment
+        or a stray marker as content, because that test asks whether characters
+        are present rather than whether a reader is told anything.
+        """
+        start, end = self._section_bounds(title, level)
+        if start is None:
+            return []
+        return [text for line, text in self.prose if start.line < line <= end]
+
+    def opening_paragraphs(self):
+        """Prose between the title and whatever heading follows it.
+
+        This is the position a reader lands on, so it is worth naming rather
+        than leaving each caller to recompute the window from a heading list
+        and get the boundary subtly wrong. An untitled document has no opening,
+        which is a different fault from an empty one and is reported as such by
+        the caller that cares.
+        """
+        title = next((heading for heading in self.headings if heading.level == 1), None)
+        if title is None:
+            return []
+        following = [heading.line for heading in self.headings if heading.line > title.line]
+        end = following[0] if following else len(self.text.splitlines()) + 1
+        return [text for line, text in self.prose if title.line < line < end]
 
 
 def parser():
@@ -202,6 +256,7 @@ def parse(path, text=None):
     path = Path(path)
     parsed = Document(path=path, text=text if text is not None else path.read_text())
     pending = None
+    paragraph = None
     list_depth = 0
     items = None
     list_line = 0
@@ -219,11 +274,21 @@ def parse(path, text=None):
                     parsed.frontmatter_error = "frontmatter is not a mapping"
         elif token.type == "heading_open":
             pending = (int(token.tag[1:]), line)
-        elif token.type == "fence":
-            parsed.fences.append((token.info.strip(), token.content, line))
         elif token.type == "paragraph_open":
+            # The raw span is recorded for every paragraph, nested or not,
+            # because sentence splitting has to see a list item's text: an
+            # instruction is as much an instruction for being a bullet.
             start, end = token.map
             parsed.paragraphs.append((line, "\n".join(parsed.text.splitlines()[start:end])))
+            # The rendered view is narrower. Only a paragraph standing on its
+            # own counts, since one nested in a list item or a blockquote
+            # elaborates the block containing it, and treating it as
+            # free-standing would let a document whose whole opening is a
+            # bullet read as though it had an opening paragraph.
+            if token.level == 0:
+                paragraph = line
+        elif token.type == "fence":
+            parsed.fences.append((token.info.strip(), token.content, line))
         elif token.type in {"bullet_list_open", "ordered_list_open"}:
             # Only the outermost list is collected. A nested list elaborates
             # its parent item rather than standing as a separate list, and
@@ -240,6 +305,9 @@ def parse(path, text=None):
             if pending:
                 parsed.headings.append(Heading(level=pending[0], text=_inline_text(token), line=pending[1]))
                 pending = None
+            elif paragraph is not None:
+                parsed.prose.append((paragraph, _inline_text(token)))
+                paragraph = None
             elif items is not None and list_depth == 1:
                 items.append(_inline_text(token))
             _collect_links(token, parsed, line)
@@ -330,6 +398,16 @@ SELF_CHECK_SOURCE = "\n".join(
         "|---|---|",
         "| retry here | and here |",
         "",
+        "## Repeated Shape",
+        "",
+        "### Same",
+        "",
+        "> quoted rather than stated",
+        "",
+        "## Other Parent",
+        "",
+        "### Same",
+        "",
     ]
 )
 
@@ -345,6 +423,10 @@ def self_check():
         "Deep Section",
         "With the skills CLI",
         "Iterate",
+        "Repeated Shape",
+        "Same",
+        "Other Parent",
+        "Same",
     ]
     assert parsed.headings_at(2)[0].anchor == "deep-section"
     # Inline code is part of the rendered text. Dropping it silently deleted
@@ -373,6 +455,42 @@ def self_check():
     # The same loss in a list item: a README entry names its path in inline
     # code, so dropping it left the description with nothing to describe.
     assert parsed.section_lists("With the skills CLI")[0] == ["path/to/file.md — a described path"]
+
+    # A heading means one thing under one parent and another under a different
+    # one, so the ancestry travels with it. Two "Same" headings under two
+    # parents are two sections; a caller comparing the flat list would see one
+    # name twice and could not tell the two cases apart.
+    repeated = [path for path, heading in parsed.heading_paths() if heading.text == "Same"]
+    assert repeated == [("Title", "Repeated Shape"), ("Title", "Other Parent")], repeated
+    assert parsed.heading_paths()[0][0] == (), "the title heading has no ancestry"
+
+    # Whether a section says anything is a question about prose, not about
+    # characters: this one holds a blockquote and nothing else, and a caller
+    # stripping the section text would have called it populated.
+    assert parsed.section_paragraphs("Same", level=3) == [], parsed.section_paragraphs("Same", level=3)
+    # An image is a paragraph carrying no words, so it arrives here as one and
+    # reads as empty. Dropping it at collection time would hide a block the
+    # document really contains; a caller deciding what counts as content can
+    # see it and decide.
+    assert parsed.section_paragraphs("Deep Section") == [
+        "Self anchor and external.",
+        "A paragraph between two lists.",
+        "",
+    ], parsed.section_paragraphs("Deep Section")
+    # A list item's prose is not a free-standing paragraph, or a document whose
+    # entire opening is a bullet would read as though it had one. The raw view
+    # deliberately does hold it, since an instruction is as much an instruction
+    # for being a bullet, so the two views are asserted against each other.
+    assert all("described path" not in text for _, text in parsed.prose), parsed.prose
+    assert any("described path" in text for _, text in parsed.paragraphs), parsed.paragraphs
+    # The opening window stops at the first heading of any level, so a document
+    # whose title is followed straight by a subsection has an empty opening
+    # rather than one borrowed from the section below it.
+    assert parsed.opening_paragraphs() == ["Real one and two plus [fake](nope.md)."], parsed.opening_paragraphs()
+    assert parse(Path("bare.md"), "# T\n\n## S\n\nprose\n").opening_paragraphs() == []
+    assert parse(Path("none.md"), "no title, just prose\n").opening_paragraphs() == []
+    assert parse(Path("only.md"), "# T\n\nprose\n").opening_paragraphs() == ["prose"]
+
     assert targets == [
         "other.md",
         "other.md#deep-section",
