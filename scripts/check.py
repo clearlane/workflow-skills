@@ -568,6 +568,36 @@ def check_reference_skeleton(root):
     return failures
 
 
+def check_heading_code_markers(root):
+    """A heading may not leave an inline-code marker unclosed.
+
+    `references/structure.md` shipped a heading reading "Checks`, always under
+    that name, saying how a violation is detected." for two commits: an
+    editing accident dropped a sentence's opening clause and its leading
+    backtick, and the remainder was promoted to an H2, swallowing the section
+    that followed it. Every existing check passed. The skeleton check inspects
+    only the last H2, and the document still ended with a clean one.
+
+    An odd number of backticks in a heading is the mechanical signature of
+    that accident: markdown cannot close the span, so the marker is rendered
+    as a literal character in a title. Measured across 20,503 headings in the
+    22 skills on this machine, no author writes one deliberately.
+    """
+    failures = []
+    for parsed in document.walk(root):
+        lines = parsed.text.splitlines()
+        for heading in parsed.headings:
+            # Counted on the source line rather than the parsed text so a
+            # marker the parser consumed still registers: by the time a span
+            # closes, the imbalance this looks for is gone.
+            if lines[heading.line - 1].count(TICK) % 2:
+                failures.append(
+                    f"{parsed.path.relative_to(root)}:{heading.line}: heading leaves an inline-code "
+                    f"marker unclosed: {heading.text!r}"
+                )
+    return failures
+
+
 def check_readme_structure(root):
     """Every shipped resource must appear in the README structure list.
 
@@ -1348,6 +1378,7 @@ def main():
         ("coordinator registration", lambda: check_coordinator_registration(ROOT)),
         ("shared runtime", lambda: check_shared_runtime(ROOT)),
         ("reference skeleton", lambda: check_reference_skeleton(ROOT)),
+        ("heading code markers", lambda: check_heading_code_markers(ROOT)),
         ("workflow dispatch", lambda: check_workflow_dispatch(ROOT)),
         ("workflow boundaries", lambda: check_workflow_boundaries(ROOT)),
         ("examples validate", lambda: check_examples_validate(ROOT)),

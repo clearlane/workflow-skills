@@ -35,19 +35,8 @@ by reading each document's ending to learn what that document called things:
 2. An opening paragraph naming what this reference owns and what owns the
    neighbouring concern instead.
 3. Topic sections carrying the contract.
-4. `## Iteration
-
-After real use, record:
-
-- Missed or over-broad activation.
-- Missing context, ambiguous route, or duplicated guidance.
-- Repeated manual logic suitable for script.
-- Resource never loaded or loaded unnecessarily.
-- Broken assumptions, edge cases, and validation gaps.
-
-Make smallest change that fixes observed behavior. Re-run activation and focused task checks.
-
-## Checks`, always under that name, saying how a violation is detected.
+4. A closing `## Checks`, always under that name, saying how a violation is
+   detected.
 
 A workflow document is the other half of this: it names the coordinator that
 owns its control flow, and explains why each phase exists rather than restating
@@ -113,6 +102,18 @@ Inside a bundle, each skill stays one self-contained directory: its required cor
 Use repository-native initializer or minimum required layout. Validate before packaging. Use host or repository package format only when deployment requires artifact.
 
 Never assume one directory tree, archive type, or CLI across runtimes.
+
+## Iteration
+
+After real use, record:
+
+- Missed or over-broad activation.
+- Missing context, ambiguous route, or duplicated guidance.
+- Repeated manual logic suitable for script.
+- Resource never loaded or loaded unnecessarily.
+- Broken assumptions, edge cases, and validation gaps.
+
+Make smallest change that fixes observed behavior. Re-run activation and focused task checks.
 
 ## Checks
 
