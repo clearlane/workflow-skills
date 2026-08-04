@@ -15,7 +15,7 @@ import argparse
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -792,6 +792,19 @@ def neutrality_findings(skill_root):
     return findings
 
 
+def collective_route(directory):
+    """Match a route reaching a directory's members rather than one named file.
+
+    A link to `references/linked.md` names that file, and reading it as a route
+    to the directory would exempt every sibling from the reachability rule: one
+    link would silence a whole directory, which is the opposite of what this
+    check is for. What reaches the members collectively is a wildcard, or a
+    placeholder standing where the filename goes, so the shape is matched at
+    the filename position rather than anywhere in the path.
+    """
+    return re.compile(re.escape(directory) + r"/(?:\*|\{[^}\n/]*\}|<[^>\n/]*>)")
+
+
 def unreachable_findings(skill_root):
     """Name the prose resources nothing else in the skill points at.
 
@@ -806,6 +819,22 @@ def unreachable_findings(skill_root):
     enough for a reader to find, and over-reporting a reachable file trains
     reviewers to skip the whole category. A file naming itself proves nothing
     and is excluded.
+
+    A directory is a route too, and missing that made this check mostly wrong:
+    35 of the 36 findings it produced across the author's corpus named a file
+    whose directory the skill routes to collectively. Two shapes do it. A glob,
+    `Glob {baseDir}/platforms/*.md`, reaches every file in one line. So does a
+    placeholder, `Read agents/{concern}.md`, which is the same instruction with
+    the expansion left to the agent. Reporting those as unreachable is the
+    failure mode the generous basename match already avoids, arriving one level
+    up: a reviewer who checks the first few findings learns the category is
+    noise and stops reading it, which costs the one real finding underneath.
+
+    A bare directory mention does not count, though the same generosity would
+    argue for it. `references/linked.md` names a directory too, and accepting
+    that shape means one link to one file exempts every sibling from the rule:
+    the check would go quiet on exactly the directories that have the most to
+    hide. The wildcard has to sit where the filename goes.
     """
     resources = {}
     for path, relative in own_files(skill_root):
@@ -821,8 +850,12 @@ def unreachable_findings(skill_root):
     # `naming.md` would make this skill's unreachable `references/naming.md`
     # read as routed, and the direction of that error is the harmful one: it
     # reports coverage that does not exist.
+    # A directory counts as routed when something outside it names the
+    # directory, so the members are reached collectively. Built once rather
+    # than per resource, since the question is about the directory.
+    routed_directories = set()
     named = set()
-    for path, _ in own_files(skill_root):
+    for path, relative in own_files(skill_root):
         lines = readable_lines(path)
         if lines is None:
             continue
@@ -830,6 +863,14 @@ def unreachable_findings(skill_root):
         for key, target in resources.items():
             if target != path and target.name in text:
                 named.add(key)
+        for directory in {PurePosixPath(key).parent.as_posix() for key in resources}:
+            # A file inside the directory naming it says nothing about whether
+            # anything routes to it, exactly as a file naming itself does not.
+            if relative.as_posix().startswith(directory + "/"):
+                continue
+            if collective_route(directory).search(text):
+                routed_directories.add(directory)
+    named |= {key for key in resources if PurePosixPath(key).parent.as_posix() in routed_directories}
 
     return [
         {
@@ -1585,6 +1626,42 @@ def command_self_check(_args):
         (stranded / "README.md").unlink()
         (stranded / "references" / "orphan.md").write_text("# Orphan\n\nSee orphan.md above.\n")
         assert [item["evidence"] for item in unreachable_findings(stranded)] == ["references/orphan.md"]
+
+        # A directory is a route. Skills reach a whole directory with a glob or
+        # with a placeholder standing in for the filename, and reading only
+        # basenames reported every member of such a directory as unreachable:
+        # 35 of 36 findings across the author's corpus were that mistake.
+        (stranded / "SKILL.md").write_text(
+            "---\nname: stranded\ndescription: d\n---\n\nGlob `references/*.md` for the rules.\n"
+        )
+        assert unreachable_findings(stranded) == [], "a directory routed by a glob was reported unreachable"
+        (stranded / "SKILL.md").write_text(
+            "---\nname: stranded\ndescription: d\n---\n\nRead `references/{topic}.md` for the rules.\n"
+        )
+        assert unreachable_findings(stranded) == [], "a directory routed by a placeholder was reported unreachable"
+        # A link to one member is not a route to its siblings. Accepting the
+        # bare directory prefix would let a single link silence the whole
+        # directory, which is where an unreachable file is most likely to hide.
+        (stranded / "SKILL.md").write_text(
+            "---\nname: stranded\ndescription: d\n---\n\nSee [linked](references/linked.md).\n"
+        )
+        assert [item["evidence"] for item in unreachable_findings(stranded)] == ["references/orphan.md"], (
+            "one link to one file exempted its siblings"
+        )
+        # The route has to come from outside the directory, for the same reason
+        # a file naming itself proves nothing. A member carrying the glob says
+        # only that these files know about each other, which is no evidence
+        # that the skill sends anyone here.
+        (stranded / "SKILL.md").write_text("---\nname: stranded\ndescription: d\n---\n\nNothing here.\n")
+        (stranded / "references" / "linked.md").write_text("# Linked\n\nSee `references/*.md`.\n")
+        assert {item["evidence"] for item in unreachable_findings(stranded)} == {
+            "references/orphan.md",
+            "references/linked.md",
+        }, "a directory routed only from inside itself counted as reachable"
+        (stranded / "references" / "linked.md").write_text("# Linked\n")
+        (stranded / "SKILL.md").write_text(
+            "---\nname: stranded\ndescription: d\n---\n\n# Stranded\n\nSee [linked](references/linked.md).\n"
+        )
         # Asserted through init, not just the function: computing a finding
         # and never seeding it leaves the reviewer exactly as uninformed.
         stranded_run = root / "stranded-run"
