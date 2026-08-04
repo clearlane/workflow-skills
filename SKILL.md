@@ -130,7 +130,7 @@ Phase names and order live in the coordinator. Do not restate them here; ask `st
 
 ## Review Workflow
 
-Audit an existing skill with the coordinator in [workflows/review.md](workflows/review.md). It detects the surfaces the skill exposes and derives review phases from that evidence, so a review argues from the skill rather than from a checklist.
+Audit an existing skill with the coordinator in [workflows/review.md](workflows/review.md). It detects the surfaces the skill exposes and derives review phases from that evidence, so a review argues from the skill rather than from a checklist. Init seeds the findings with everything the format can be checked for mechanically, so review time goes to the judgements no script can make; `scripts/validate.py <skill-path>` runs that check alone against any skill.
 
 Review stays read-only on its subject: record findings during the run, change the skill after the verdict. Every finding cites a path in the reviewed skill, and the verdict cannot close while a blocking finding lacks an explicit disposition.
 
