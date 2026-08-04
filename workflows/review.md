@@ -30,6 +30,14 @@ python3 scripts/review.py init \
 
 Init records `inventory.json` with the file and line evidence behind every detected surface. Read it before accepting the plan: detection is a keyword scan, so it proposes surfaces rather than proving them.
 
+Init also seeds `findings.json` with everything the format can be checked for mechanically — name pattern and length, description length, required and unknown frontmatter fields, links that resolve to nothing, a body over the size budget. Those are recorded before the first phase so review time goes to the judgements a script cannot make. Run the same check alone against any skill directory, without starting a run:
+
+```bash
+python3 scripts/validate.py <skill-path>
+```
+
+It exits non-zero on an error, zero on warnings alone, and takes `--json` for a machine-readable report.
+
 Correct the plan when the evidence disagrees with the skill:
 
 ```bash
