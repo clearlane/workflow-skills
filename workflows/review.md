@@ -69,7 +69,7 @@ python3 scripts/review.py complete-phase \
   --note "<what held, what did not>"
 ```
 
-Phases close in order, findings cannot attach to an unreached phase, and each decision persists under `decisions/` so an interrupted review resumes from artifacts rather than memory. When a surface surfaces late:
+Phases close in order, findings cannot attach to an unreached phase, and each decision persists under `decisions/` so an interrupted review resumes from artifacts rather than memory. Editing the reviewed skill mid-run is refused for any verb that records a conclusion, because a note or disposition written after a fix describes a tree the review never examined. Fix in a separate run and review the result. When a surface surfaces late, record it and continue: this re-baselines the run against the tree you are now reviewing.
 
 ```bash
 python3 scripts/review.py add-surface --run-dir <run-directory> --surface events

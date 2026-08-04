@@ -283,6 +283,11 @@ def command_record_finding(args):
 
 def command_resolve_finding(args):
     root, state = open_run(args.run_dir)
+    # Disposing of a finding is a judgement that the cited evidence no longer
+    # blocks, which is only meaningful against the tree the evidence points
+    # into. Fixing the skill and then closing the finding in the same run would
+    # record the disposition against a tree the review never re-examined.
+    require_unchanged_skill(state)
     if args.disposition not in DISPOSITIONS:
         fail(f"Disposition must be one of {', '.join(DISPOSITIONS)}")
     require_text(args.note, "--note")
@@ -368,6 +373,17 @@ def command_add_surface(args):
     state["surfaces"] = surfaces
     state["phases"] = phases
     state["phase"] = pending_phase(state) or "complete"
+    # Adding a surface is the reviewer stating that the subject is now known to
+    # cover more than the run assumed, which is the one moment a changed tree is
+    # accounted for rather than ignored. Re-baselining here is what keeps the
+    # drift guard from turning the documented recovery into a dead end: without
+    # it a skill that gained a coordinator mid-review could be extended and then
+    # never closed. The new phase covers the new material, so the conclusions
+    # from here are about the tree recorded here.
+    skill = dict(state.get("skill") or {})
+    if skill.get("sha256"):
+        skill["sha256"] = tree_sha256(relative_file_manifest(Path(skill["path"])))
+        state["skill"] = skill
     save_state(root, state, f"surface-added:{args.surface}")
     print_status(root, state)
 
@@ -582,6 +598,64 @@ def command_self_check(_args):
                 check=False,
             )
             assert finding.returncode == EX_DATAERR, (label, finding.returncode)
+
+        # Blocking drift is only correct if the documented recovery still works.
+        # add-surface exists for a surface that "surfaces late", which is the
+        # same event as the tree changing, so it re-baselines: without that the
+        # guard turns the intended remedy into a dead end where a run can be
+        # extended and then never closed.
+        late = root / "late-surface"
+        late.mkdir()
+        (late / "SKILL.md").write_text("# Late\n\nDo one thing directly.\n")
+        late_run = root / "late-surface-run"
+        execute("init", "--skill", late, "--run-dir", late_run)
+        (late / "scripts").mkdir()
+        (late / "scripts" / "coordinator.py").write_text("# late arrival\n")
+        blocked = execute("complete-phase", "--run-dir", late_run, "--phase", "activation", "--note", "x", check=False)
+        assert blocked.returncode == EX_DATAERR, blocked.returncode
+        execute("add-surface", "--run-dir", late_run, "--surface", "coordinator")
+        resumed = execute("complete-phase", "--run-dir", late_run, "--phase", "activation", "--note", "x", check=False)
+        assert resumed.returncode == 0, resumed.stderr
+        assert "coordinator" in read_json(late_run / "state.json")["phases"]
+
+        # Disposing of a finding is a judgement about the evidence it cites, so
+        # it is refused on a changed tree for the same reason as a phase note.
+        # Checked separately because the fix-then-close sequence is the tempting
+        # one: edit the skill, then mark the finding resolved in the same run,
+        # recording a disposition the review never re-examined.
+        disposing = root / "disposing"
+        disposing.mkdir()
+        (disposing / "SKILL.md").write_text("# Dispose\n\nDo one thing directly.\n")
+        dispose_run = root / "disposing-run"
+        execute("init", "--skill", disposing, "--run-dir", dispose_run)
+        execute(
+            "record-finding",
+            "--run-dir",
+            dispose_run,
+            "--phase",
+            "activation",
+            "--severity",
+            "blocking",
+            "--summary",
+            "needs work",
+            "--evidence",
+            "SKILL.md:1",
+        )
+        (disposing / "SKILL.md").write_text("# Dispose\n\nFixed it directly.\n")
+        closed = execute(
+            "resolve-finding",
+            "--run-dir",
+            dispose_run,
+            "--id",
+            "F1",
+            "--disposition",
+            "fixed",
+            "--note",
+            "fixed it",
+            check=False,
+        )
+        assert closed.returncode == EX_DATAERR, closed.returncode
+        assert "changed since this review began" in closed.stderr, closed.stderr
 
         # Phases close in order, and only with a decision note.
         assert execute(
