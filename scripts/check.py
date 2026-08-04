@@ -95,9 +95,6 @@ README_SECTION = "Structure"
 # Where SKILL.md owns what a workflow's `scripts/<name>.py` resolves against.
 COORDINATOR_PATH_SECTION = "Running a Coordinator"
 ARTIFACT_REFERENCE = "references/artifacts.md"
-# common holds shared definitions and skill is reached through inventory, so
-# neither is named directly by a coordinator.
-SCHEMA_INDIRECT = {"common.schema.json"}
 # Third-party schemas, vendored so validation stays offline, pinned so a
 # silent edit to one cannot turn a conformance claim into a private variant.
 VENDORED_SCHEMAS = {
@@ -895,25 +892,90 @@ def check_vendored_schemas(root):
     return failures
 
 
+def string_literals(source):
+    """Every string a module evaluates, excluding its docstrings.
+
+    A docstring is a string expression the interpreter never uses for anything,
+    so it is prose that happens to be parsed. Excluding it is the difference
+    between "this name appears in the file" and "this name is a value the code
+    works with".
+    """
+    tree = ast.parse(source)
+    documented = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        first = node.body[0] if node.body else None
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+            documented.add(id(first.value))
+    return {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in documented
+    }
+
+
+def referenced_schemas(root, named):
+    """Close a set of schema names under $ref, so indirection is proved not assumed.
+
+    A schema reached only through another schema's $ref is genuinely in use,
+    and no script will ever name it. Following the references answers that,
+    where an exemption list only records that someone once decided it.
+    """
+    reachable, pending = set(named), list(named)
+    while pending:
+        name = pending.pop()
+        path = root / "schemas" / name
+        if not path.is_file():
+            continue
+        for reference in re.findall(r'"\$ref"\s*:\s*"([^"#]+)', path.read_text(encoding="utf-8")):
+            target = reference.rsplit("/", 1)[-1]
+            if target and target not in reachable:
+                reachable.add(target)
+                pending.append(target)
+    return reachable
+
+
 def check_schema_coverage(root):
     """Every schema must be documented, reachable, and actually used.
 
     A schema nothing writes against is a contract with no party to it, and a
     schema no document names cannot be found by the agent that has to satisfy
     it. Both failures look like a healthy directory listing.
+
+    "Used" was a substring test over the concatenated source of every script,
+    which a comment satisfied. Naming a schema in a sentence explaining that
+    nothing writes it was enough to prove that something did. The names are
+    read as string literals now, with docstrings excluded, because a docstring
+    is prose the interpreter parses and never uses.
+
+    That reading is exact enough to replace the indirection exemption with the
+    reason behind it. common.schema.json was listed as exempt because no
+    coordinator names it, which is true and says nothing about whether anything
+    reaches it: the exemption asserted the conclusion. Following $ref from the
+    schemas scripts do name proves it, and would report the file the day the
+    last reference to it is deleted, which the exemption never could.
     """
     failures = []
     schemas = sorted(path.name for path in (root / "schemas").glob("*.schema.json"))
     if not schemas:
         return ["schemas/: no schema files found"]
-    sources = "\n".join(path.read_text(encoding="utf-8") for path in sorted((root / "scripts").glob("*.py")))
+    used = set()
+    for path in sorted((root / "scripts").glob("*.py")):
+        # This file is excluded because its self-check builds fixture trees
+        # containing schema names. Counting those would let a check's own test
+        # data stand in for a coordinator using the schema, which is the same
+        # confusion between mentioning a name and using it that the literal
+        # reading exists to end.
+        if path.name != CHECKER:
+            used |= string_literals(path.read_text(encoding="utf-8"))
+    named = {name for name in schemas if any(name in literal for literal in used)}
+    reachable = referenced_schemas(root, named)
     contract = (root / ARTIFACT_REFERENCE).read_text(encoding="utf-8")
     for name in schemas:
         if name not in contract:
             failures.append(f"{ARTIFACT_REFERENCE}: does not document {name}")
-        # common holds shared definitions and skill is referenced by inventory,
-        # so neither is named directly by a coordinator.
-        if name not in sources and name not in SCHEMA_INDIRECT:
+        if name not in reachable:
             failures.append(f"schemas/{name}: no script writes or validates against it")
         # An agent authors these files by hand, so a misspelled key is the most
         # likely mistake there is. An open root accepts it, the coordinator
@@ -1754,6 +1816,26 @@ def self_check():
         assert check_schema_coverage(tree) == [], "a documented, used, closed schema was rejected"
         (tree / "scripts" / "w.py").write_text("x = 1\n", encoding="utf-8")
         assert check_schema_coverage(tree), "a schema no script writes against was accepted"
+        # The substring form of this check counted a mention in a comment or a
+        # docstring as use, so the sentence saying nothing writes the schema
+        # was itself the proof that something did.
+        (tree / "scripts" / "w.py").write_text("# a.schema.json is written by nothing.\n", encoding="utf-8")
+        assert check_schema_coverage(tree), "a schema named only in a comment was accepted as used"
+        (tree / "scripts" / "w.py").write_text('"""Nothing writes a.schema.json."""\n', encoding="utf-8")
+        assert check_schema_coverage(tree), "a schema named only in a docstring was accepted as used"
+        # A schema reached only through another schema's $ref is in use, and no
+        # script will ever name it. This replaced an exemption list, so both
+        # sides are proved: reachable passes, and unreachable still fails.
+        (tree / "scripts" / "w.py").write_text('SCHEMA = "a.schema.json"\n', encoding="utf-8")
+        shared = {"$defs": {"text": {"type": "string"}}}
+        (tree / "schemas" / "shared.schema.json").write_text(json.dumps(shared), encoding="utf-8")
+        guidance(tree, ARTIFACT_REFERENCE, "# A\n\nThe run writes `a.schema.json` using `shared.schema.json`.\n")
+        assert check_schema_coverage(tree), "a schema nothing references was accepted"
+        (tree / "schemas" / "a.schema.json").write_text(
+            json.dumps({**closed, "properties": {"a": {"$ref": "shared.schema.json#/$defs/text"}}}),
+            encoding="utf-8",
+        )
+        assert check_schema_coverage(tree) == [], "a schema reached only by $ref was reported unused"
         (tree / "scripts" / "w.py").write_text('SCHEMA = "a.schema.json"\n', encoding="utf-8")
         guidance(tree, ARTIFACT_REFERENCE, "# A\n\nNothing.\n")
         assert check_schema_coverage(tree), "an undocumented schema was accepted"
