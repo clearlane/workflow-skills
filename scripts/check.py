@@ -763,7 +763,19 @@ def check_external_links(root):
     )
     if result.returncode == 0:
         return []
-    return [line.strip() for line in result.stdout.splitlines() if "[ERROR]" in line or "[404]" in line]
+    # A nonzero exit means lychee rejected something, so this must report at
+    # least one failure. Filtering its output for known markers and returning
+    # whatever survives would turn a format change in a future lychee release
+    # into a silent pass: the run fails, the filter matches nothing, and the
+    # suite reports the check green. The unparsed output is the fallback,
+    # because an unreadable failure is still a failure.
+    reported = [line.strip() for line in result.stdout.splitlines() if "[ERROR]" in line or "[404]" in line]
+    if reported:
+        return reported
+    detail = (result.stdout + result.stderr).strip().splitlines()
+    return [f"lychee exited {result.returncode} with no recognisable failure lines"] + [
+        line.strip() for line in detail[-10:] if line.strip()
+    ]
 
 
 def check_schema_lint(root):

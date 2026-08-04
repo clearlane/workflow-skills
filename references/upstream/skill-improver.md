@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Upstream location | [`trailofbits/claude-plugins/plugins/skill-improver`](https://github.com/trailofbits/claude-plugins/tree/main/plugins/skill-improver) |
+| Upstream location | [`trailofbits/skills/plugins/skill-improver`](https://github.com/trailofbits/skills/tree/main/plugins/skill-improver), absorbed when the repository was named `trailofbits/claude-plugins` |
 | Baseline kind | Local tree digest of the installed snapshot; upstream `main` is mutable, so no commit was resolvable at absorption time |
 | Absorbed baseline | Snapshot tree SHA-256 `4431fa58669d6e5f863284eeda1f40f110564ce5bfe876b312858fe6045edaef` |
 | Absorbed on | 2026-08-03 |
