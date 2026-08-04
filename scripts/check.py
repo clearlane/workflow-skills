@@ -2915,27 +2915,36 @@ def self_check():
     assert os.environ.get("CHECK_FLOOR") == "1" or check_floor_runtime(ROOT) == [], (
         "the floor run executed without being asked for"
     )
-    if shutil.which("uv"):
-        with tempfile.TemporaryDirectory() as directory:
-            tree = Path(directory)
-            (tree / "scripts").mkdir()
-            (tree / "pyproject.toml").write_text('[project]\nrequires-python = ">=3.10"\n', encoding="utf-8")
-            (tree / "requirements.txt").write_text("", encoding="utf-8")
-            (tree / "scripts" / CHECKER).write_text("raise SystemExit('FAIL something')\n", encoding="utf-8")
-            previous = os.environ.get("CHECK_FLOOR")
-            os.environ["CHECK_FLOOR"] = "1"
-            try:
-                reported = check_floor_runtime(tree)
-                (tree / "scripts" / CHECKER).write_text("print('all checks passed')\n", encoding="utf-8")
-                passing = check_floor_runtime(tree)
-            finally:
-                if previous is None:
-                    del os.environ["CHECK_FLOOR"]
-                else:
-                    os.environ["CHECK_FLOOR"] = previous
-            assert reported, "a suite failing on the floor was reported as passing"
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "scripts").mkdir()
+        (tree / "pyproject.toml").write_text('[project]\nrequires-python = ">=3.10"\n', encoding="utf-8")
+        (tree / "requirements.txt").write_text("", encoding="utf-8")
+        (tree / "scripts" / CHECKER).write_text("raise SystemExit('FAIL something')\n", encoding="utf-8")
+        previous = os.environ.get("CHECK_FLOOR")
+        os.environ["CHECK_FLOOR"] = "1"
+        try:
+            reported = check_floor_runtime(tree)
+            (tree / "scripts" / CHECKER).write_text("print('all checks passed')\n", encoding="utf-8")
+            passing = check_floor_runtime(tree)
+        finally:
+            if previous is None:
+                del os.environ["CHECK_FLOOR"]
+            else:
+                os.environ["CHECK_FLOOR"] = previous
+        # Guarding the whole case on uv being present left the check
+        # unobserved wherever it is not, which is CI: a skipped case and a
+        # deleted check body agree, and the mutation sweep said so. The
+        # requested-but-unavailable path exists on every machine and is a
+        # finding rather than a silent skip, precisely so that asking for the
+        # floor and not getting it cannot look like a pass.
+        assert reported, "a suite failing on the floor was reported as passing"
+        if shutil.which("uv"):
             assert any("3.10" in failure for failure in reported), reported
             assert passing == [], "a suite passing on the floor was reported as failing"
+        else:
+            assert any("uv is not installed" in failure for failure in reported), reported
+            assert passing == reported, "the verdict changed without a runtime to produce one"
 
     assert check_executable_bits(ROOT) == [], "the shipped tree disagrees with git about executable bits"
     # Git owns the mode, so the case needs a repository rather than a
