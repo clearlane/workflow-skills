@@ -38,6 +38,8 @@ python3 scripts/validate.py <skill-path>
 
 It exits non-zero on an error, zero on warnings alone, and takes `--json` for a machine-readable report.
 
+Init seeds the safety phase too, with the shapes that phase asks about which a pattern can locate: a recursive or unquoted delete of a path built from a variable, code fetched at runtime and executed, a query assembled by interpolation, a literal that looks like a credential. These are leads, not verdicts. Whether a given one is a defect depends on where the value came from, which only a reader can settle, so they arrive as `major` and carry file and line evidence. Disposition each one as `confirmed` or `rejected` with a note saying which. A conformant skill can still do all of these, and the phase used to open with nothing recorded at all.
+
 Correct the plan when the evidence disagrees with the skill:
 
 ```bash
