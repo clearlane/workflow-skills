@@ -275,10 +275,25 @@ def answered_by_findings(findings):
 
 
 def outstanding_questions(root, phase, findings=None):
-    """Questions this phase must still answer before it can close."""
+    """Questions this phase must still answer before it can close.
+
+    An id is positional, so editing the contract mid-run can move it onto a
+    different question. An answer therefore only settles the question it was
+    recorded against: `answers.json` stores the text as asked, and an id whose
+    text has since changed is asked again. Without that, reordering two
+    questions would silently retarget an answer, and the phase would close
+    reporting full coverage over a question nobody was ever shown.
+    """
     findings = load_findings(root) if findings is None else findings
-    settled = set(load_answers(root)) | set(answered_by_findings(findings))
-    return [(identifier, text) for identifier, text in phase_questions(phase) if identifier not in settled]
+    # Keyed by id and text together. The schema requires an answer to record
+    # the question it was given, so there is no answer without one to compare.
+    settled = set(answered_by_findings(findings))
+    asked_as = {(identifier, answer["question"]) for identifier, answer in load_answers(root).items()}
+    return [
+        (identifier, text)
+        for identifier, text in phase_questions(phase)
+        if identifier not in settled and (identifier, text) not in asked_as
+    ]
 
 
 def print_status(root, state):
@@ -1079,6 +1094,16 @@ def command_self_check(_args):
         assert {item["severity"] for item in leads} == {"major"}, leads
         for item in leads:
             assert ":" in item["evidence"] and item["remedy"], item
+
+        # The question those leads answer must not be asked again. Checked
+        # here through the gate rather than against answered_by_findings
+        # alone, because the mapping existing is not the same as the gate
+        # consulting it: with the two unjoined, a run would locate a defect
+        # and then still demand the reviewer establish it by hand.
+        settled_by_scan = anchored_question("safety-scan")
+        assert settled_by_scan not in [identifier for identifier, _ in outstanding_questions(risky_run, "safety")], (
+            f"{settled_by_scan} was asked again despite a finding that answers it"
+        )
         # And silent on a skill that does none of it, or the leads are noise
         # a reviewer learns to skip past.
         assert safety_findings(plain) == [], safety_findings(plain)
@@ -1307,6 +1332,44 @@ def command_self_check(_args):
         unknown = refused("activation.99", "holds", "x")
         assert unknown.returncode == EX_USAGE, (unknown.returncode, unknown.stderr)
         assert "Unknown question" in (unknown.stdout + unknown.stderr), unknown.stdout
+
+        # A question id is its position in the contract, so editing the
+        # document mid-run can slide an id onto a different question. The
+        # answer already recorded would then settle a question nobody was
+        # shown, and the phase would close reporting full coverage. Detected
+        # by comparing the text as answered against the text as now asked, so
+        # a moved question is put again.
+        execute(
+            "answer",
+            "--run-dir",
+            run,
+            "--question",
+            "activation.2",
+            "--verdict",
+            "holds",
+            "--evidence",
+            "SKILL.md:3",
+        )
+        answered_run = Path(run) / "answers.json"
+        original_answers = answered_run.read_text()
+        before = json.loads(original_answers)
+        assert before["answers"], "no answer was recorded, so the case below proves nothing"
+        identifier, entry = next(iter(before["answers"].items()))
+        assert entry["question"], "an answer recorded no question text to compare against"
+        phase_of = identifier.partition(".")[0]
+        assert identifier not in [i for i, _ in outstanding_questions(Path(run), phase_of)], (
+            "an answered question was still outstanding"
+        )
+        entry["question"] = "Some other question the reviewer was never shown?"
+        answered_run.write_text(json.dumps(before))
+        try:
+            reasked = [i for i, _ in outstanding_questions(Path(run), phase_of)]
+            assert identifier in reasked, f"{identifier} kept its answer after the contract moved it: {reasked}"
+        finally:
+            answered_run.write_text(original_answers)
+        assert identifier not in [i for i, _ in outstanding_questions(Path(run), phase_of)], (
+            "the case above did not restore the run's answers"
+        )
 
         # The contract is parsed as CommonMark rather than scanned for lines
         # starting with a dash. Each case below was wrong under that scan: it
