@@ -144,6 +144,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `scripts/settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
 - `scripts/names.py` — deterministic portable filename check
 - `scripts/validate.py` — Agent Skills conformance check for any skill directory, dependency-free so it runs before anything is installed
+- `scripts/mutate.py` — mutation testing for the checks: gut each one and require its own self-check to notice
 
 **Supporting files**
 
