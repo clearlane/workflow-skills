@@ -105,6 +105,15 @@ README_EXEMPT = {".gitignore", "LICENSE", "LICENSE-CODE", README, "skill-logic.w
 # obligation, executables are MIT so they can be vendored without it.
 SPDX_TAG = "SPDX-License-Identifier:"
 CODE_LICENCE = "MIT"
+# Files under scripts/ that ship without the tag. Empty on purpose: nothing
+# there is exempt today. The set exists so that dropping a file out of the
+# licence boundary is a decision someone wrote down and justified here, the way
+# README_EXEMPT names the files the README map does not cover. A format with no
+# comment syntax, such as JSON, is the only reason to expect an entry.
+LICENCE_EXEMPT = frozenset()
+# Comment closers that can follow the licence expression on the same line, so a
+# block or markup comment leader does not read as part of the expression.
+COMMENT_CLOSERS = ("*/", "-->")
 SKILL_LICENCE = "CC-BY-SA-4.0 AND MIT"
 ENTRY_DOCUMENTS = (
     "SKILL.md",
@@ -1039,20 +1048,63 @@ def check_licence_headers(root):
     obligation, executables do not. That boundary is only real if it is visible
     per file. Without a header, someone vendoring `state.py` has to reason about
     which half of the repository it belongs to, and will guess share-alike.
+
+    Every shipped file under `scripts/` is required to carry the tag, not those
+    whose suffix a list happened to name. The list was `.py` and `.sh`, so a
+    `.js` helper, a `.toml` tool config, or a `.yml` job under `scripts/` landed
+    with no tag at all and passed: being an unanticipated suffix was what
+    exempted it. That is the opposite of what the README claims, which is that
+    the boundary is readable per file rather than inferred. Exemptions are named
+    in LICENCE_EXEMPT so dropping a file out of the boundary is written down.
+
+    The comment leader is not assumed to be `#`, because requiring every suffix
+    also means meeting formats whose comment syntax is `//` or `<!--`. SPDX
+    itself only asks that the tag appear in a comment near the top, so the tag
+    is located within the head and the expression after it is what must match.
     """
     failures = []
+    shipped = state.shipped_paths(root)
     for path in sorted((root / "scripts").rglob("*")):
-        if not path.is_file() or path.suffix not in {".py", ".sh"}:
+        if not path.is_file():
             continue
-        head = path.read_text(encoding="utf-8").splitlines()[:5]
-        if not any(line.startswith(f"# {SPDX_TAG}") for line in head):
-            failures.append(f"{path.relative_to(root)}: missing '# {SPDX_TAG}' header")
-        elif not any(line == f"# {SPDX_TAG} {CODE_LICENCE}" for line in head):
-            failures.append(f"{path.relative_to(root)}: {SPDX_TAG} must be {CODE_LICENCE}")
+        relative = path.relative_to(root)
+        name = relative.as_posix()
+        if any(part.startswith(".") for part in relative.parts) or "__pycache__" in relative.parts:
+            continue
+        # A contributor's untracked scratch file is not what this repository
+        # ships, so it is not what the licence boundary has to cover.
+        if shipped is not None and name not in shipped:
+            continue
+        if name in LICENCE_EXEMPT:
+            continue
+        declared = tagged_licence(path)
+        if declared is None:
+            failures.append(f"{name}: missing '{SPDX_TAG} {CODE_LICENCE}' header")
+        elif declared != CODE_LICENCE:
+            failures.append(f"{name}: {SPDX_TAG} must be {CODE_LICENCE}, not {declared}")
     declared = document.parse(root / "SKILL.md").frontmatter or {}
     if declared.get("license") != SKILL_LICENCE:
         failures.append(f"SKILL.md: frontmatter license must be {SKILL_LICENCE!r}")
     return failures
+
+
+def tagged_licence(path):
+    """The licence expression this file declares in its head, or None.
+
+    Read as bytes and decoded leniently because the caller now asks every
+    shipped file, and a file this cannot decode carries no tag rather than
+    crashing the suite on it.
+    """
+    head = path.read_bytes()[:4096].decode("utf-8", errors="replace").splitlines()[:5]
+    for line in head:
+        _, marker, expression = line.partition(SPDX_TAG)
+        if not marker:
+            continue
+        expression = expression.strip()
+        for closer in COMMENT_CLOSERS:
+            expression = expression.removesuffix(closer).strip()
+        return expression
+    return None
 
 
 def check_lint(root):
@@ -1894,6 +1946,27 @@ def self_check():
         (tree / "scripts" / "a.py").write_text(f"# {SPDX_TAG} Apache-2.0\n", encoding="utf-8")
         assert check_licence_headers(tree), "a script naming the wrong licence was accepted"
         (tree / "scripts" / "a.py").write_text(header, encoding="utf-8")
+        # The suffix allowlist was `.py` and `.sh`, so these three shipped
+        # outside the licence boundary and the check reported green. Each is a
+        # plausible addition under scripts/ and each carries a different comment
+        # leader, which is why the tag is no longer required to start with `#`.
+        untagged = {
+            "bootstrap.js": "console.log(1);\n",
+            "tool.toml": "[tool]\nname = 'x'\n",
+            "job.yml": "on: push\n",
+        }
+        for name, body in untagged.items():
+            (tree / "scripts" / name).write_text(body, encoding="utf-8")
+            assert check_licence_headers(tree), f"an untagged {name} was accepted"
+            (tree / "scripts" / name).unlink()
+        (tree / "scripts" / "bootstrap.js").write_text(f"// {SPDX_TAG} {CODE_LICENCE}\n", encoding="utf-8")
+        assert check_licence_headers(tree) == [], "a tag behind a // leader was rejected"
+        (tree / "scripts" / "page.html").write_text(f"<!-- {SPDX_TAG} {CODE_LICENCE} -->\n", encoding="utf-8")
+        assert check_licence_headers(tree) == [], "a tag inside a markup comment was rejected"
+        (tree / "scripts" / "page.html").write_text(f"<!-- {SPDX_TAG} Apache-2.0 -->\n", encoding="utf-8")
+        assert check_licence_headers(tree), "a markup comment naming the wrong licence was accepted"
+        (tree / "scripts" / "page.html").unlink()
+        (tree / "scripts" / "bootstrap.js").unlink()
         guidance(tree, "SKILL.md", "---\nname: s\nlicense: MIT\n---\n\n# S\n")
         assert check_licence_headers(tree), "the wrong skill licence was accepted"
 
