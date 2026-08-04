@@ -301,7 +301,7 @@ def check_duplicate_headings(root):
     each of several parents is the opposite: it is the positional consistency
     references/structure.md asks for, and rejecting it would punish the shape
     the repository is trying to enforce. Across the 1343 markdown files on this
-    machine the distinction is decisive - 176 headings repeat under different
+    machine the distinction is decisive - 178 headings repeat under different
     parents and every one is that pattern, while 5 repeat under one parent.
 
     Identical headings anywhere in a document also collide on their anchors,
@@ -809,17 +809,18 @@ def check_reference_skeleton(root):
     the second: references/structure.md numbers a reference's shape as `#
     Title`, then "An opening paragraph naming what this reference owns and what
     owns the neighbouring concern instead", then the topic sections, then the
-    closing. Only the first and last were checked, so a reference could jump
-    from its title straight into an H2 and pass. That is the failure the
-    skeleton exists to prevent, one position earlier: a reader who has to
-    decide whether they are in the right document gets a heading and no answer.
+    closing. The title's presence and the closing's name were checked and the
+    two middle parts were not, so a reference could jump from its title
+    straight into an H2 and pass. That is the failure the skeleton exists to
+    prevent, one position earlier: a reader who has to decide whether they are
+    in the right document gets a heading and no answer.
 
     Only the paragraph's presence is required, not what it says. The sentence
     asks for two things, what this reference owns and what owns the
-    neighbouring concern, and the second is a judgement no parser makes: five
-    of this repository's nineteen references name no neighbour because they
-    have none to name, and demanding a link would be enforcing more than the
-    contract states.
+    neighbouring concern, and the second is a judgement no parser makes: seven
+    of this repository's nineteen references link no neighbour from their
+    opening because they have none to name, and demanding a link would be
+    enforcing more than the contract states.
 
     The third is that the closing section had to exist and not to say anything.
     A reference ending in a bare `## Checks` heading passed, which is worse
