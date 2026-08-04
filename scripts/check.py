@@ -1217,17 +1217,80 @@ def check_ci_floor(root):
     return []
 
 
+def registered_checks(source):
+    """Names the suite registry runs, and the names its self-check exercises.
+
+    Read from the source rather than by running either, because the question
+    is what the file wires up, and a check that is never wired up cannot be
+    observed by running it.
+    """
+    tree = ast.parse(source)
+    defined = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("check_") and node.name != "check_skill"
+    }
+    registry, exercised = set(), set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        called = {
+            inner.func.id
+            for inner in ast.walk(node)
+            if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
+        }
+        if node.name == "main":
+            registry |= called
+        elif node.name == "self_check":
+            exercised |= called
+    return defined, registry, exercised
+
+
+def check_checks_are_wired(root):
+    """Every check must be registered by the suite and exercised by its self-check.
+
+    A check_* function that nothing calls is indistinguishable from one that
+    passes: the suite reports every registered check green and says nothing
+    about the one it never ran. Adding real logic to this file and forgetting
+    the one line that registers it leaves a repository that believes it is
+    checking something it is not, and no existing check looks for that.
+
+    Being exercised by self_check is the second half. AGENTS.md requires a new
+    check to be shown failing on a real violation before it is kept, and
+    whether the violation was real stays a human judgement, but whether
+    anything at all drives the check is not: a registered check with no case
+    behind it can have its condition inverted and the suite stays green. That
+    is the shape mutation testing keeps finding.
+    """
+    source = (root / "scripts" / CHECKER).read_text(encoding="utf-8")
+    defined, registry, exercised = registered_checks(source)
+    failures = []
+    for name in sorted(defined - registry):
+        failures.append(f"scripts/{CHECKER}: {name} is defined but main() never registers it, so it never runs")
+    for name in sorted(defined - exercised):
+        failures.append(f"scripts/{CHECKER}: {name} has no case in self_check(), so nothing proves it can fail")
+    return failures
+
+
 def self_checks_assert_something(root):
-    """Require each self-check to contain assertions, not just the token.
+    """Require each self-check to contain assertions that can fail.
 
     run_script demands the script print "self-check passed", which catches a
     self-check that stays silent. It does not catch one that prints the line
     and checks nothing: a stub whose whole body is that print passes the suite
     while proving nothing about the script it belongs to.
 
-    Assertions are the structural difference between the two, so they are what
-    is counted. The bar is deliberately low; the point is that zero is a
-    mistake, not that any particular number is enough.
+    Counting assertions was the first answer and it was not enough. `assert
+    True` is an assertion, so a self-check gutted down to a single tautology
+    satisfied the count while proving exactly as much as the empty stub this
+    check was written to reject. That matters more here than anywhere else:
+    this is the check standing behind every other script's self-check, so a
+    hole in it is a hole in all of them at once.
+
+    An assertion whose test is a literal cannot fail, so it is not counted. No
+    judgement is made about whether the remaining assertions are good ones;
+    the bar is that at least one of them can distinguish a working script from
+    a broken one.
     """
     failures = []
     for path in sorted((root / "scripts").glob("*.py")):
@@ -1236,12 +1299,26 @@ def self_checks_assert_something(root):
         if not functions:
             failures.append(f"scripts/{path.name}: no self-check function")
             continue
-        asserts = sum(1 for function in functions for node in ast.walk(function) if isinstance(node, ast.Assert))
-        if not asserts:
-            failures.append(
-                f"scripts/{path.name}: self-check contains no assertions; printing the line is not checking"
-            )
+        asserts = [node for function in functions for node in ast.walk(function) if isinstance(node, ast.Assert)]
+        # A constant test is decided before the program runs. Tuples and lists
+        # of constants are the same mistake spelled differently, and `assert
+        # (x, "message")` is the one that reads most like a real check.
+        falsifiable = [node for node in asserts if not _is_constant(node.test)]
+        if not falsifiable:
+            detail = "contains no assertions" if not asserts else "asserts only constants, which cannot fail"
+            failures.append(f"scripts/{path.name}: self-check {detail}; printing the line is not checking")
     return failures
+
+
+def _is_constant(node):
+    """Whether an expression's truth is fixed before the program runs."""
+    if isinstance(node, ast.Constant):
+        return True
+    # A collection literal's truth is its length, which is fixed here whatever
+    # the elements evaluate to. `assert (value, "message")` is the shape this
+    # catches: it reads like an assertion carrying a message, and is a tuple
+    # that can never be falsy.
+    return isinstance(node, (ast.Tuple, ast.List, ast.Set))
 
 
 def self_check():
@@ -1265,9 +1342,47 @@ def self_check():
         (scripts / "impostor.py").write_text(
             'def self_check():\n    assert True\n    print("self-check passed")\n', encoding="utf-8"
         )
-        assert self_checks_assert_something(Path(directory)) == []
+        assert self_checks_assert_something(Path(directory)), "a tautology was counted as an assertion"
+        (scripts / "impostor.py").write_text(
+            'def self_check():\n    assert (value, "message")\n    print("self-check passed")\n', encoding="utf-8"
+        )
+        assert self_checks_assert_something(Path(directory)), "an always-truthy tuple was counted as an assertion"
+        (scripts / "impostor.py").write_text(
+            'def self_check():\n    assert parse("x") == 1\n    print("self-check passed")\n', encoding="utf-8"
+        )
+        assert self_checks_assert_something(Path(directory)) == [], "a real assertion was rejected"
         (scripts / "impostor.py").write_text("x = 1\n", encoding="utf-8")
         assert self_checks_assert_something(Path(directory)), "a script with no self-check was accepted"
+
+    # A check nothing registers never runs, and a check with no case behind it
+    # can have its condition inverted with the suite still green. Both holes
+    # are invisible from the outside, so the wiring is read from the source.
+    wired = (
+        "def check_a(root):\n    return []\n\ndef main():\n    check_a(ROOT)\n\ndef self_check():\n    check_a(ROOT)\n"
+    )
+    assert registered_checks(wired) == ({"check_a"}, {"check_a"}, {"check_a"})
+    unregistered = (
+        "def check_a(root):\n    return []\n\ndef main():\n    pass\n\ndef self_check():\n    check_a(ROOT)\n"
+    )
+    defined, registry, exercised = registered_checks(unregistered)
+    assert defined - registry == {"check_a"}, "a check main() never calls was treated as registered"
+    unexercised = "def check_a(root):\n    return []\n\ndef main():\n    check_a(ROOT)\n\ndef self_check():\n    pass\n"
+    defined, registry, exercised = registered_checks(unexercised)
+    assert defined - exercised == {"check_a"}, "a check with no self-check case was treated as covered"
+    # The check has to answer for itself too, and the only way to be exercised
+    # by self_check() is to be called from it. Asserting only that the real
+    # file passes would leave the check itself the one thing here that could be
+    # gutted without the suite noticing, so a broken tree is replayed as well.
+    assert check_checks_are_wired(ROOT) == [], "a check in this file is unregistered or has no case"
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "scripts").mkdir()
+        (tree / "scripts" / CHECKER).write_text(unregistered, encoding="utf-8")
+        assert check_checks_are_wired(tree), "an unregistered check was accepted"
+        (tree / "scripts" / CHECKER).write_text(unexercised, encoding="utf-8")
+        assert check_checks_are_wired(tree), "a check with no self-check case was accepted"
+        (tree / "scripts" / CHECKER).write_text(wired, encoding="utf-8")
+        assert check_checks_are_wired(tree) == [], "a fully wired check was rejected"
 
     # The floor check compares two files no other check reads together, so a
     # version drift between them would otherwise look like a green run.
@@ -1456,6 +1571,206 @@ def self_check():
         )
         assert check_coordinator_paths(tree) == [], "the stated contract was not recognised"
 
+    # Everything below replays a check against a purpose-built tree. These
+    # cases were absent, which meant each of these checks could have its
+    # condition inverted with the whole suite still green: the real tree is
+    # correct, so a check that always returns [] is indistinguishable from one
+    # that works. That is exactly the shape check_checks_are_wired now rejects.
+    def guidance(tree, name, body):
+        path = tree / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        # A host name is a violation in neutral guidance and unremarkable in
+        # vendored upstream material, so both sides are replayed.
+        guidance(tree, "references/neutral.md", "# N\n\nRun the coordinator.\n\n## Checks\n\n- one\n")
+        assert check_vendor_tokens(tree) == [], "runtime-neutral guidance was rejected"
+        guidance(tree, "references/neutral.md", f"# N\n\nOpen {HOST_TOKENS[0]}.\n\n## Checks\n\n- one\n")
+        assert check_vendor_tokens(tree), "a host token in a reference was accepted"
+        guidance(tree, "references/neutral.md", "# N\n\nRun it.\n\n## Checks\n\n- one\n")
+        guidance(tree, "references/upstream/vendored.md", f"# V\n\nFrom {HOST_TOKENS[0]}.\n")
+        assert check_vendor_tokens(tree) == [], "vendored upstream material was held to neutrality"
+        guidance(tree, "references/upstream/vendored.md", f"# V\n\n{VENDOR_TOKENS[0]}\n")
+        assert check_vendor_tokens(tree), "a vendor token was accepted anywhere"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        guidance(tree, "references/a.md", "# A\n\n## One\n\nx\n\n## Two\n\ny\n")
+        assert check_duplicate_headings(tree) == [], "distinct sections were called duplicates"
+        guidance(tree, "references/a.md", "# A\n\n## One\n\nx\n\n## One\n\ny\n")
+        assert check_duplicate_headings(tree), "a repeated H2 was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "scripts").mkdir()
+        for name in COORDINATORS:
+            (tree / "scripts" / name).write_text("import state\n", encoding="utf-8")
+        assert check_shared_runtime(tree) == [], "coordinators composing the lifecycle were rejected"
+        (tree / "scripts" / COORDINATORS[0]).write_text(
+            f"def {RUNTIME_OWNED[0]}(path):\n    return None\n", encoding="utf-8"
+        )
+        assert check_shared_runtime(tree), "a coordinator re-growing the run lifecycle was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        rows = "".join(f"| {TICK}{name}{TICK} | why |\n" for name, _, _ in CAPABILITY_PHASES)
+        guidance(tree, DESIGN_WORKFLOW, f"# D\n\n| Capability | Why |\n| --- | --- |\n{rows}")
+        assert check_capability_rows(tree) == [], "the documented capability set was rejected"
+        guidance(
+            tree, DESIGN_WORKFLOW, f"# D\n\n| Capability | Why |\n| --- | --- |\n{rows}| {TICK}ghost{TICK} | x |\n"
+        )
+        assert check_capability_rows(tree), "a documented capability deriving no phase was accepted"
+        trimmed = rows.split("\n", 1)[1]
+        guidance(tree, DESIGN_WORKFLOW, f"# D\n\n| Capability | Why |\n| --- | --- |\n{trimmed}")
+        assert check_capability_rows(tree), "a derived capability with no row was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "workflows").mkdir()
+        guidance(tree, "references/reached.md", "# R\n")
+        # The workflows are themselves subject to the rule, so SKILL.md links
+        # each of them as well as the reference.
+        links = "\n".join(f"[{name}]({name})" for name in ENTRY_DOCUMENTS if name != "SKILL.md")
+        for name in ENTRY_DOCUMENTS:
+            guidance(tree, name, f"# E\n\n[r](references/reached.md)\n\n{links}\n" if name == "SKILL.md" else "# E\n")
+        assert check_reachability(tree) == [], "a reference linked from SKILL.md was called unreachable"
+        guidance(tree, "references/orphan.md", "# O\n")
+        assert check_reachability(tree), "a reference nothing links to was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        body = f"# T\n\nOpening.\n\n## Topic\n\nx\n\n## {REFERENCE_CLOSING}\n\n- how\n"
+        guidance(tree, "references/a.md", body)
+        assert check_reference_skeleton(tree) == [], "a conforming reference was rejected"
+        guidance(tree, "references/a.md", body.replace(f"## {REFERENCE_CLOSING}", "## Validation"))
+        assert check_reference_skeleton(tree), "a reference closing under another name was accepted"
+        guidance(tree, "references/a.md", body + "\n## Afterword\n\nx\n")
+        assert check_reference_skeleton(tree), f"a section after '{REFERENCE_CLOSING}' was accepted"
+        guidance(tree, "references/a.md", body.replace("# T\n", "", 1))
+        assert check_reference_skeleton(tree), "a reference with no title was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "schemas").mkdir()
+        schema = tree / "schemas" / "a.schema.json"
+        valid = {"type": "object", "properties": {"a": {"type": "string"}}, "additionalProperties": False}
+        schema.write_text(json.dumps(valid), encoding="utf-8")
+        assert check_schema_keywords(tree) == [], "a schema using only real keywords was rejected"
+        schema.write_text(json.dumps({**valid, "requred": ["a"]}), encoding="utf-8")
+        assert check_schema_keywords(tree), "a misspelled keyword was accepted as an annotation"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "scripts").mkdir()
+        guidance(tree, "SKILL.md", f"---\nname: s\nlicense: {SKILL_LICENCE}\n---\n\n# S\n")
+        header = f"#!/usr/bin/env python3\n# {SPDX_TAG} {CODE_LICENCE}\n"
+        (tree / "scripts" / "a.py").write_text(header, encoding="utf-8")
+        assert check_licence_headers(tree) == [], "a correctly headed script was rejected"
+        (tree / "scripts" / "a.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        assert check_licence_headers(tree), "a script with no licence header was accepted"
+        (tree / "scripts" / "a.py").write_text(f"# {SPDX_TAG} Apache-2.0\n", encoding="utf-8")
+        assert check_licence_headers(tree), "a script naming the wrong licence was accepted"
+        (tree / "scripts" / "a.py").write_text(header, encoding="utf-8")
+        guidance(tree, "SKILL.md", "---\nname: s\nlicense: MIT\n---\n\n# S\n")
+        assert check_licence_headers(tree), "the wrong skill licence was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "schemas" / "vendor").mkdir(parents=True)
+        name, digest = next(iter(VENDORED_SCHEMAS.items()))
+        vendored = tree / "schemas" / "vendor" / name
+        shutil.copy2(ROOT / "schemas" / "vendor" / name, vendored)
+        assert check_vendored_schemas(tree) == [], "the published schema did not match its recorded digest"
+        vendored.write_bytes(vendored.read_bytes() + b"\n")
+        assert check_vendored_schemas(tree), f"an edited vendored schema was accepted against {digest[:8]}"
+        vendored.unlink()
+        assert check_vendored_schemas(tree), "a missing vendored schema was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "workflows").mkdir()
+        (tree / "scripts").mkdir()
+        (tree / "scripts" / "w.py").write_text("x = 1\n", encoding="utf-8")
+        guidance(tree, "workflows/w.md", "# W\n\nRun `python3 scripts/w.py init`.\n")
+        assert check_workflow_dispatch(tree) == [], "a workflow naming a real coordinator was rejected"
+        guidance(tree, "workflows/w.md", "# W\n\nDo it by hand.\n")
+        assert check_workflow_dispatch(tree), "a workflow holding control in prose was accepted"
+        guidance(tree, "workflows/w.md", "# W\n\nRun `python3 scripts/ghost.py init`.\n")
+        assert check_workflow_dispatch(tree), "a workflow dispatching to a missing coordinator was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "workflows").mkdir()
+        scoped = f"# A\n\n## {WORKFLOW_SCOPE_SECTION}\n\nFor A. For B see [b.md](b.md).\n"
+        guidance(tree, "workflows/a.md", scoped)
+        guidance(tree, "workflows/b.md", f"# B\n\n## {WORKFLOW_SCOPE_SECTION}\n\nFor B. For A see [a.md](a.md).\n")
+        assert check_workflow_boundaries(tree) == [], "workflows scoping each other were rejected"
+        guidance(tree, "workflows/a.md", "# A\n\n## Steps\n\nFor B see [b.md](b.md).\n")
+        assert check_workflow_boundaries(tree), "a workflow with no scope section was accepted"
+        guidance(tree, "workflows/a.md", f"# A\n\n## {WORKFLOW_SCOPE_SECTION}\n\nAlways.\n\n## Body\n\n[b](b.md)\n")
+        assert check_workflow_boundaries(tree), "a sibling link outside the scope section was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "examples").mkdir()
+        example = tree / "examples" / "a.json"
+        example.write_text('{"not": "stamped"}', encoding="utf-8")
+        assert check_examples_validate(tree) == [], "an unstamped settings fixture was validated"
+        example.write_text('{"schema": "ghost.schema.json"}', encoding="utf-8")
+        assert check_examples_validate(tree), "an example claiming an unknown schema was accepted"
+        example.write_text("{not json", encoding="utf-8")
+        assert check_examples_validate(tree), "an unparseable example was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "scripts").mkdir()
+        (tree / "schemas").mkdir()
+        guidance(tree, ARTIFACT_REFERENCE, "# A\n\nThe run writes `a.schema.json`.\n")
+        closed = {"type": "object", "properties": {"a": {"type": "string"}}, "additionalProperties": False}
+        (tree / "schemas" / "a.schema.json").write_text(json.dumps(closed), encoding="utf-8")
+        (tree / "scripts" / "w.py").write_text('SCHEMA = "a.schema.json"\n', encoding="utf-8")
+        assert check_schema_coverage(tree) == [], "a documented, used, closed schema was rejected"
+        (tree / "scripts" / "w.py").write_text("x = 1\n", encoding="utf-8")
+        assert check_schema_coverage(tree), "a schema no script writes against was accepted"
+        (tree / "scripts" / "w.py").write_text('SCHEMA = "a.schema.json"\n', encoding="utf-8")
+        guidance(tree, ARTIFACT_REFERENCE, "# A\n\nNothing.\n")
+        assert check_schema_coverage(tree), "an undocumented schema was accepted"
+        guidance(tree, ARTIFACT_REFERENCE, "# A\n\nThe run writes `a.schema.json`.\n")
+        (tree / "schemas" / "a.schema.json").write_text(
+            json.dumps({key: value for key, value in closed.items() if key != "additionalProperties"}),
+            encoding="utf-8",
+        )
+        assert check_schema_coverage(tree), "a schema root accepting undeclared keys was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "references").mkdir()
+        (tree / "references" / "a.md").write_text("# A\n", encoding="utf-8")
+        guidance(tree, README, f"# R\n\n## {README_SECTION}\n\n- {TICK}references/a.md{TICK} — a\n")
+        assert check_readme_structure(tree) == [], "a listed, present resource was rejected"
+        (tree / "references" / "b.md").write_text("# B\n", encoding="utf-8")
+        assert check_readme_structure(tree), "an unlisted shipped resource was accepted"
+        (tree / "references" / "b.md").unlink()
+        guidance(tree, README, f"# R\n\n## {README_SECTION}\n\n- {TICK}references/gone.md{TICK} — g\n")
+        assert check_readme_structure(tree), "a listed but absent resource was accepted"
+        guidance(tree, README, "# R\n\n## Elsewhere\n\ntext\n")
+        assert check_readme_structure(tree), f"a README with no '{README_SECTION}' section was accepted"
+
+    # The remaining checks delegate to a tool that owns the answer, so a
+    # fixture here would test ruff, lychee, or check-jsonschema rather than
+    # this file. What is worth proving is the part this file owns: that a
+    # missing tool is a skip and not a silent pass.
+    assert check_lint(ROOT) == [] or shutil.which("ruff"), "lint reported failures with no ruff installed"
+    assert check_format(ROOT) == [] or shutil.which("ruff"), "format reported failures with no ruff installed"
+    assert check_schema_lint(ROOT) == [] or shutil.which("check-jsonschema")
+    assert os.environ.get("CHECK_EXTERNAL_LINKS") == "1" or check_external_links(ROOT) == []
+    assert check_executable_bits(ROOT) == [], "the shipped tree disagrees with git about executable bits"
+    assert check_coordinator_verbs(ROOT) == [], "a coordinator stopped exposing the core verbs"
+    assert check_phase_owners(ROOT) == [], "a derived phase lost its owning contract"
+
     print("self-check passed")
 
 
@@ -1468,6 +1783,7 @@ def main():
     checks = (
         ("filenames", lambda: run_script(ROOT, "names.py", str(ROOT))),
         *discovered_self_checks(ROOT),
+        ("checks are wired", lambda: check_checks_are_wired(ROOT)),
         ("self-checks assert", lambda: self_checks_assert_something(ROOT)),
         ("CI tests the floor", lambda: check_ci_floor(ROOT)),
         ("tools match their pins", lambda: tool_version_mismatches(ROOT)),
