@@ -2,6 +2,8 @@
 
 Package workflow behavior so activation stays precise, core context stays small, and repeated work remains deterministic.
 
+This reference says where each kind of material belongs. Whether an existing arrangement is wrong enough to change is [layout.md](layout.md)'s judgement, and moving the files afterwards is [migration.md](migration.md)'s execution.
+
 ## Contract and Use Cases
 
 Start with representative requests and expected outcomes. Record:

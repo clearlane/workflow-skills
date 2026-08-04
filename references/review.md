@@ -59,6 +59,8 @@ Against [structure.md](structure.md) and [naming.md](naming.md):
 - Do filenames follow the one-word or family-first convention?
 - Does core instruction size stay within budget, with detail deferred to references?
 
+A finding here names material in the wrong place; it does not move it. When the fix is a set of file moves rather than an edit, [layout.md](layout.md) decides whether the arrangement is genuinely wrong and [restructure.md](../workflows/restructure.md) is the run that carries it out under approval.
+
 ### safety
 
 Against [patterns.md](patterns.md):
