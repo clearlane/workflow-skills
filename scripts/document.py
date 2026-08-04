@@ -26,6 +26,14 @@ except ModuleNotFoundError as error:  # pragma: no cover - environment guard
 EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "tel:")
 IGNORED_DIRECTORIES = {".git", ".hg", ".svn", "__pycache__", "node_modules"}
 ANCHOR_STRIP = re.compile(r"[^\w\- ]+")
+# A sentence ends at a terminator followed by space. A colon ends one too: a
+# lead-in that introduces a clause is a boundary, not part of what follows.
+SENTENCE_END = re.compile(r"(?<=[.;:!?])\s+")
+# Markdown decoration a sentence may open with, none of which is a word: list
+# bullets, ordered markers, quote carets, and emphasis or code runs. A caller
+# asking whether a sentence starts with a verb must not be answered "no,
+# it starts with a hyphen".
+SENTENCE_LEAD = re.compile(r"^[\s>*_`\"'-]*(?:\d+[.)]\s*)?[\s>*_`\"'-]*")
 
 
 def anchor(text):
@@ -75,6 +83,7 @@ class Document:
     links: list = field(default_factory=list)
     fences: list = field(default_factory=list)
     lists: list = field(default_factory=list)
+    paragraphs: list = field(default_factory=list)
 
     @property
     def line_count(self):
@@ -112,6 +121,29 @@ class Document:
         if start is None:
             return []
         return [items for line, items in self.lists if start.line < line <= end]
+
+    def sentences(self):
+        """Every prose sentence with its line, excluding fences and headings.
+
+        A caller asking what the prose says has to know which lines are prose,
+        and a line scan cannot tell: a fenced bash loop and a heading named
+        "Iterate" read as sentences to a regex and are not. Paragraph tokens
+        answer that from the parse, so callers ask for sentences rather than
+        rediscovering the block structure and getting it wrong.
+
+        Tables are paragraphs to CommonMark without the table plugin, so a row
+        arrives as one line holding several cells. Each cell is its own
+        fragment, and gluing them across the pipes would invent sentences the
+        author never wrote.
+        """
+        for line, body in self.paragraphs:
+            for offset, raw in enumerate(body.splitlines(), line):
+                cells = raw.strip().strip("|").split("|") if raw.lstrip().startswith("|") else [raw]
+                for cell in cells:
+                    for piece in SENTENCE_END.split(cell):
+                        stripped = SENTENCE_LEAD.sub("", piece).strip().strip("*_`\"' ")
+                        if stripped:
+                            yield offset, stripped
 
 
 def parser():
@@ -189,6 +221,9 @@ def parse(path, text=None):
             pending = (int(token.tag[1:]), line)
         elif token.type == "fence":
             parsed.fences.append((token.info.strip(), token.content, line))
+        elif token.type == "paragraph_open":
+            start, end = token.map
+            parsed.paragraphs.append((line, "\n".join(parsed.text.splitlines()[start:end])))
         elif token.type in {"bullet_list_open", "ordered_list_open"}:
             # Only the outermost list is collected. A nested list elaborates
             # its parent item rather than standing as a separate list, and
@@ -281,6 +316,20 @@ SELF_CHECK_SOURCE = "\n".join(
         "",
         "- `path/to/file.md` — a described path",
         "",
+        "## Iterate",
+        "",
+        "Retry once. Then stop.",
+        "",
+        "- If it fails, retry twice.",
+        "",
+        FENCE + "bash",
+        "for i in 1 2 3; do retry; done",
+        FENCE,
+        "",
+        "| Cell one | Cell two |",
+        "|---|---|",
+        "| retry here | and here |",
+        "",
     ]
 )
 
@@ -295,6 +344,7 @@ def self_check():
         "Title",
         "Deep Section",
         "With the skills CLI",
+        "Iterate",
     ]
     assert parsed.headings_at(2)[0].anchor == "deep-section"
     # Inline code is part of the rendered text. Dropping it silently deleted
@@ -337,6 +387,25 @@ def self_check():
     body = parsed.section("Deep Section")
     assert "Self [anchor]" in body and "# Title" not in body
     assert parsed.section("Absent") is None
+
+    # Prose is what a reader reads. A heading named "Iterate" and a fenced
+    # shell loop both look like control flow to a line scan and are neither,
+    # so the block structure decides, not the text.
+    spoken = list(parsed.sentences())
+    said = [text for _, text in spoken]
+    assert "Retry once." in said and "Then stop." in said, said
+    assert "Iterate" not in said, said
+    assert not any("done" in text for text in said), said
+    # A list marker is decoration, so the sentence starts at its first word.
+    assert "If it fails, retry twice." in said, said
+    # A table row holds several fragments; gluing them across the pipes would
+    # invent a sentence the author never wrote.
+    assert "retry here" in said and "and here" in said, said
+    assert all("retry here | and here" not in text for text in said), said
+    # Every sentence carries the line it was written on, or a caller cannot
+    # report where the problem is.
+    line_of = {text: line for line, text in spoken}
+    assert parsed.text.splitlines()[line_of["Retry once."] - 1] == "Retry once. Then stop.", spoken
 
     broken = parse(Path("bad.md"), "---\nname: [unclosed\n---\n")
     assert broken.frontmatter is None and broken.frontmatter_error
