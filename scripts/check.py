@@ -71,6 +71,8 @@ CORE_VERBS = ("init", "status", "complete-phase", "self-check")
 # has forked the lifecycle rather than composed it.
 RUNTIME_OWNED = ("load_run", "open_run", "create_run", "current_phase", "pending_phase")
 README_SECTION = "Structure"
+# Where SKILL.md owns what a workflow's `scripts/<name>.py` resolves against.
+COORDINATOR_PATH_SECTION = "Running a Coordinator"
 ARTIFACT_REFERENCE = "references/artifacts.md"
 # common holds shared definitions and skill is reached through inventory, so
 # neither is named directly by a coordinator.
@@ -881,6 +883,41 @@ def check_declared_dependencies(root):
     return failures
 
 
+def check_coordinator_paths(root):
+    """SKILL.md must say what the coordinator paths in workflows are relative to.
+
+    Every workflow spells its coordinator `python3 scripts/<name>.py`, which
+    resolves only when the working directory is this repository. An installed
+    skill is almost never that directory: the run directory belongs to the
+    user's project, so the documented command failed on the first invocation
+    for anyone who installed rather than cloned.
+
+    references/packaging.md already forbids exactly this, calling paths
+    relative to the agent's working directory a broken bundle. The rule was
+    stated for other people's skills and not applied to this one, which no
+    check could notice because each workflow was internally consistent.
+
+    The contract is owned once, in the entry document every host loads, rather
+    than repeated in five workflows where it would drift.
+    """
+    dispatching = [
+        path.relative_to(root).as_posix()
+        for path in sorted((root / "workflows").glob("*.md"))
+        if re.search(r"python3 scripts/[a-z_-]+\.py", path.read_text(encoding="utf-8"))
+    ]
+    if not dispatching:
+        return []
+    parsed = document.parse(root / "SKILL.md")
+    if parsed.section(COORDINATOR_PATH_SECTION) is None:
+        return [
+            (
+                f"SKILL.md: missing section {COORDINATOR_PATH_SECTION!r}; {len(dispatching)} workflows show a "
+                "working-directory-relative command and nothing says what it resolves against"
+            )
+        ]
+    return []
+
+
 def tool_version_mismatches(root):
     """Report a shelled-out tool whose version is not the one pyproject.toml pins.
 
@@ -1132,6 +1169,20 @@ def self_check():
         (tree / "scripts" / "guarded.py").write_text("import json\nimport pathlib\n", encoding="utf-8")
         assert check_declared_dependencies(tree) == [], "a stdlib-only module was required to carry a guard"
 
+    # The path contract is only worth stating where a workflow shows a command,
+    # so the check must key on that rather than demand the section always.
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "workflows").mkdir()
+        (tree / "SKILL.md").write_text("# S\n\n## Elsewhere\n\ntext\n", encoding="utf-8")
+        assert check_coordinator_paths(tree) == [], "a tree with no dispatching workflow was failed"
+        (tree / "workflows" / "w.md").write_text("# W\n\n`python3 scripts/w.py init`\n", encoding="utf-8")
+        assert check_coordinator_paths(tree), "a dispatching workflow with no path contract was accepted"
+        (tree / "SKILL.md").write_text(
+            f"# S\n\n## {COORDINATOR_PATH_SECTION}\n\nRelative to this skill.\n", encoding="utf-8"
+        )
+        assert check_coordinator_paths(tree) == [], "the stated contract was not recognised"
+
     print("self-check passed")
 
 
@@ -1148,6 +1199,7 @@ def main():
         ("CI tests the floor", lambda: check_ci_floor(ROOT)),
         ("tools match their pins", lambda: tool_version_mismatches(ROOT)),
         ("dependencies declared", lambda: check_declared_dependencies(ROOT)),
+        ("coordinator paths resolve", lambda: check_coordinator_paths(ROOT)),
         ("skill contract", lambda: check_skill(ROOT)),
         ("links and anchors", lambda: document.broken_links(ROOT)),
         ("resource reachability", lambda: check_reachability(ROOT)),

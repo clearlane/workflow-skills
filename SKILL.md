@@ -116,6 +116,12 @@ A layout is wrong only when evidence says so: manifests, discovery rules, and bu
 
 File moves are irreversible from the agent's side and carry interface meaning, so they take the approval gate above: approve the exact operation set, execute one ownership boundary at a time, repair every reference surface in the same step, and preserve unrelated user changes in the worktree.
 
+## Running a Coordinator
+
+Every workflow below shows its coordinator as `scripts/<name>.py`, relative to this skill's own directory. Resolve that against the directory holding this `SKILL.md`, not against the working directory: an installed skill is rarely the directory the agent is working in, and the run directory usually belongs to the user's project instead.
+
+The coordinators need Python 3.10 or later and the packages in `requirements.txt` beside this file. They report a missing one as an install instruction rather than a traceback, so run one and read its output rather than pre-checking the environment.
+
 ## Design Workflow
 
 Start every create-or-refactor task by opening a run with the coordinator in [design.md](workflows/design.md), before writing skill files. It derives the phase list from the capabilities you record, so a skill only walks the phases it needs, and `status` — not this file — names the current phase and the resource that owns it.
