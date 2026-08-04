@@ -52,6 +52,7 @@ import restructure
 import review
 import state
 from design import CAPABILITY_PHASES
+from validate import COMPATIBILITY_LIMIT, DESCRIPTION_LIMIT, NAME_LIMIT
 from validate import validate as validate_skill
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1690,9 +1691,7 @@ def registered_checks(source):
     """
     tree = ast.parse(source)
     defined = {
-        node.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("check_") and node.name != "check_skill"
+        node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name.startswith("check_")
     }
     registry, exercised = set(), set()
     for node in ast.walk(tree):
@@ -1843,6 +1842,37 @@ def self_check():
     # A check nothing registers never runs, and a check with no case behind it
     # can have its condition inverted with the suite still green. Both holes
     # are invisible from the outside, so the wiring is read from the source.
+    # This check had a hole of exactly that shape in it: check_skill was named
+    # as an exception and so was the one check in this file that could be
+    # replaced by `return []` with the suite still green. It holds this
+    # repository's own SKILL.md to the format bounds, which is the claim
+    # CONTRIBUTING makes and the loudest one to be wrong about, since the
+    # skill teaches those bounds. The exception is gone and the case below is
+    # what replaces it.
+    with tempfile.TemporaryDirectory() as directory:
+        # Named for a valid skill, not a temp directory, because the format
+        # requires name and directory to agree and the mismatch would report a
+        # finding unrelated to the bound under test.
+        tree = Path(directory) / "sample-skill"
+        tree.mkdir()
+        conforming = f"---\nname: sample-skill\ndescription: d\nlicense: {SKILL_LICENCE}\n---\n\n# S\n"
+        (tree / "SKILL.md").write_text(conforming, encoding="utf-8")
+        assert check_skill(tree) == [], "a conforming skill was rejected"
+        over_bound = (
+            ("description", conforming.replace("description: d", "description: " + "d" * (DESCRIPTION_LIMIT + 1))),
+            ("name", conforming.replace("name: sample-skill", "name: " + "n" * (NAME_LIMIT + 1))),
+            (
+                "compatibility",
+                conforming.replace("license:", "compatibility: " + "c" * (COMPATIBILITY_LIMIT + 1) + "\nlicense:"),
+            ),
+            # A frontmatter block the strict parser cannot read is the case
+            # validate.py deliberately cannot report, since it reads a flat
+            # scalar subset and sees an absent field rather than a broken block.
+            ("malformed frontmatter", conforming.replace("---\nname:", "---\n\tname:", 1)),
+        )
+        for label, body in over_bound:
+            (tree / "SKILL.md").write_text(body, encoding="utf-8")
+            assert check_skill(tree), f"a skill over the {label} bound was accepted"
     wired = (
         "def check_a(root):\n    return []\n\ndef main():\n    check_a(ROOT)\n\ndef self_check():\n    check_a(ROOT)\n"
     )
