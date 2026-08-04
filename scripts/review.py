@@ -34,6 +34,7 @@ from state import (
     open_run,
     pending_phase,
     phase_complete_event,
+    read_artifact,
     read_history,
     read_json,
     read_status,
@@ -236,8 +237,7 @@ def load_findings(root):
     path = root / "findings.json"
     if not path.exists():
         return []
-    value = read_json(path)
-    return value.get("findings", [])
+    return read_artifact(path, "findings.schema.json").get("findings", [])
 
 
 def save_findings(root, findings):
@@ -252,7 +252,7 @@ def load_answers(root):
     path = root / "answers.json"
     if not path.exists():
         return {}
-    return read_json(path).get("answers", {})
+    return read_artifact(path, "answers.schema.json").get("answers", {})
 
 
 def save_answers(root, answers):
@@ -1370,6 +1370,38 @@ def command_self_check(_args):
         assert identifier not in [i for i, _ in outstanding_questions(Path(run), phase_of)], (
             "the case above did not restore the run's answers"
         )
+
+        # An artifact is a file on disk between two commands, so it can be
+        # edited by hand or left behind by an older version. Reading one whose
+        # shape is wrong used to raise a KeyError naming a single key, which
+        # says neither which file was at fault nor what it should have held.
+        # The refusal is the coordinator's to make, at the boundary.
+        edited = json.loads(original_answers)
+        edited["answers"]["activation.3"] = {"verdict": "holds"}
+        answered_run.write_text(json.dumps(edited))
+        try:
+            broken_status = execute("status", "--run-dir", run, check=False)
+        finally:
+            answered_run.write_text(original_answers)
+        assert broken_status.returncode == EX_DATAERR, (broken_status.returncode, broken_status.stderr)
+        assert "Traceback" not in broken_status.stderr, broken_status.stderr
+        assert "answers.json" in broken_status.stderr, broken_status.stderr
+
+        # Both artifacts a run reads, since each is loaded by its own function
+        # and one validated read says nothing about the other.
+        findings_path = Path(run) / "findings.json"
+        original_findings = findings_path.read_text()
+        damaged = json.loads(original_findings)
+        damaged["findings"].append({"id": "F99"})
+        findings_path.write_text(json.dumps(damaged))
+        try:
+            broken_findings = execute("status", "--run-dir", run, check=False)
+        finally:
+            findings_path.write_text(original_findings)
+        assert broken_findings.returncode == EX_DATAERR, (broken_findings.returncode, broken_findings.stderr)
+        assert "Traceback" not in broken_findings.stderr, broken_findings.stderr
+        assert "findings.json" in broken_findings.stderr, broken_findings.stderr
+        assert execute("status", "--run-dir", run, check=False).returncode == 0, "the cases above broke the run"
 
         # The contract is parsed as CommonMark rather than scanned for lines
         # starting with a dash. Each case below was wrong under that scan: it

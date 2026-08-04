@@ -518,6 +518,24 @@ def write_artifact(path, name, value):
     write_json(path, stamped)
 
 
+def read_artifact(path, name):
+    """Read an artifact, refusing one that violates its schema.
+
+    Writes were validated and reads were not, so a coordinator trusted the
+    shape of anything already on disk. An artifact edited by hand between two
+    commands, or written by an older version, then reached the code that reads
+    its fields and raised a KeyError naming one key, which tells the agent
+    neither which file was wrong nor what it should have contained. Validating
+    on the way in reports the same defect the way write_artifact reports it.
+    """
+    value = read_json(path)
+    errors = schema_errors(name, value)
+    if errors:
+        detail = "\n  ".join(errors)
+        fail(f"Refusing to read {path}: does not satisfy {name}:\n  {detail}", EX_DATAERR, path)
+    return value
+
+
 def print_status(kind, root, phase, phases, completed, resource, next_action, detail):
     """Print the one status shape every coordinator shares.
 
@@ -986,6 +1004,23 @@ def self_check():
         root = Path(temporary)
         write_json(root / "a.json", {"b": 1, "a": 2})
         assert read_json(root / "a.json") == {"a": 2, "b": 1}
+
+        # Writes were validated and reads were not, so an artifact edited
+        # between two commands reached the code reading its fields and raised
+        # a KeyError naming one key: nothing said which file was wrong. Both
+        # directions of the same schema are now enforced at the boundary.
+        artifact = root / "findings.json"
+        write_artifact(artifact, "findings.schema.json", {"findings": []})
+        assert read_artifact(artifact, "findings.schema.json")["findings"] == []
+        broken = json.loads(artifact.read_text())
+        broken["findings"].append({"id": "F1"})
+        write_json(artifact, broken)
+        try:
+            read_artifact(artifact, "findings.schema.json")
+        except SystemExit as error:
+            assert error.code == EX_DATAERR, error.code
+        else:
+            raise AssertionError("an artifact violating its schema was read as valid")
         assert json_sha256(root / "a.json") == json_sha256(root / "a.json")
         (root / "keep").mkdir()
         (root / "keep" / "f.txt").write_text("x")
