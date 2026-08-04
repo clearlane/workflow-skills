@@ -2149,6 +2149,11 @@ def main():
         ("single entrypoint", lambda: check_single_entrypoint(ROOT)),
         ("checks are wired", lambda: check_checks_are_wired(ROOT)),
         ("self-checks assert", lambda: self_checks_assert_something(ROOT)),
+        # The last rung of the same ladder. `checks are wired` requires every
+        # check to be named in a self-check, `self-checks assert` requires the
+        # assertions to be falsifiable, and this requires the pair to actually
+        # constrain the check: gut it, and its own case must notice.
+        ("mutation sweep", lambda: run_script(ROOT, "mutate.py", str(ROOT))),
         ("CI tests the floor", lambda: check_ci_floor(ROOT)),
         ("tools match their pins", lambda: tool_version_mismatches(ROOT)),
         ("dependencies declared", lambda: check_declared_dependencies(ROOT)),

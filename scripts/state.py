@@ -1074,6 +1074,25 @@ def self_check():
         truncated = {slug(f"{shared}{index}") for index in range(200)}
         assert len(truncated) == 200, f"truncation collided: {200 - len(truncated)} lost"
         assert slug("a" * 100) != slug("a" * 101), "length alone must change the slug"
+        # The version guard runs on every resume and had no case: gutted, it
+        # accepts a run written under version 1, whose digest came from a
+        # different algorithm, so the resume fails later at the plan binding
+        # with a mismatch the operator cannot act on. That deferral is the
+        # exact outcome the guard exists to prevent.
+        check_version({"version": VERSION})
+        try:
+            check_version({"version": 1})
+        except SystemExit as error:
+            assert error.code == EX_DATAERR, error.code
+        else:
+            raise AssertionError("a run from an incompatible artifact version was accepted")
+        try:
+            check_version({})
+        except SystemExit as error:
+            assert error.code == EX_DATAERR, error.code
+        else:
+            raise AssertionError("a state with no version at all was accepted")
+
         check_canonical_digests(root)
         check_history_survives_state_loss(root / "run")
         check_open_run_rejects_edited_state(root / "edited")
