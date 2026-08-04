@@ -7,7 +7,7 @@ python3 -m pip install -r requirements.txt
 python3 scripts/check.py
 ```
 
-This is the same suite CI runs, so a green local run means a green pull request. It needs Python 3.10 or later.
+This is the same suite CI runs, so a green local run means a green pull request on the runtime you ran it with. It needs Python 3.10 or later, and CI runs both ends of that range; `CHECK_FLOOR=1` below runs the other end here.
 
 `requirements.txt` installs the check dependencies and [`ruff`](https://docs.astral.sh/ruff/) together, which is why the lint and format checks run rather than silently skipping. Every version bound, and the supported Python floor, lives in `pyproject.toml` and nowhere else.
 
@@ -15,6 +15,12 @@ External link checking is opt-in, because it reaches the network and a briefly u
 
 ```bash
 CHECK_EXTERNAL_LINKS=1 python3 scripts/check.py   # needs lychee
+```
+
+So is running the suite on the declared floor, because it downloads that interpreter the first time. CI runs both ends of the matrix, so this is only needed to see a version-dependent failure without pushing:
+
+```bash
+CHECK_FLOOR=1 python3 scripts/check.py            # needs uv
 ```
 
 ## What the checks enforce

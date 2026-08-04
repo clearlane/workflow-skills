@@ -1875,6 +1875,59 @@ def check_single_entrypoint(root):
     return failures
 
 
+def check_floor_runtime(root):
+    """Run the whole suite on the declared floor, when a runtime for it exists.
+
+    check_ci_floor proves the matrix names the floor. Nothing proved a
+    contributor could run it: the floor was reachable only by pushing, so a
+    check whose verdict depends on the interpreter passed locally and failed
+    there, and the shortest way to see it was a round trip through CI. That is
+    how sys.stdlib_module_names went unnoticed.
+
+    uv fetches the interpreter, so this needs no pyenv install and no
+    second dependency list. Opt-in via CHECK_FLOOR=1 for the same reason as the
+    link check, since it downloads a runtime on first use; CI already runs the
+    floor directly, so this is for the machine that otherwise cannot.
+    """
+    if os.environ.get("CHECK_FLOOR") != "1":
+        return []
+    executable = shutil.which("uv")
+    if executable is None:
+        return ["uv is not installed; the floor run was requested but cannot run"]
+    requires = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["requires-python"]
+    floor = next(
+        (str(clause.version) for clause in SpecifierSet(requires) if clause.operator in {">=", "==", "~="}), None
+    )
+    if floor is None:
+        return [f"pyproject.toml declares {requires!r}, which states no floor to run"]
+    result = subprocess.run(
+        # --no-project so the run is the floor plus this repository's declared
+        # requirements and nothing the local environment happens to hold.
+        [
+            executable,
+            "run",
+            "--python",
+            floor,
+            "--with-requirements",
+            str(root / "requirements.txt"),
+            "--no-project",
+            "python",
+            str(root / "scripts" / CHECKER),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        # The floor run must not recurse into another floor run.
+        env={key: value for key, value in os.environ.items() if key != "CHECK_FLOOR"},
+    )
+    if result.returncode == 0:
+        return []
+    detail = [line.strip() for line in result.stdout.splitlines() if line.startswith(("FAIL", "  "))]
+    return [f"the suite fails on Python {floor}, which pyproject.toml declares supported"] + (
+        detail[:10] or [(result.stderr or "").strip()[:200]]
+    )
+
+
 def check_ci_floor(root):
     """The CI matrix must start at the floor pyproject.toml declares.
 
@@ -2854,6 +2907,36 @@ def self_check():
                 os.environ["CHECK_EXTERNAL_LINKS"] = previous
         assert reported, "an unreachable URL was accepted, or a nonzero lychee exit reported nothing"
 
+    # The floor run is opt-in, so the default path must be a skip and the
+    # requested path must carry a real verdict back. A tree whose checker exits
+    # nonzero stands in for a suite that fails on the floor: the point is that
+    # the failure is reported rather than swallowed, which is what "green
+    # locally, red on the floor" looked like from here.
+    assert os.environ.get("CHECK_FLOOR") == "1" or check_floor_runtime(ROOT) == [], (
+        "the floor run executed without being asked for"
+    )
+    if shutil.which("uv"):
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            (tree / "scripts").mkdir()
+            (tree / "pyproject.toml").write_text('[project]\nrequires-python = ">=3.10"\n', encoding="utf-8")
+            (tree / "requirements.txt").write_text("", encoding="utf-8")
+            (tree / "scripts" / CHECKER).write_text("raise SystemExit('FAIL something')\n", encoding="utf-8")
+            previous = os.environ.get("CHECK_FLOOR")
+            os.environ["CHECK_FLOOR"] = "1"
+            try:
+                reported = check_floor_runtime(tree)
+                (tree / "scripts" / CHECKER).write_text("print('all checks passed')\n", encoding="utf-8")
+                passing = check_floor_runtime(tree)
+            finally:
+                if previous is None:
+                    del os.environ["CHECK_FLOOR"]
+                else:
+                    os.environ["CHECK_FLOOR"] = previous
+            assert reported, "a suite failing on the floor was reported as passing"
+            assert any("3.10" in failure for failure in reported), reported
+            assert passing == [], "a suite passing on the floor was reported as failing"
+
     assert check_executable_bits(ROOT) == [], "the shipped tree disagrees with git about executable bits"
     # Git owns the mode, so the case needs a repository rather than a
     # directory. Both directions of the disagreement are replayed, since the
@@ -2988,6 +3071,7 @@ def main():
         ("python lint", lambda: check_lint(ROOT)),
         ("python format", lambda: check_format(ROOT)),
         ("external links", lambda: check_external_links(ROOT)),
+        ("floor runtime", lambda: check_floor_runtime(ROOT)),
     )
     failures = []
     for name, run in checks:

@@ -178,13 +178,19 @@ It runs the filename convention, every script's own `self-check` (discovered fro
 
 The checks need Python 3.10 or later and the parsers in `requirements.txt`. Lint rules and the supported Python floor live in `pyproject.toml`, so `ruff` reports the same findings everywhere.
 
-Two checks delegate to external tools and skip silently when the tool is absent, so the default run needs only the Python dependencies above:
+Three checks delegate to external tools and skip silently when the tool is absent, so the default run needs only the Python dependencies above:
 
 - `ruff` reports Python lint errors in `scripts/`.
 - `lychee` verifies external URLs, including the provenance links in this file and under `references/upstream/`. Network checking is opt-in, so the default run stays offline and deterministic:
 
 ```bash
 CHECK_EXTERNAL_LINKS=1 python3 scripts/check.py
+```
+
+- `uv` runs the whole suite again on the declared floor, fetching that interpreter if the machine has no copy. A check whose answer depends on the Python version passes on one runtime and fails on the other, so this is the local form of what CI's matrix proves:
+
+```bash
+CHECK_FLOOR=1 python3 scripts/check.py
 ```
 
 GitHub Actions runs the deterministic suite on every push and pull request against both the declared floor and the current Python release. External link checking runs on a weekly schedule instead, so a briefly unreachable third-party host cannot fail an unrelated change.
