@@ -117,7 +117,7 @@ Evidence the coordinator cannot read, such as a wrong field type or an empty che
 
 ## Orchestrator Feedback
 
-Every run is also a test of this workflow and its coordinator against real material. A passing validation does not complete the run until `feedback.json` records the verdict:
+Every absorption run reads skills nobody wrote for this coordinator, so it tests the coordinator against material no self-check can supply. That is why this phase is absorb's alone, and why a passing validation does not complete the run until `feedback.json` records the verdict:
 
 ```json
 {
