@@ -106,7 +106,6 @@ README_EXEMPT = {".gitignore", "LICENSE", "LICENSE-CODE", README, "skill-logic.w
 SPDX_TAG = "SPDX-License-Identifier:"
 CODE_LICENCE = "MIT"
 SKILL_LICENCE = "CC-BY-SA-4.0 AND MIT"
-DOCUMENTED_DIRECTORIES = ("references", "workflows", "scripts", "agents", "examples")
 ENTRY_DOCUMENTS = (
     "SKILL.md",
     "workflows/design.md",
@@ -450,10 +449,25 @@ def conformance_rules():
 
 
 def check_reachability(root):
-    """Every reference and workflow must be linked from an entry document."""
+    """Every reference and workflow must be linked from an entry document.
+
+    Subdirectories are walked, and a README inside one is an entry document for
+    its own subtree. Globbing only the top level meant a document could be made
+    unreachable by putting it one directory down, which is the opposite of what
+    a directory is for: references/upstream/ holds twelve vendored files whose
+    index nothing checked, so deleting a row from it silently orphaned a file
+    that remained on disk and in the README's directory-prefix entry.
+    """
     failures = []
     linked = set()
-    for name in ENTRY_DOCUMENTS:
+    entries = list(ENTRY_DOCUMENTS)
+    for directory in ("references", "workflows"):
+        entries += [
+            path.relative_to(root).as_posix()
+            for path in sorted((root / directory).rglob("README.md"))
+            if path.is_file()
+        ]
+    for name in entries:
         parsed = document.parse(root / name)
         for link in parsed.links:
             if link.external or not link.path:
@@ -462,9 +476,11 @@ def check_reachability(root):
             if resolved.exists():
                 linked.add(resolved)
     for directory in ("references", "workflows"):
-        for path in sorted((root / directory).glob("*.md")):
+        for path in sorted((root / directory).rglob("*.md")):
+            # A subtree index is reached by the link that makes its subtree
+            # worth having, so it is checked as any other document.
             if path.resolve() not in linked:
-                failures.append(f"{path.relative_to(root)}: not linked from SKILL.md or any workflow")
+                failures.append(f"{path.relative_to(root)}: not linked from an entry document")
     return failures
 
 
@@ -641,6 +657,13 @@ def check_readme_structure(root):
     The list is the only human map of the repository, so an unlisted file is a
     resource a reader cannot find and a listed-but-absent file is a dead map
     entry. Both were true before this check existed.
+
+    Every shipped file is checked, not those under a named set of directories.
+    The allowlist meant a new top-level directory arrived unmapped and stayed
+    that way, since being absent from the list was what exempted it: the check
+    could only ever confirm the map covered the places the map already knew
+    about. Untracked working files are excluded by asking git, which is the
+    question the allowlist was standing in for.
     """
     failures = []
     parsed = document.parse(root / README)
@@ -658,8 +681,6 @@ def check_readme_structure(root):
         relative = path.relative_to(root)
         parts = relative.parts
         if any(part.startswith(".") for part in parts) or "__pycache__" in parts:
-            continue
-        if len(parts) > 1 and parts[0] not in DOCUMENTED_DIRECTORIES:
             continue
         name = relative.as_posix()
         # The README maps what this repository ships, not a contributor's
@@ -1720,6 +1741,16 @@ def self_check():
         assert check_reachability(tree) == [], "a reference linked from SKILL.md was called unreachable"
         guidance(tree, "references/orphan.md", "# O\n")
         assert check_reachability(tree), "a reference nothing links to was accepted"
+        # Filing a document one directory down used to exempt it, so the
+        # subtree and its index are both replayed.
+        (tree / "references" / "orphan.md").unlink()
+        guidance(tree, "references/vendor/README.md", "# V\n\n[one](one.md)\n")
+        guidance(tree, "references/vendor/one.md", "# One\n")
+        assert check_reachability(tree), "a subtree index nothing links to was accepted"
+        guidance(tree, "SKILL.md", "# E\n\n[r](references/reached.md)\n\n[v](references/vendor/README.md)\n\n" + links)
+        assert check_reachability(tree) == [], "a file linked from its subtree index was called unreachable"
+        guidance(tree, "references/vendor/README.md", "# V\n\nno rows\n")
+        assert check_reachability(tree), "a file dropped from its subtree index was accepted"
 
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
