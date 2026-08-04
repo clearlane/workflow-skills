@@ -383,7 +383,33 @@ def check_review_phases(root, contract=None):
                 failures.append(f"scripts/review.py: answer anchor {source!r} resolves to nothing")
         except AssertionError as error:
             failures.append(f"scripts/review.py: {error}")
+
+    # The anchors above are checked against themselves, which says nothing
+    # about the rules nobody anchored. A conformance rule is seeded into
+    # findings.json as `conformance:<rule>`, so a rule added to validate.py
+    # without an anchor produces a finding that answers no question: the run
+    # then asks the reviewer to establish by hand something it had already
+    # proven, which is the tax that teaches people to type anything to get
+    # past a gate. Rules are read from the source rather than by running the
+    # validator, because a rule that fires on no fixture would be missed.
+    emittable = {f"conformance:{rule}" for rule in conformance_rules()}
+    assert emittable, "no conformance rules were found, so this check proves nothing"
+    for source in sorted(emittable - set(review.ANSWER_ANCHORS) - review.UNREACHABLE_RULES):
+        failures.append(f"scripts/review.py: {source!r} is seeded as a finding but answers no contract question")
+    for source in sorted(review.UNREACHABLE_RULES - emittable):
+        failures.append(f"scripts/review.py: {source!r} is exempted as unreachable but no rule emits it")
     return failures
+
+
+def conformance_rules():
+    """The rule names validate.py can attach to a finding.
+
+    Read out of the source because a rule is only a string until something
+    triggers it, and the rule most likely to be missed is the one no fixture
+    reaches.
+    """
+    source = (ROOT / "scripts" / "validate.py").read_text(encoding="utf-8")
+    return set(re.findall(r"""Finding\(\s*\n?\s*["'](?:error|warning)["'],\s*\n?\s*["']([a-z0-9-]+)["']""", source))
 
 
 def check_reachability(root):
@@ -1207,6 +1233,32 @@ def self_check():
     reworded = original.replace("no raw shell interpolation", "no unchecked shell interpolation")
     assert reworded != original, "the anchor phrase was not reworded"
     assert check_review_phases(ROOT, contract=reworded), "an anchor that answers nothing was accepted"
+
+    # A rule validate.py can emit but nobody anchored, which is the state this
+    # repository was actually in: `frontmatter` and `links` seeded findings
+    # that settled no question, so a run reported them and then asked the
+    # reviewer to establish the same thing by hand. The rules are read from
+    # source, so both directions of the mapping are replayed: a rule with no
+    # anchor, and an exemption for a rule nothing emits, which would otherwise
+    # sit in the table forever hiding a rule that had been renamed.
+    anchors = dict(review.ANSWER_ANCHORS)
+    exempt = set(review.UNREACHABLE_RULES)
+    rules = conformance_rules()
+    assert rules, "no conformance rules were found, so the cases below prove nothing"
+    try:
+        dropped = f"conformance:{sorted(rules - {name.partition(':')[2] for name in exempt})[0]}"
+        assert dropped in review.ANSWER_ANCHORS, dropped
+        del review.ANSWER_ANCHORS[dropped]
+        assert check_review_phases(ROOT), "a rule seeding findings that answer nothing was accepted"
+        review.ANSWER_ANCHORS.update(anchors)
+        review.UNREACHABLE_RULES.add("conformance:renamed-away")
+        assert check_review_phases(ROOT), "an exemption for a rule nothing emits was accepted"
+    finally:
+        review.ANSWER_ANCHORS.clear()
+        review.ANSWER_ANCHORS.update(anchors)
+        review.UNREACHABLE_RULES.clear()
+        review.UNREACHABLE_RULES.update(exempt)
+    assert check_review_phases(ROOT) == [], "the cases above did not restore the real tables"
 
     # The registration check exists because a new coordinator and a newly
     # closed schema merge without conflict and produce a tree that cannot run.

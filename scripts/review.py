@@ -163,11 +163,19 @@ def phase_questions(phase, contract=None):
 ANSWER_ANCHORS = {
     "conformance:description": ("activation", "observable user intent"),
     "conformance:name": ("activation", "observable user intent"),
+    "conformance:frontmatter": ("activation", "observable user intent"),
     "conformance:size": ("structure", "size stay within budget"),
+    "conformance:links": ("structure", "every resource reachable"),
     "structure:unreachable": ("structure", "every resource reachable"),
     "structure:naming": ("structure", "filenames follow"),
     "safety-scan": ("safety", "no raw shell interpolation"),
 }
+
+# `structure` fires only for a directory holding no SKILL.md, which `init`
+# refuses before a run exists, so it can never reach findings.json. Anchoring
+# it would state a mapping nothing can exercise; naming it here instead keeps
+# the coverage check honest about why it is absent.
+UNREACHABLE_RULES = {"conformance:structure"}
 
 
 def anchored_question(source, contract=None):
