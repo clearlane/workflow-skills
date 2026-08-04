@@ -24,7 +24,7 @@ they produced, which is a timeline rather than a per-source fact.
 - Made absorption runs record their own provenance, ending the hand transcription of baselines and plan digests into the registry, and stated explicitly which baselines are upstream commits and which are local snapshot digests.
 - Turned `examples/` into fixtures the checks validate against their declared schemas, covering every agent-authored artifact.
 
-### 2026-08-02
+### 2026-08-02 (third)
 
 - Absorbed `project-organizer` as the `restructure` workflow with `references/layout.md`, `references/migration.md`, and `scripts/inventory.py`, scoping layout work to skills, bundles, and their repositories.
 - Separated malformed absorption evidence from unsafe execution: a mistyped field now holds the phase and preserves the merge instead of rolling the target back, after this run lost a complete, checked merge to one string-versus-list mistake.
@@ -33,13 +33,13 @@ they produced, which is a timeline rather than a per-source fact.
 - Extended the repository check entrypoint to cover the new workflow's reachability and the inventory self-check.
 - Added `extend-scope` so a repair discovered mid-merge records its extra paths with a reason instead of forcing a rebind-and-remerge, closing the defect deferred during the `project-organizer` run. Extensions stay additive and snapshot-covered, so rollback still reverses them.
 
-### 2026-08-02 (later)
+### 2026-08-02 (second)
 
 - Absorbed `plugin-structure` as `references/packaging.md`, adding a runtime-neutral bundle packaging, discovery, portable-path, and distribution contract, and made packaging a derivable design capability.
 - Fixed three absorption-coordinator defects the run exposed: snapshots crashed on non-regular files, digests included repository-ignored local state, and plan revision discarded correct in-progress merge work.
 - Made an explicit orchestrator verdict a completion requirement: a run cannot complete without `feedback.json`, and a `fixed` observation must name the files carrying the fix.
 
-### 2026-08-02
+### 2026-08-02 (first)
 
 - Replaced the sixteen prose steps in `workflows/design.md` with an executable coordinator at `scripts/design.py` that derives phases from the recorded contract, persists decisions, and resumes from artifacts, so the skill follows its own rule against prose-held workflow state.
 - Extracted shared durable-run primitives into `scripts/state.py` and made both coordinators consume them instead of keeping private copies.

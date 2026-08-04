@@ -173,14 +173,44 @@ def check_vendor_tokens(root):
 
 
 def check_duplicate_headings(root):
-    """One canonical home per topic: reject a repeated H2 within one document."""
+    """One canonical home per topic: reject a repeated heading under one parent.
+
+    Only H2 was inspected, which read the rule as being about top-level
+    sections when it is about a topic having one home. Two identical H3
+    subsections inside one H2 are the same violation one level down, and they
+    passed: a reader who finds the second has no way to know the first exists,
+    and an author fixing one leaves the other stating the old rule. This
+    repository was in that state, with two `### 2026-08-02` entries under
+    UPSTREAM.md's changelog.
+
+    The rule is scoped by parent rather than applied across the document,
+    because a repeated subsection heading is only a duplicate when it competes
+    with another for the same topic. A `Checks` or `Example` subsection under
+    each of several parents is the opposite: it is the positional consistency
+    references/structure.md asks for, and rejecting it would punish the shape
+    the repository is trying to enforce. Across the 1343 markdown files on this
+    machine the distinction is decisive - 176 headings repeat under different
+    parents and every one is that pattern, while 5 repeat under one parent.
+
+    Identical headings anywhere in a document also collide on their anchors,
+    so a link to the second lands on the first. That is a weaker and different
+    fault, and it is deliberately not what this check reports: the corpus says
+    a rule strong enough to catch it would reject legitimate structure far more
+    often than it would find a real conflict.
+    """
     failures = []
     for parsed in document.walk(root):
         seen = set()
-        for heading in parsed.headings_at(2):
-            if heading.text in seen:
-                failures.append(f"{parsed.path.relative_to(root)}:{heading.line}: duplicate section {heading.text!r}")
-            seen.add(heading.text)
+        for path, heading in parsed.heading_paths():
+            if heading.level < 2:
+                continue
+            if (path, heading.text) in seen:
+                location = " > ".join(path[1:]) or "the document"
+                failures.append(
+                    f"{parsed.path.relative_to(root)}:{heading.line}: duplicate section "
+                    f"{heading.text!r} under {location}"
+                )
+            seen.add((path, heading.text))
     return failures
 
 
@@ -604,6 +634,31 @@ def check_reference_skeleton(root):
     a violation is detected meant reading each document's ending to learn that
     document's word for it. The closing section drifts because every author has
     a preferred name for it, and prose asking for consistency did not hold.
+
+    Two more parts of the skeleton were stated and unenforced. The section is
+    the second: references/structure.md numbers a reference's shape as `#
+    Title`, then "An opening paragraph naming what this reference owns and what
+    owns the neighbouring concern instead", then the topic sections, then the
+    closing. Only the first and last were checked, so a reference could jump
+    from its title straight into an H2 and pass. That is the failure the
+    skeleton exists to prevent, one position earlier: a reader who has to
+    decide whether they are in the right document gets a heading and no answer.
+
+    Only the paragraph's presence is required, not what it says. The sentence
+    asks for two things, what this reference owns and what owns the
+    neighbouring concern, and the second is a judgement no parser makes: five
+    of this repository's nineteen references name no neighbour because they
+    have none to name, and demanding a link would be enforcing more than the
+    contract states.
+
+    The third is that the closing section had to exist and not to say anything.
+    A reference ending in a bare `## Checks` heading passed, which is worse
+    than closing under the wrong name: the reader is told there is an answer
+    and then not given it. structure.md anticipates the reason an author would
+    leave it empty and answers it - "A reference with no detectable violation
+    states that explicitly rather than omitting the section, since a silent
+    omission and a deliberate one are indistinguishable to the next reader."
+    An empty section is that same silent omission wearing a heading.
     """
     failures = []
     for path in sorted((root / "references").glob("*.md")):
@@ -612,12 +667,28 @@ def check_reference_skeleton(root):
         titles = [heading.text for heading in parsed.headings_at(2)]
         if not parsed.headings_at(1):
             failures.append(f"{name}: no title heading")
+        elif not any(text.strip() for text in parsed.opening_paragraphs()):
+            failures.append(
+                f"{name}: no opening paragraph under the title; a reader deciding whether they are in "
+                "the right document meets a heading and the next section"
+            )
         if REFERENCE_CLOSING not in titles:
             near = [title for title in titles if "check" in title.lower() or "test" in title.lower()]
             hint = f"; found {near[0]!r}" if near else ""
             failures.append(f"{name}: no '## {REFERENCE_CLOSING}' section{hint}")
-        elif titles[-1] != REFERENCE_CLOSING:
-            failures.append(f"{name}: '{REFERENCE_CLOSING}' must be last, found {titles[-1]!r} after it")
+        else:
+            if titles[-1] != REFERENCE_CLOSING:
+                failures.append(f"{name}: '{REFERENCE_CLOSING}' must be last, found {titles[-1]!r} after it")
+            # A list is how most of these sections are written and a paragraph
+            # is how the rest are, so either satisfies this. What does not is a
+            # heading with nothing under it.
+            said = [text for text in parsed.section_paragraphs(REFERENCE_CLOSING) if text.strip()]
+            said += [item for items in parsed.section_lists(REFERENCE_CLOSING) for item in items if item.strip()]
+            if not said:
+                failures.append(
+                    f"{name}: '{REFERENCE_CLOSING}' is empty; a heading with nothing under it tells a "
+                    "reader an answer exists and withholds it"
+                )
     return failures
 
 
@@ -1803,6 +1874,15 @@ def self_check():
         assert check_duplicate_headings(tree) == [], "distinct sections were called duplicates"
         guidance(tree, "references/a.md", "# A\n\n## One\n\nx\n\n## One\n\ny\n")
         assert check_duplicate_headings(tree), "a repeated H2 was accepted"
+        # The rule is about a topic having one home, not about H2 in
+        # particular, so the same collision one level down is the same fault.
+        guidance(tree, "references/a.md", "# A\n\n## One\n\n### Deep\n\nx\n\n### Deep\n\ny\n")
+        assert check_duplicate_headings(tree), "a repeated H3 under one parent was accepted"
+        # And the case that decides the scoping: one subsection name reused
+        # under separate parents is the positional consistency this repository
+        # asks for, and rejecting it would punish the shape it enforces.
+        guidance(tree, "references/a.md", "# A\n\n## One\n\n### Deep\n\nx\n\n## Two\n\n### Deep\n\ny\n")
+        assert check_duplicate_headings(tree) == [], "a subsection repeated under different parents was rejected"
 
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
@@ -1862,6 +1942,37 @@ def self_check():
         assert check_reference_skeleton(tree), f"a section after '{REFERENCE_CLOSING}' was accepted"
         guidance(tree, "references/a.md", body.replace("# T\n", "", 1))
         assert check_reference_skeleton(tree), "a reference with no title was accepted"
+        # The closing section had to exist and not to say anything, so a
+        # reference could tell a reader an answer exists and withhold it.
+        guidance(tree, "references/a.md", body.replace("- how\n", ""))
+        assert check_reference_skeleton(tree), f"an empty '{REFERENCE_CLOSING}' section was accepted"
+        guidance(tree, "references/a.md", body.replace("- how\n", "   \n"))
+        assert check_reference_skeleton(tree), f"a whitespace-only '{REFERENCE_CLOSING}' section was accepted"
+        # A block that renders to no words is the same silent omission. An
+        # image is the shape that reaches here as a paragraph carrying an empty
+        # string, so it is the case that makes the emptiness test falsifiable
+        # rather than a formality the parser had already handled.
+        guidance(tree, "references/a.md", body.replace("- how\n", "![diagram](d.png)\n"))
+        assert check_reference_skeleton(tree), f"a wordless '{REFERENCE_CLOSING}' section was accepted"
+        guidance(tree, "references/a.md", body.replace("- how\n", "- ![diagram](d.png)\n"))
+        assert check_reference_skeleton(tree), f"a wordless '{REFERENCE_CLOSING}' bullet was accepted"
+        # Prose says as much as a list here, so the check must not demand one
+        # shape over the other.
+        guidance(tree, "references/a.md", body.replace("- how\n", "The coordinator reports it.\n"))
+        assert check_reference_skeleton(tree) == [], f"a prose '{REFERENCE_CLOSING}' section was rejected"
+        # structure.md puts an opening paragraph between the title and the
+        # first section. A reference jumping straight into an H2 gives a reader
+        # deciding whether they are in the right document nothing to decide on.
+        guidance(tree, "references/a.md", body.replace("Opening.\n\n", ""))
+        assert check_reference_skeleton(tree), "a reference with no opening paragraph was accepted"
+        # A bullet is not that paragraph: it elaborates something, and the
+        # position exists to say what the document owns before elaborating.
+        guidance(tree, "references/a.md", body.replace("Opening.\n", "- a bullet\n"))
+        assert check_reference_skeleton(tree), "a leading bullet was accepted as the opening paragraph"
+        # Nor is a banner image: it occupies the position without saying what
+        # the document owns, which is the whole point of the position.
+        guidance(tree, "references/a.md", body.replace("Opening.\n", "![banner](b.png)\n"))
+        assert check_reference_skeleton(tree), "a wordless opening block was accepted"
 
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
