@@ -2,6 +2,8 @@
 
 Name skill resources for fast scanning, stable grouping, and predictable discovery.
 
+A resource is any name in the tree, directories included. The reasons above are about what a reader sees in a listing, and a directory appears there exactly as a file does.
+
 ## Rules
 
 1. Prefer one lowercase word when it identifies the resource without ambiguity: `settings.py`, `commands.md`, `schema.json`.

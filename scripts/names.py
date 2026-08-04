@@ -11,6 +11,7 @@ checked against that language's convention instead of the hyphenated form.
 import argparse
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -46,8 +47,24 @@ IGNORED_DIRECTORIES = {".git", ".hg", ".svn", "__pycache__", "node_modules"}
 
 
 def authored_files(root):
-    """Files this repository ships, so a local scratch file cannot fail the check."""
+    """Every shipped path whose name the convention governs, files and directories.
+
+    Shipped, so a local scratch file cannot fail the check.
+
+    A directory is a resource. `references/` and `command-create.md` are read
+    the same way by someone scanning a tree, and the convention's own reasons --
+    fast scanning, stable grouping, predictable discovery -- are about the
+    names in a listing rather than about which of them happen to hold bytes.
+    Checking only files left a gap nothing else covered: git tracks no
+    directory of its own, so a directory could only ever be reached through the
+    paths of the files inside it, and `content-plan/deposer-brevet/_archive`
+    sat in the author's corpus with every file under it conforming.
+
+    A directory is yielded once, from the paths shipped beneath it, because
+    that is the only evidence git offers that it exists at all.
+    """
     shipped = shipped_paths(root)
+    seen = set()
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
@@ -56,6 +73,11 @@ def authored_files(root):
             continue
         if any(part in IGNORED_DIRECTORIES or part.startswith(".") for part in relative.parts[:-1]):
             continue
+        for depth in range(1, len(relative.parts)):
+            directory = Path(*relative.parts[:depth])
+            if directory not in seen:
+                seen.add(directory)
+                yield directory
         if path.name.startswith("."):
             continue
         yield relative
@@ -117,6 +139,20 @@ def self_check():
     ]
     assert all(filename_error(path) is None for path in valid)
     assert all(filename_error(path) is not None for path in invalid)
+
+    # A directory is a resource whose name the convention governs, and it is
+    # reached only through the files beneath it: git tracks no directory of its
+    # own, so a check that yields files alone can never see one.
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        for relative in ("references/settings.md", "content-plan/_archive/note.md"):
+            path = tree / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("x", encoding="utf-8")
+        walked = set(authored_files(tree))
+        assert Path("content-plan") in walked and Path("content-plan/_archive") in walked, walked
+        reported = {path.as_posix() for path, _ in validate(tree)}
+        assert reported == {"content-plan/_archive"}, reported
 
 
 def main():

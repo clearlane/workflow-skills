@@ -727,7 +727,14 @@ def naming_findings(skill_root):
     # findings named a file inside a bundled dependency, which asks an author
     # to rename a file they do not own and cannot change without the change
     # being erased on the next install.
-    own = {relative.as_posix() for _, relative in own_files(skill_root)}
+    # Directories included, because the convention governs them too and a
+    # directory is never itself a file: comparing against files alone silently
+    # dropped every directory finding the rule produced.
+    own = set()
+    for _, relative in own_files(skill_root):
+        own.add(relative.as_posix())
+        for depth in range(1, len(relative.parts)):
+            own.add("/".join(relative.parts[:depth]))
     for relative, error in names.validate(skill_root):
         if excluded(relative.parts) or relative.as_posix() not in own:
             continue
@@ -1862,6 +1869,13 @@ def command_self_check(_args):
         assert "\n".join(item["evidence"] for item in naming_findings(stranded)).find("Their_Name") == -1, (
             "a filename inside a vendored skill was reported against this skill"
         )
+        # A directory carries a name the convention governs too. The ownership
+        # filter compares against paths, and a directory is never itself a
+        # file, so comparing against files alone dropped every directory the
+        # rule reported without reporting anything in its place.
+        (stranded / "_Archive").mkdir()
+        (stranded / "_Archive" / "note.md").write_text("# Note\n")
+        assert "_Archive" in [item["evidence"] for item in naming_findings(stranded)], naming_findings(stranded)
         naming_run = root / "naming-run"
         execute("init", "--skill", stranded, "--run-dir", naming_run)
         sources = [item["source"] for item in json.loads((naming_run / "findings.json").read_text())["findings"]]
