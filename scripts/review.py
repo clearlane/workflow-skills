@@ -165,6 +165,42 @@ VERDICTS = ("holds", "violated", "not-applicable")
 REVIEW_CONTRACT = Path(__file__).resolve().parent.parent / "references" / "review.md"
 
 
+def contract_bullets(text=None):
+    """Every bullet the contract's question sections hold, before filtering.
+
+    Surface phases share one list, and `coordinator` and `state` carry a
+    second, exactly as the document says. That is read off the two bullet
+    lists under the surface heading rather than hardcoded, so adding a question
+    to either is a documentation edit the gate picks up.
+
+    This is where the mapping from document location to phase lives, and it
+    lives here once. `parse_questions` narrows the result to what a reviewer
+    can answer, and `check.py` compares the two to find the rules that fell
+    through; neither restates where a question section is.
+
+    Markdown is parsed by `document.py`, which owns the model for this
+    repository. An earlier version sliced the text by hand and had to decide
+    for itself what separated two lists, which is CommonMark's job.
+    """
+    parsed = document.parse(REVIEW_CONTRACT, text)
+    bullets = {}
+    for heading in parsed.headings_at(3):
+        items = [item for group in parsed.section_lists(heading.text, level=3) for item in group]
+        if items:
+            bullets[heading.text] = items
+
+    blocks = [group for group in parsed.section_lists("Surface Phases") if group]
+    shared = blocks[0] if blocks else []
+    delegating = blocks[1] if len(blocks) > 1 else []
+    for surface in SURFACES:
+        # The two phases that own what every other surface delegates answer for
+        # ordering, resumability, and concurrency as well.
+        items = shared + (delegating if surface in ("coordinator", "state") else [])
+        if items:
+            bullets[surface] = items
+    return bullets
+
+
 def parse_questions(text=None):
     """Extract each phase's review questions from the contract document.
 
@@ -174,36 +210,16 @@ def parse_questions(text=None):
     treating those as questions would demand answers to things that ask
     nothing.
 
-    Surface phases share one list, and `coordinator` and `state` carry a
-    second, exactly as the document says. That is read off the two bullet
-    lists under the surface heading rather than hardcoded, so adding a question
-    to either is a documentation edit the gate picks up.
-
-    Markdown is parsed by `document.py`, which owns the model for this
-    repository. An earlier version sliced the text by hand and had to decide
-    for itself what separated two lists, which is CommonMark's job.
+    That filter reads shape, not location, so on its own it cannot tell a
+    statement that belongs outside the question set from a rule someone wrote
+    into a question section as a statement. `check.py` settles which one a
+    dropped bullet is, against the sections `contract_bullets` harvests.
     """
-    parsed = document.parse(REVIEW_CONTRACT, text)
-
-    def asked(items):
-        return [item for item in items if item.endswith("?")]
-
-    questions = {}
-    for heading in parsed.headings_at(3):
-        items = asked(item for group in parsed.section_lists(heading.text, level=3) for item in group)
-        if items:
-            questions[heading.text] = items
-
-    blocks = [items for items in (asked(group) for group in parsed.section_lists("Surface Phases")) if items]
-    shared = blocks[0] if blocks else []
-    delegating = blocks[1] if len(blocks) > 1 else []
-    for surface in SURFACES:
-        # The two phases that own what every other surface delegates answer for
-        # ordering, resumability, and concurrency as well.
-        items = shared + (delegating if surface in ("coordinator", "state") else [])
-        if items:
-            questions[surface] = items
-    return questions
+    return {
+        phase: asked
+        for phase, items in contract_bullets(text).items()
+        if (asked := [item for item in items if item.endswith("?")])
+    }
 
 
 def phase_questions(phase, contract=None):
