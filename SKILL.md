@@ -62,7 +62,7 @@ Separate these concerns. Each row names the one owner of that concern and the re
 | Merge many skills into one target | Evidence-bound absorption run with snapshot rollback | [workflow](workflows/absorb.md), [rules](references/absorb.md) |
 | Audit an existing skill against its contracts | Evidence-gated review run with a disposition-gated verdict | [workflow](workflows/review.md), [rules](references/review.md) |
 | Drive a reviewed skill to the quality bar | Bounded fix-and-recheck loop whose check is the next review | [workflow](workflows/remediate.md), [rules](references/remediation.md) |
-| Close a design run against owner boundaries | Boundary questions answered from run artifacts | [closure.md](references/closure.md) |
+| Close a design run against owner boundaries | Review's questions, asked of the run's own artifacts | [closure.md](references/closure.md) |
 
 The coordinator is the workflow source of truth. Prose may explain why a transition exists, but must not duplicate executable control flow. Each adapter owns its host syntax; core guidance stays runtime-neutral.
 
