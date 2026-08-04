@@ -31,16 +31,13 @@ import restructure
 import review
 import state
 from design import CAPABILITY_PHASES
+from validate import validate as validate_skill
 
 ROOT = Path(__file__).resolve().parent.parent
 TICK = chr(96)
-SKILL_LINE_BUDGET = 500
-# Fixed by the Agent Skills format: https://agentskills.io/specification
-NAME_LIMIT = 64
-DESCRIPTION_LIMIT = 1024
-COMPATIBILITY_LIMIT = 500
-SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
-REQUIRED_FRONTMATTER = ("name", "description")
+# The bounds the Agent Skills format fixes live in scripts/validate.py, which
+# is the copy that also runs against skills outside this repository. Restating
+# them here is what let the two drift.
 VENDOR_TOKENS = ("{baseDir}", "quick_validate", "approved_plan_sha256")
 # Host names, which the token list previously omitted: it held only three
 # legacy strings, so guidance could name a specific runtime and pass. These are
@@ -112,35 +109,29 @@ def check_skill(root):
     to them would be the loudest possible contradiction.
     """
     failures = []
+    # The format's own bounds are checked by the validator this repository
+    # ships, not by a second copy here. Two implementations of one rule set is
+    # the failure mode this repository is built to prevent, and the copy that
+    # only ever ran against this tree was the one that drifted: it accepted a
+    # consecutive hyphen and never compared name to directory, both of which
+    # the format states and a third-party skill exercised.
+    #
+    # Running it here is also the only check that the tool users are handed
+    # works. A validator exercised solely by its own self-check is tested
+    # against the cases its author thought of.
+    # Only an error fails the suite, matching the validator's own exit
+    # contract: a warning is guidance an author may knowingly accept, and this
+    # repository knowingly accepts one, since the checkout is named for the
+    # project while the skill installs under its own name.
+    for finding in validate_skill(root):
+        if finding.severity == "error":
+            failures.append(f"SKILL.md: {finding.message}")
     parsed = document.parse(root / "SKILL.md")
+    # The strict YAML parse stays local: validate.py reads a flat scalar subset
+    # on purpose, so it cannot report a frontmatter block that is malformed
+    # rather than merely out of bounds.
     if parsed.frontmatter_error:
         failures.append(f"SKILL.md: invalid frontmatter: {parsed.frontmatter_error}")
-    elif parsed.frontmatter is None:
-        failures.append("SKILL.md: missing frontmatter block")
-    else:
-        for key in REQUIRED_FRONTMATTER:
-            value = parsed.frontmatter.get(key)
-            if not isinstance(value, str) or not value.strip():
-                failures.append(f"SKILL.md: frontmatter missing non-empty {key}")
-        failures.extend(frontmatter_limit_failures(parsed.frontmatter))
-    if parsed.line_count > SKILL_LINE_BUDGET:
-        failures.append(f"SKILL.md: {parsed.line_count} lines exceeds budget {SKILL_LINE_BUDGET}")
-    return failures
-
-
-def frontmatter_limit_failures(frontmatter):
-    """Bounds the Agent Skills format fixes for every host."""
-    failures = []
-    name = frontmatter.get("name")
-    if isinstance(name, str) and name.strip():
-        if len(name) > NAME_LIMIT:
-            failures.append(f"SKILL.md: name is {len(name)} characters, over the {NAME_LIMIT} limit")
-        if not SKILL_NAME.fullmatch(name):
-            failures.append(f"SKILL.md: name {name!r} must be lowercase letters, digits, and inner hyphens")
-    for key, limit in (("description", DESCRIPTION_LIMIT), ("compatibility", COMPATIBILITY_LIMIT)):
-        value = frontmatter.get(key)
-        if isinstance(value, str) and len(value) > limit:
-            failures.append(f"SKILL.md: {key} is {len(value)} characters, over the {limit} limit")
     return failures
 
 
@@ -1115,24 +1106,13 @@ def self_check():
     """Verify the checks that carry their own logic actually reject bad input.
 
     Most checks here delegate to a script that self-checks, or assert a fact
-    about the repository that is visible when it breaks. The frontmatter bounds
-    are different: while this repository stays well inside them, a check that
-    silently stopped rejecting anything would look identical to a passing one.
-    """
-    valid = {"name": "ok-skill", "description": "d", "compatibility": "c" * COMPATIBILITY_LIMIT}
-    assert frontmatter_limit_failures(valid) == []
-    assert frontmatter_limit_failures({"name": "ok", "description": "d" * DESCRIPTION_LIMIT}) == []
-    rejected = (
-        {"name": "x" * (NAME_LIMIT + 1), "description": "d"},
-        {"name": "Bad_Name", "description": "d"},
-        {"name": "-leading", "description": "d"},
-        {"name": "trailing-", "description": "d"},
-        {"name": "ok", "description": "d" * (DESCRIPTION_LIMIT + 1)},
-        {"name": "ok", "description": "d", "compatibility": "c" * (COMPATIBILITY_LIMIT + 1)},
-    )
-    for frontmatter in rejected:
-        assert frontmatter_limit_failures(frontmatter), frontmatter
+    about the repository that is visible when it breaks.
 
+    The format bounds are no longer among them: scripts/validate.py owns those
+    and proves them in its own self-check, which check.py discovers and runs.
+    Asserting them again here would be the same duplication that let this
+    file's copy drift from the format in the first place.
+    """
     # The assertion counter is the check that catches a self-check which prints
     # the passing line and proves nothing, so it must reject exactly that stub.
     with tempfile.TemporaryDirectory() as directory:
