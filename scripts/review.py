@@ -276,6 +276,50 @@ def safety_findings(skill_root):
 
 RESOURCE_DIRS = frozenset({"references", "reference", "workflows", "docs"})
 
+# Filenames whose case is a cross-ecosystem convention older than any skill
+# format, so a skill that follows it is right and the naming rule does not
+# reach them.
+CONVENTIONAL_STEMS = frozenset(
+    {"README", "LICENSE", "LICENCE", "CONTRIBUTING", "CHANGELOG", "AGENTS", "SKILL", "CLAUDE", "NOTICE", "CODEOWNERS"}
+)
+RESOURCE_STEM = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def naming_findings(skill_root):
+    """Flag resource filenames outside the one-word or family-first convention.
+
+    `references/naming.md` states the rule and a reviewer was left to apply
+    it by eye across every file in the tree, which is the kind of uniform
+    mechanical sweep attention is worst at: one `SCREAMING_CASE.md` among
+    thirty conforming names reads as unremarkable.
+
+    Scoped to resource directories, since a skill's top-level files answer to
+    ecosystem conventions this rule does not own.
+    """
+    findings = []
+    for path in sorted(skill_root.rglob("*.md")):
+        relative = path.relative_to(skill_root)
+        if not path.is_file() or excluded(relative.parts) or len(relative.parts) < 2:
+            continue
+        if relative.parts[0] not in RESOURCE_DIRS or path.stem in CONVENTIONAL_STEMS:
+            continue
+        if RESOURCE_STEM.match(path.stem):
+            continue
+        findings.append(
+            {
+                "phase": "structure",
+                "severity": "minor",
+                "summary": f"{relative.as_posix()} is outside the lowercase one-word or family-first convention",
+                "evidence": relative.as_posix(),
+                "remedy": "rename to a single lowercase word, or a family-first hyphenated stem",
+                "disposition": None,
+                "disposition_note": None,
+                "source": "structure:naming",
+                "recorded_at": now(),
+            }
+        )
+    return findings
+
 
 def unreachable_findings(skill_root):
     """Name the prose resources nothing else in the skill points at.
@@ -426,7 +470,12 @@ def command_init(args):
     # Non-empty when the format's own bounds are already broken: those have
     # exact answers, so spending a reviewer's judgement to rediscover them
     # wastes the expensive resource on the cheap question.
-    seeded = conformance_findings(skill_root) + safety_findings(skill_root) + unreachable_findings(skill_root)
+    seeded = (
+        conformance_findings(skill_root)
+        + safety_findings(skill_root)
+        + unreachable_findings(skill_root)
+        + naming_findings(skill_root)
+    )
     for index, finding in enumerate(seeded, start=1):
         finding["id"] = f"F{index}"
     save_findings(root, seeded)
@@ -818,6 +867,30 @@ def command_self_check(_args):
         execute("init", "--skill", stranded, "--run-dir", stranded_run)
         sources = [item["source"] for item in json.loads((stranded_run / "findings.json").read_text())["findings"]]
         assert "structure:unreachable" in sources, sources
+
+        # The naming rule is stated once and then applied by eye across a
+        # whole tree, which is the sweep attention is worst at: one odd name
+        # among conforming ones does not stand out.
+        (stranded / "references" / "Bad_Name.md").write_text("# Bad\n")
+        named = naming_findings(stranded)
+        assert [item["evidence"] for item in named] == ["references/Bad_Name.md"], named
+        assert named[0]["severity"] == "minor", named
+        # A README keeps its conventional case wherever it sits, and a
+        # family-first hyphenated stem is the convention, not a breach.
+        (stranded / "references" / "README.md").write_text("# Readme\n")
+        (stranded / "references" / "state-machine.md").write_text("# Family first\n")
+        assert [item["evidence"] for item in naming_findings(stranded)] == ["references/Bad_Name.md"]
+        # Top-level files answer to ecosystem conventions this rule does not own.
+        (stranded / "Makefile.md").write_text("# Top level\n")
+        # So does a non-resource directory: an asset named for the artefact it
+        # produces is not a reference, and the naming rule governs references.
+        (stranded / "assets").mkdir()
+        (stranded / "assets" / "Brand_Brief.md").write_text("# Asset\n")
+        assert [item["evidence"] for item in naming_findings(stranded)] == ["references/Bad_Name.md"]
+        naming_run = root / "naming-run"
+        execute("init", "--skill", stranded, "--run-dir", naming_run)
+        sources = [item["source"] for item in json.loads((naming_run / "findings.json").read_text())["findings"]]
+        assert "structure:naming" in sources, sources
 
         state = read_status(result.stdout)
         assert state["phases"] == list(ALWAYS_FIRST + ALWAYS_LAST), state["phases"]
