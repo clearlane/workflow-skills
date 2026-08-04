@@ -53,6 +53,7 @@ import review
 import state
 from design import CAPABILITY_PHASES
 from validate import COMPATIBILITY_LIMIT, DESCRIPTION_LIMIT, NAME_LIMIT
+from validate import RULES as CONFORMANCE_RULES
 from validate import validate as validate_skill
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -603,12 +604,17 @@ def check_review_phases(root, contract=None):
 def conformance_rules():
     """The rule names validate.py can attach to a finding.
 
-    Read out of the source because a rule is only a string until something
-    triggers it, and the rule most likely to be missed is the one no fixture
-    reaches.
+    Imported from the module that owns them. This used to pattern-match the
+    source for a `Finding(` call with two string literals, which found only the
+    rules written out by hand: the two field-length rules name themselves after
+    the field they bound, so `compatibility` was emittable and invisible here.
+    It reached findings.json as `conformance:compatibility`, matched no anchor,
+    and answered no question, which is precisely the state the coverage check
+    above exists to reject. A pattern that reads a set of names cannot see a
+    name that is computed; the declaration can, and now nothing can emit a rule
+    without adding it there.
     """
-    source = (ROOT / "scripts" / "validate.py").read_text(encoding="utf-8")
-    return set(re.findall(r"""Finding\(\s*\n?\s*["'](?:error|warning)["'],\s*\n?\s*["']([a-z0-9-]+)["']""", source))
+    return set(CONFORMANCE_RULES)
 
 
 def check_reachability(root):

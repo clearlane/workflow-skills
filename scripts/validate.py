@@ -46,6 +46,27 @@ LINE_BUDGET = 500
 KNOWN_FIELDS = {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
 REQUIRED_FIELDS = ("name", "description")
 
+# The rule vocabulary, declared rather than left implicit in eleven call sites.
+# A rule name is a public identifier: review.py seeds `conformance:<rule>` into
+# findings.json and maps that string onto the contract question the finding
+# already answers, so a caller resolves a rule by name across a file boundary.
+# Two of these are not written as literals at all — the field-length rules take
+# their name from the field being bounded — and check.py read the set back by
+# pattern-matching this file, which those two evaded. `compatibility` was
+# therefore emittable, unanchored, and invisible to the check that exists to
+# catch exactly that.
+RULES = frozenset(
+    {
+        "structure",
+        "frontmatter",
+        "name",
+        "description",
+        "compatibility",
+        "links",
+        "size",
+    }
+)
+
 
 class Finding:
     """One conformance result, carrying whether it blocks the host from loading.
@@ -63,6 +84,12 @@ class Finding:
     """
 
     def __init__(self, severity, rule, message, remedy):
+        # A rule name a caller resolves by string must exist. `compatibility`
+        # is built from a field name rather than written out, so a renamed
+        # field would have silently produced a rule nothing anchors, and the
+        # finding would have answered no question while still being reported.
+        if rule not in RULES:
+            raise AssertionError(f"rule {rule!r} is not in RULES; a name callers resolve must be declared")
         self.severity = severity
         self.rule = rule
         self.message = message
@@ -338,6 +365,24 @@ def self_check():
         assert write("name: good-skill\ndescription: d", "use `[text](url)` for externals") == []
         assert write("name: good-skill\ndescription: d", "```\n[x](missing.md)\n```\n") == []
         assert "size" in rules(write("name: good-skill\ndescription: d", "\n" * 600), "warning")
+
+        # `compatibility` takes its rule name from the field it bounds rather
+        # than from a literal, which is how it stayed out of the rule set the
+        # checker used to scrape. Exercised here so the name is proven to be
+        # emitted, not merely declared.
+        over = write(f"name: good-skill\ndescription: d\ncompatibility: {'c' * 501}")
+        assert "compatibility" in rules(over), "an over-long compatibility was accepted"
+
+        # Every emitted rule is declared, and every declared rule is real. The
+        # first direction is what RULES is for; the second stops the set from
+        # being widened to whatever a caller happens to pass.
+        assert {finding.rule for finding in over} <= RULES, "an emitted rule is not declared"
+        try:
+            Finding("error", "compatibilty", "typo", "fix")
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("a misspelled rule name was accepted")
 
         core.write_text("no frontmatter here\n", encoding="utf-8")
         assert "frontmatter" in rules(validate(skill)), "a file with no frontmatter was accepted"

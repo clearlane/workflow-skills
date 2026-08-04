@@ -53,6 +53,7 @@ from state import (
 from state import (
     print_status as print_envelope,
 )
+from validate import RULES
 from validate import validate as validate_skill
 
 # Review concerns every skill has, regardless of which surfaces it exposes.
@@ -159,6 +160,12 @@ def phase_questions(phase, contract=None):
     return [(f"{phase}.{index}", text) for index, text in enumerate(asked, start=1)]
 
 
+# The prefix marking a source as a conformance rule validate.py owns, rather
+# than a scan this coordinator runs or a reviewer's own note. Named once
+# because it is the string both the writer and the resolver depend on, and two
+# spellings of it would put a finding beyond the reach of its own anchor.
+CONFORMANCE_PREFIX = "conformance:"
+
 # Which contract question each automatic finding already answers, keyed by the
 # finding's source. Anchored on a distinctive phrase rather than an index, so
 # reordering the prose cannot silently remap an answer onto a different
@@ -167,6 +174,11 @@ ANSWER_ANCHORS = {
     "conformance:description": ("activation", "observable user intent"),
     "conformance:name": ("activation", "observable user intent"),
     "conformance:frontmatter": ("activation", "observable user intent"),
+    # The activation metadata a host reads, bounded by the same format rule as
+    # the fields above. Missing here until the rule set stopped being read by
+    # pattern: this name is built from the field it bounds rather than written
+    # out, so nothing saw it, and the finding it seeded settled nothing.
+    "conformance:compatibility": ("activation", "observable user intent"),
     "conformance:size": ("structure", "size stay within budget"),
     "conformance:links": ("structure", "every resource reachable"),
     "structure:unreachable": ("structure", "every resource reachable"),
@@ -182,11 +194,34 @@ UNREACHABLE_RULES = {"conformance:structure"}
 
 
 def anchored_question(source, contract=None):
-    """Resolve a finding source to the question id it answers, if any."""
-    anchor = ANSWER_ANCHORS.get(source)
-    if anchor is None:
+    """Resolve a finding source to the question id it answers, if any.
+
+    A source this run generated must be mapped. Returning None for anything
+    unrecognised conflated two opposite situations: a reviewer's hand-recorded
+    finding, which legitimately answers nothing and carries no source at all,
+    and a rule whose name no longer matches its anchor, which answers nothing
+    only because the mapping rotted. The second reads as the first, so a
+    renamed rule left the run demanding a hand-written answer to a question it
+    had already settled, and every gate still closed.
+
+    So only an unsourced finding is silent. A `conformance:` source names a
+    rule validate.py owns, and one outside that vocabulary is a typo or a
+    rename; either way the string resolves to nothing and saying so is the
+    only honest answer.
+    """
+    if not source:
         return None
-    phase, needle = anchor
+    rule = source.partition(":")[2] if source.startswith(CONFORMANCE_PREFIX) else None
+    if rule is not None and rule not in RULES:
+        raise AssertionError(f"source {source!r} names no rule validate.py can emit")
+    if source not in ANSWER_ANCHORS:
+        # An unanchored generated source is the same rot seen from the other
+        # side: check.py rejects the mapping, and a run that somehow holds one
+        # must not quietly treat it as a reviewer's own note.
+        if rule is not None and source not in UNREACHABLE_RULES:
+            raise AssertionError(f"source {source!r} is generated but anchors to no contract question")
+        return None
+    phase, needle = ANSWER_ANCHORS[source]
     for identifier, text in phase_questions(phase, contract):
         if needle in text:
             return identifier
@@ -651,7 +686,7 @@ def conformance_findings(skill_root):
             "remedy": finding.remedy,
             "disposition": None,
             "disposition_note": None,
-            "source": f"conformance:{finding.rule}",
+            "source": f"{CONFORMANCE_PREFIX}{finding.rule}",
             "recorded_at": now(),
         }
         for finding in validate_skill(skill_root)
@@ -1605,6 +1640,23 @@ def command_self_check(_args):
         assert anchored_question("safety-scan") == "safety.3", anchored_question("safety-scan")
         assert answered_by_findings([{"id": "F9", "source": "safety-scan"}]) == {"safety.3": "F9"}
         assert answered_by_findings([{"id": "F9", "source": "recorded-by-hand"}]) == {}
+
+        # A reviewer's own finding carries no source and answers nothing, which
+        # is the only silent case. A generated source that resolves to nothing
+        # used to be reported the same way, so a typo or a rename left the run
+        # asking for an answer it already held while every gate still closed.
+        assert answered_by_findings([{"id": "F9", "source": ""}]) == {}
+        assert anchored_question(f"{CONFORMANCE_PREFIX}compatibility") == "activation.1"
+        for rotted in (f"{CONFORMANCE_PREFIX}compatibilty", f"{CONFORMANCE_PREFIX}renamed-away"):
+            try:
+                anchored_question(rotted)
+            except AssertionError:
+                continue
+            raise AssertionError(f"{rotted} resolved to nothing without failing")
+        # Every rule validate.py can emit is either anchored or named
+        # unreachable, so no seeded finding can reach a run unresolvable.
+        for rule in RULES:
+            anchored_question(f"{CONFORMANCE_PREFIX}{rule}")
 
         # The two phases owning what every other surface delegates answer for
         # ordering, resumability, and concurrency as well, so their gate is
