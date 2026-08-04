@@ -57,6 +57,7 @@ Against [structure.md](structure.md) and [naming.md](naming.md):
 - Is control flow in executable code rather than numbered prose the agent must remember?
 - Is every resource reachable from core instructions, and is every resource actually used?
 - Do filenames follow the one-word or family-first convention?
+- Does core guidance name capabilities rather than a host's own paths, leaving those to an adapter?
 - Does core instruction size stay within budget, with detail deferred to references?
 
 A finding here names material in the wrong place; it does not move it. When the fix is a set of file moves rather than an edit, [layout.md](layout.md) decides whether the arrangement is genuinely wrong and [restructure.md](../workflows/restructure.md) is the run that carries it out under approval.

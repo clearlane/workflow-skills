@@ -52,6 +52,7 @@ import restructure
 import review
 import state
 from design import CAPABILITY_PHASES
+from neutrality import host_paths, is_core_guidance
 from validate import validate as validate_skill
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -66,40 +67,13 @@ VENDOR_TOKENS = ("{baseDir}", "quick_validate", "approved_plan_sha256")
 # vendored upstream material, or inside an installed third-party skill is not a
 # neutrality violation, and scanning those would make the check unusable.
 HOST_TOKENS = ("Claude Code", "~/.claude", "CLAUDE.md", ".cursor", "Cursor", "Copilot")
-# A host is recognised by the shape of the path it owns, not only by its name.
-# The list above can only ever hold the hosts someone thought to add, and
-# AGENTS.md said so in as many words: a document naming `~/.windsurf` or
-# `.aider/skills/` passed cleanly because nobody had met that host yet. These
-# two patterns describe where an agent runtime keeps its material, so a host
-# nobody has listed is caught the first time it is written down.
-#
-# Shape one: a per-user dotfile directory. Every host puts its configuration in
-# one, and the only such paths that are not a host are the cross-host base
-# directories the XDG specification defines and the shell's own rc files.
-HOME_DOTFILE = re.compile(r"(?:~|\$HOME)/\.([A-Za-z][\w.-]*)")
-# The XDG base directories are a freedesktop.org specification every host
-# honours, so naming one is the opposite of naming a host: it is the neutral
-# answer references/settings.md is required to give. Shell rc files belong to
-# the shell rather than to any agent runtime.
-CROSS_HOST_HOME = frozenset({"config", "cache", "local", "bashrc", "zshrc", "profile", "bash_profile", "zshenv"})
-# Shape two: a project-local dot-directory holding agent material. The
-# directory name alone is far too broad, since a skill legitimately names its
-# own `.scrum/` or `.context/` state, so what is matched is the second segment:
-# the places a host scans for skills, commands, and prompts. That is the claim
-# neutrality is about, and it is what makes `.cursor/rules/` a violation while
-# `.github/workflows/` stays unremarkable. The directory name itself is left
-# unbounded in length, since the second segment is what carries the precision
-# and a floor would only decide in advance that no host is named in two letters.
-HOST_INSTALL_PATH = re.compile(
-    r"(?<![\w.$)>/~\\-])(\.[a-z][a-z0-9_-]*)/(?:skills|rules|commands|agents|plugins|prompts|instructions)\b"
-)
-# The directories any repository has regardless of which agent reads it. These
-# are conventions of git hosting and editors, not of an agent runtime.
-CROSS_HOST_DIRECTORIES = frozenset({".github", ".gitlab", ".githooks", ".well-known", ".devcontainer", ".vscode"})
-NEUTRAL_ROOTS = ("references", "workflows")
-NEUTRAL_FILES = ("SKILL.md", "AGENTS.md", "CONTRIBUTING.md")
-# Upstream material is vendored verbatim, so it describes the host it came from.
-NEUTRAL_EXEMPT = ("references/upstream",)
+# The token list above can only ever hold the hosts someone thought to add, so
+# the shapes that recognise a host by the path it owns live in neutrality.py,
+# along with the scope both this checker and review.py hold a skill to. The
+# scope was stated in two places once review.py needed it, which is the
+# duplication this repository exists to prevent: a README is outside the rule
+# because its install section must name each host's directory, and that reason
+# is the same wherever the rule is applied.
 PHASE_SECTION = "Phases the Coordinator Always Runs"
 DESIGN_WORKFLOW = "workflows/design.md"
 REVIEW_WORKFLOW = "workflows/review.md"
@@ -182,27 +156,6 @@ def check_skill(root):
     return failures
 
 
-def host_paths(line):
-    """Host-owned paths a line names, recognised by shape rather than by name.
-
-    The token list beside this can only hold hosts someone has already met, so
-    it is the shape of the path that has to carry the rule. Both patterns are
-    narrowed by an allowlist of the paths that are genuinely cross-host: the
-    XDG base directories, the shell's own files, and the repository
-    conventions any project has whichever agent reads it.
-    """
-    found = []
-    for match in HOME_DOTFILE.finditer(line):
-        # `~/.local/state` names the XDG directory, not a `.local` host, so the
-        # first segment is what the allowlist is asked about.
-        if match.group(1).split("/")[0] not in CROSS_HOST_HOME:
-            found.append(match.group(0))
-    for match in HOST_INSTALL_PATH.finditer(line):
-        if match.group(1) not in CROSS_HOST_DIRECTORIES:
-            found.append(match.group(0))
-    return found
-
-
 def check_vendor_tokens(root):
     """Core guidance stays runtime-neutral; host syntax belongs in adapters.
 
@@ -213,11 +166,12 @@ def check_vendor_tokens(root):
     A document writing `~/.windsurf` or `.aider/skills/` passed, and so would
     every host released after the list was last touched.
 
-    A host is now also recognised by shape: the per-user dotfile directory it
+    A host is now also recognised by shape, by `neutrality.py`, which owns the
+    two patterns and proves them: the per-user dotfile directory a host
     configures itself in, and the project-local directory a host scans for
     skills, commands, or prompts. Measured over the 1,034 neutral documents in
-    the 200 skills on this machine, the two shapes flag `~/.claude`,
-    `~/.hermes`, `~/.banana`, `~/.gam`, `~/.agents`, `~/.codex`, `~/.gemini`,
+    the 200 skills on this machine, they flag `~/.claude`, `~/.hermes`,
+    `~/.banana`, `~/.gam`, `~/.agents`, `~/.codex`, `~/.gemini`,
     `.agents/skills`, `.claude/skills`, `.claude/commands`, `.claude/plugins`
     and `.cursor/rules`, every one of them a host or an install path, and
     nothing else. Four of those the literal list would never have caught.
@@ -228,13 +182,10 @@ def check_vendor_tokens(root):
     failures = []
     for parsed in document.walk(root):
         relative = parsed.path.relative_to(root)
-        posix = relative.as_posix()
         # A document is core guidance if it is a contract in references/ or
         # workflows/, or one of the top-level documents that speak for the
         # repository. Everything else may name a host freely.
-        neutral = (relative.parts[0] in NEUTRAL_ROOTS or posix in NEUTRAL_FILES) and not posix.startswith(
-            NEUTRAL_EXEMPT
-        )
+        neutral = is_core_guidance(relative)
         tokens = VENDOR_TOKENS + (HOST_TOKENS if neutral else ())
         for number, line in enumerate(parsed.text.splitlines(), 1):
             for token in tokens:
@@ -1886,26 +1837,11 @@ def self_check():
         guidance(tree, "references/upstream/vendored.md", "# V\n\nSee `~/.windsurf/` and `.aider/skills/`.\n")
         assert check_vendor_tokens(tree) == [], "the upstream exemption stopped covering the path shapes"
 
-    # The shapes are only worth having if they separate a host from the
-    # cross-host paths that look identical, which is the whole difficulty:
-    # references/settings.md is required to name the XDG directories, and any
-    # repository has a .github/ whichever agent reads it.
-    assert host_paths("Read `~/.windsurf/settings.json`.") == ["~/.windsurf"], "an unlisted host was not seen"
-    assert host_paths('export HOME_DIR="$HOME/.aider"') == ["$HOME/.aider"], "the $HOME spelling was not seen"
-    assert host_paths("Default to `~/.config`, then `~/.local/state`.") == [], "the XDG directories were flagged"
-    assert host_paths("Source `~/.zshrc` first.") == [], "a shell rc file was called a host"
-    assert host_paths("Install into `.windsurf/rules/`.") == [".windsurf/rules"], "an unlisted install path passed"
-    assert host_paths("CI lives in `.github/workflows/`.") == [], "a repository convention was called a host"
-    # Measured on the corpus: these are the shapes that made the unbounded
-    # dot-directory pattern unusable. A skill naming its own state directory,
-    # a URL, and a chain of method names all read as `.name/` and none of them
-    # is a host, so the second segment is what the pattern keys on.
-    assert host_paths("State lives in `.scrum/state/run.db`.") == [], "a skill's own state directory was flagged"
-    assert host_paths("Match `drive\\.google\\.com/file/d`.") == [], "a URL host was read as a directory"
-    assert host_paths("Modifiers: `.add/subtract/multiply`.") == [], "a chain of method names was read as a path"
-    # A host free to call its directory anything is free to call it something
-    # short, so the second segment rather than a length floor is what decides.
-    assert host_paths("Copy into `.q/prompts/`.") == [".q/prompts"], "a short host directory was let through"
+    # The shapes themselves are proved in neutrality.py's own self-check, which
+    # check.py discovers and runs. What belongs here is the wiring: that this
+    # check consults them at all, and that the neutral scope and the upstream
+    # exemption apply to a shape exactly as they apply to a name.
+    assert host_paths("Read `~/.windsurf/settings.json`.") == ["~/.windsurf"], "the shared shapes are not reachable"
 
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)

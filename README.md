@@ -143,6 +143,7 @@ Core instructions load first; everything else is loaded on demand, which is the 
 - `scripts/check.py` — single entrypoint running every deterministic repository check
 - `scripts/settings.py` — stdlib JSON layer resolver with provenance and atomic-write self-check
 - `scripts/names.py` — deterministic portable filename check
+- `scripts/neutrality.py` — recognises a host by the shape of the path it owns, shared by the checker and the reviewer
 - `scripts/validate.py` — Agent Skills conformance check for any skill directory, dependency-free so it runs before anything is installed
 
 **Supporting files**

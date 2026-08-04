@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import document
 import names
+import neutrality
 from cli import (
     EX_DATAERR,
     EX_USAGE,
@@ -171,6 +172,7 @@ ANSWER_ANCHORS = {
     "conformance:links": ("structure", "every resource reachable"),
     "structure:unreachable": ("structure", "every resource reachable"),
     "structure:naming": ("structure", "filenames follow"),
+    "structure:neutrality": ("structure", "name capabilities rather than a host"),
     "safety-scan": ("safety", "no raw shell interpolation"),
 }
 
@@ -564,6 +566,59 @@ def naming_findings(skill_root):
     return findings
 
 
+def neutrality_findings(skill_root):
+    """Point at the host-owned paths in a skill's core guidance.
+
+    The structure phase asks whether core guidance names capabilities rather
+    than one host's own paths. A reviewer answers that by reading every
+    document for a path shape, which is the uniform mechanical sweep attention
+    is worst at: one `~/.windsurf/` among forty neutral paragraphs reads as
+    unremarkable, and the cost of missing it is a skill whose state cannot move
+    to another runtime without migrating live user data.
+
+    `neutrality.py` owns both the shapes and the scope, so this reports what
+    that module finds rather than restating it. Scope matters as much as shape:
+    scanning every file reported this repository's own README, whose install
+    section has to name the directory each host scans. That is the document
+    doing its job, and a finding against it would argue with the one place the
+    information belongs.
+
+    Recorded as `major`, and against the same allowlist reasoning the module
+    documents, because a shape is evidence rather than a verdict. A skill may
+    have a considered reason to name a host in core guidance, and `accepted`
+    with a note is how that is said.
+    """
+    findings = []
+    for path in sorted(skill_root.rglob("*.md")):
+        relative = path.relative_to(skill_root)
+        if not path.is_file() or excluded(relative.parts):
+            continue
+        # The scope is owned by neutrality.py, so the checker and the reviewer
+        # cannot disagree about which documents the rule governs.
+        if not neutrality.is_core_guidance(relative) or path.stat().st_size > MAX_BYTES:
+            continue
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for number, line in enumerate(lines, 1):
+            for host in neutrality.host_paths(line):
+                findings.append(
+                    {
+                        "phase": "structure",
+                        "severity": "major",
+                        "summary": f"{relative.as_posix()}:{number} names the host-owned path {host}",
+                        "evidence": f"{relative.as_posix()}:{number}",
+                        "remedy": "name the capability and move the path into a host adapter",
+                        "disposition": None,
+                        "disposition_note": None,
+                        "source": "structure:neutrality",
+                        "recorded_at": now(),
+                    }
+                )
+    return findings
+
+
 def unreachable_findings(skill_root):
     """Name the prose resources nothing else in the skill points at.
 
@@ -718,6 +773,7 @@ def command_init(args):
         + safety_findings(skill_root)
         + unreachable_findings(skill_root)
         + naming_findings(skill_root)
+        + neutrality_findings(skill_root)
     )
     for index, finding in enumerate(seeded, start=1):
         finding["id"] = f"F{index}"
@@ -1268,6 +1324,34 @@ def command_self_check(_args):
         stray = unreachable_findings(stranded)
         assert [item["evidence"] for item in stray] == ["references/orphan.md"], stray
         assert stray[0]["phase"] == "structure", stray
+
+        # Core guidance naming one host's own directory is the defect that
+        # makes a skill unmovable: the state cannot follow the user to another
+        # runtime without a migration. A reviewer catches it only by reading
+        # every document for a path shape, and the shape is easy to read past.
+        (stranded / "references" / "linked.md").write_text(
+            "# Linked\n\nStore settings in `~/.windsurf/settings.json`.\n"
+        )
+        bound = neutrality_findings(stranded)
+        assert [item["evidence"] for item in bound] == ["references/linked.md:3"], bound
+        assert bound[0]["phase"] == "structure" and bound[0]["severity"] == "major", bound
+        # The neutral answer must not be reported, or the finding would argue
+        # against the very fallback references/settings.md tells authors to use.
+        (stranded / "references" / "linked.md").write_text(
+            "# Linked\n\nResolve `$XDG_CONFIG_HOME`, defaulting to `~/.config`.\n"
+        )
+        assert neutrality_findings(stranded) == [], neutrality_findings(stranded)
+        # Computing a finding and never seeding it leaves the reviewer exactly
+        # as uninformed, so this is asserted through init as well.
+        (stranded / "references" / "linked.md").write_text("# Linked\n\nCopy into `.aider/skills/`.\n")
+        neutral_run = root / "neutral-run"
+        execute("init", "--skill", stranded, "--run-dir", neutral_run)
+        seeded = json.loads((neutral_run / "findings.json").read_text())["findings"]
+        assert "structure:neutrality" in [item["source"] for item in seeded], seeded
+        # The finding must settle the contract question it is anchored to, or
+        # the run asks the reviewer to establish by hand what it already knows.
+        assert anchored_question("structure:neutrality") is not None, "the neutrality anchor resolves to nothing"
+        (stranded / "references" / "linked.md").write_text("# Linked\n")
         # Naming it anywhere is enough. A reference a README lists by bare
         # name is findable, and reporting it would train reviewers to skip
         # the category wholesale.
