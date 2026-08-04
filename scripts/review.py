@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cli import (
+    EX_DATAERR,
     fail,
 )
 from design import CAPABILITY_PHASES
@@ -33,10 +34,12 @@ from state import (
     read_history,
     read_json,
     read_status,
+    relative_file_manifest,
     require_text,
     run_cli,
     save_state,
     slug,
+    tree_sha256,
     validate_sarif,
     write_artifact,
     write_json,
@@ -208,7 +211,16 @@ def command_init(args):
     )
     state = {
         "version": VERSION,
-        "skill": {"name": slug(args.name or skill_root.name), "path": str(skill_root)},
+        "skill": {
+            "name": slug(args.name or skill_root.name),
+            "path": str(skill_root),
+            # Which phases this run will even have is derived from the surfaces
+            # detected right here, so the skill as it stands now is what the
+            # review is a review of. Without recording it, a surface added
+            # afterwards is never examined by any phase and still receives the
+            # run's verdict.
+            "sha256": tree_sha256(relative_file_manifest(skill_root)),
+        },
         "surfaces": surfaces,
         "phases": phases,
         "completed": [],
@@ -231,6 +243,10 @@ def command_status(args):
 def command_record_finding(args):
     """Findings attach to a reached phase so evidence precedes judgement."""
     root, state = open_run(args.run_dir)
+    # A finding cites a path and a line. Both are claims about a specific tree,
+    # so recording one against a changed skill files evidence that may no longer
+    # be there, under a run whose other findings describe the earlier tree.
+    require_unchanged_skill(state)
     phase = pending_phase(state)
     reached = state["completed"] + ([phase] if phase else [])
     if args.phase not in reached:
@@ -274,8 +290,30 @@ def command_resolve_finding(args):
     fail(f"Unknown finding id: {args.id}")
 
 
+def require_unchanged_skill(state):
+    """Refuse to record a conclusion about a tree that is no longer the one reviewed.
+
+    A review's phases are derived from the surfaces present at init, so a
+    surface that appears later has no phase to examine it and still collects
+    the run's verdict. Editing the skill mid-run is a legitimate thing to do,
+    which is why this asks for a new run rather than failing the skill: the
+    conclusions reached so far were about a tree that no longer exists.
+    """
+    recorded = (state.get("skill") or {}).get("sha256")
+    if not recorded:
+        return
+    current = tree_sha256(relative_file_manifest(Path(state["skill"]["path"])))
+    if current != recorded:
+        fail(
+            "the skill changed since this review began, so the phases already "
+            "closed describe a tree that no longer exists; start a new run",
+            EX_DATAERR,
+        )
+
+
 def command_complete_phase(args):
     root, state = open_run(args.run_dir)
+    require_unchanged_skill(state)
     expected = pending_phase(state)
     if expected is None:
         fail("All phases already complete")
@@ -495,6 +533,46 @@ def command_self_check(_args):
         skipped_run = root / "skipped-run"
         result = execute("init", "--skill", rich, "--run-dir", skipped_run, "--skip-surface", "settings")
         assert "settings" not in read_status(result.stdout)["detail"]["surfaces"]
+
+        # Which phases exist is decided from the surfaces present at init, so a
+        # surface that appears afterwards has no phase to examine it and would
+        # still collect the run's verdict. A new file is the case that matters
+        # most, because it is the one that adds unreviewed capability; an edit
+        # and a deletion are checked too, since a digest that missed either
+        # would let the same tree be described by conclusions about another.
+        for label, change in (
+            ("added", lambda tree: (tree / "extra.md").write_text("new surface\n")),
+            ("edited", lambda tree: (tree / "SKILL.md").write_text("# Changed\n\nElse.\n")),
+            ("deleted", lambda tree: (tree / "SKILL.md").unlink()),
+        ):
+            drifting = root / f"drift-{label}"
+            drifting.mkdir()
+            (drifting / "SKILL.md").write_text("# Drift\n\nDo one thing directly.\n")
+            drift_run = root / f"drift-run-{label}"
+            execute("init", "--skill", drifting, "--run-dir", drift_run)
+            change(drifting)
+            outcome = execute(
+                "complete-phase", "--run-dir", drift_run, "--phase", "activation", "--note", "x", check=False
+            )
+            assert outcome.returncode == EX_DATAERR, (label, outcome.returncode, outcome.stdout)
+            assert "changed since this review began" in outcome.stderr, (label, outcome.stderr)
+            # A finding cites a path and a line, so it is a claim about the tree
+            # too and must be refused for the same reason.
+            finding = execute(
+                "record-finding",
+                "--run-dir",
+                drift_run,
+                "--phase",
+                "activation",
+                "--severity",
+                "minor",
+                "--summary",
+                "x",
+                "--evidence",
+                "SKILL.md:1",
+                check=False,
+            )
+            assert finding.returncode == EX_DATAERR, (label, finding.returncode)
 
         # Phases close in order, and only with a decision note.
         assert execute(

@@ -145,8 +145,13 @@
         },
         "path": {
           "$ref": "common.schema.json#/$defs/text"
+        },
+        "sha256": {
+          "description": "Digest of the subject tree when the run began. A run reaches conclusions about the tree it inspected, so recording the tree lets a later phase tell whether it is still describing the same thing.",
+          "$ref": "#/$defs/optionalDigest"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "optionalDigest": {
       "anyOf": [
