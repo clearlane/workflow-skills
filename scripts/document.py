@@ -124,10 +124,18 @@ def _inline_text(token):
     A softbreak is where the author wrapped a line, and the words either side
     of it are separate. Dropping it silently glued them into one, which then
     failed to match the same sentence written on one line.
+
+    Inline code carries its content in the token itself rather than in a text
+    child, so collecting only text children dropped it. The words vanished
+    from every caller at once: a heading rendered "With the  CLI", its anchor
+    became "with-the--cli" where GitHub serves "with-the-skills-cli", and a
+    README entry naming a path in backticks flattened to its description
+    alone. The marker is not reinstated, because callers compare rendered
+    text, and a reader sees the word, not the backticks around it.
     """
     parts = []
     for child in token.children or []:
-        if child.type == "text":
+        if child.type in {"text", "code_inline"}:
             parts.append(child.content)
         elif child.type == "softbreak":
             parts.append(" ")
@@ -269,6 +277,10 @@ SELF_CHECK_SOURCE = "\n".join(
         "",
         "![shot](img/shot.png)",
         "",
+        "## With the `skills` CLI",
+        "",
+        "- `path/to/file.md` — a described path",
+        "",
     ]
 )
 
@@ -279,8 +291,17 @@ def self_check():
     parsed = parse(Path("demo.md"), SELF_CHECK_SOURCE)
     assert parsed.frontmatter == {"name": "demo", "description": "one line"}
     assert parsed.frontmatter_error is None
-    assert [heading.text for heading in parsed.headings] == ["Title", "Deep Section"]
+    assert [heading.text for heading in parsed.headings] == [
+        "Title",
+        "Deep Section",
+        "With the skills CLI",
+    ]
     assert parsed.headings_at(2)[0].anchor == "deep-section"
+    # Inline code is part of the rendered text. Dropping it silently deleted
+    # words: this heading flattened to "With the  CLI" and anchored as
+    # "with-the--cli", where GitHub serves "with-the-skills-cli", so a link
+    # this parser called valid would have 404ed on the rendered page.
+    assert parsed.headings_at(2)[1].anchor == "with-the-skills-cli", parsed.headings_at(2)[1]
     targets = [link.target for link in parsed.links]
     # Inline code and fenced blocks hold no links; a real parser knows this.
     assert "nope.md" not in targets and "missing.md" not in targets
@@ -299,6 +320,9 @@ def self_check():
     assert all("nested under third" not in item for group in groups for item in group), groups
     # A bullet inside a fence is an example, not a list.
     assert all("fenced" not in item for group in groups for item in group), groups
+    # The same loss in a list item: a README entry names its path in inline
+    # code, so dropping it left the description with nothing to describe.
+    assert parsed.section_lists("With the skills CLI")[0] == ["path/to/file.md — a described path"]
     assert targets == [
         "other.md",
         "other.md#deep-section",
