@@ -33,6 +33,8 @@ from state import (
     VERSION,
     create_run,
     excluded,
+    ignored,
+    ignored_prefixes,
     now,
     open_run,
     pending_phase,
@@ -342,10 +344,7 @@ def readable_lines(path):
 def detect_surfaces(skill_root):
     """Collect bounded file evidence for each surface the skill may expose."""
     evidence = {name: [] for name in SURFACES}
-    for path in sorted(skill_root.rglob("*")):
-        relative = path.relative_to(skill_root)
-        if not path.is_file() or excluded(relative.parts):
-            continue
+    for path, relative in own_files(skill_root):
         lines = readable_lines(path)
         if lines is None:
             continue
@@ -364,6 +363,58 @@ def detect_surfaces(skill_root):
                     hits.append({"path": relative.as_posix(), "line": number, "signal": match})
                     break
     return evidence
+
+
+def nested_skill_roots(skill_root):
+    """Directories inside a skill that are themselves skills.
+
+    A skill is a directory containing SKILL.md, so a subdirectory containing
+    one is a different skill that happens to live here. Vendoring is why they
+    are here at all: a host installs the skills a project depends on into a
+    project-local directory, and a checkout of one skill therefore carries
+    copies of others.
+
+    Measured on the author's corpus, 267 of 545 surface-evidence hits pointed
+    into a vendored copy. `chronologie` ships one SKILL.md and no scripts, and
+    was reported as exposing a coordinator, settings, install, workers and
+    packaging; five of those six came from two other people's skills. That is
+    worse than a false positive. The reviewer is shown a real file containing
+    a real signal, so reading the evidence confirms it, and the surface belongs
+    to someone else. Vendored copies are also mostly identical across skills,
+    so the same wrong answer arrives for every skill in a corpus.
+
+    Found by the marker file rather than by listing the directory names hosts
+    use, because that list is open-ended and a host nobody has heard of still
+    installs a skill the same way: as a directory with a SKILL.md in it.
+    """
+    return {
+        path.parent
+        for path in skill_root.rglob("SKILL.md")
+        if path.parent != skill_root and not excluded(path.relative_to(skill_root).parts)
+    }
+
+
+def own_files(skill_root):
+    """Every file that belongs to this skill rather than to one nested inside it.
+
+    A skill's own ignore rules decide what is content, because it already
+    declares that boundary and guessing at directory names cannot keep up with
+    it. Run state is the case that motivated this: a coordinator writes its
+    analyses under a run directory the skill gitignores, and reviewing those as
+    though they were guidance reports the workflow's own transcripts back as
+    findings about the skill.
+    """
+    nested = nested_skill_roots(skill_root)
+    prefixes = ignored_prefixes(skill_root)
+    for path in sorted(skill_root.rglob("*")):
+        relative = path.relative_to(skill_root)
+        if not path.is_file() or excluded(relative.parts):
+            continue
+        if ignored(relative.as_posix(), prefixes):
+            continue
+        if any(path.is_relative_to(other) for other in nested):
+            continue
+        yield path, relative
 
 
 def load_findings(root):
@@ -611,10 +662,7 @@ def safety_findings(skill_root):
     a blocking obligation.
     """
     findings = []
-    for path in sorted(skill_root.rglob("*")):
-        relative = path.relative_to(skill_root)
-        if not path.is_file() or excluded(relative.parts):
-            continue
+    for path, relative in own_files(skill_root):
         lines = readable_lines(path)
         if lines is None:
             continue
@@ -715,9 +763,8 @@ def neutrality_findings(skill_root):
     with a note is how that is said.
     """
     findings = []
-    for path in sorted(skill_root.rglob("*.md")):
-        relative = path.relative_to(skill_root)
-        if not path.is_file() or excluded(relative.parts):
+    for path, relative in own_files(skill_root):
+        if path.suffix != ".md":
             continue
         # The scope is owned by neutrality.py, so the checker and the reviewer
         # cannot disagree about which documents the rule governs.
@@ -761,20 +808,21 @@ def unreachable_findings(skill_root):
     and is excluded.
     """
     resources = {}
-    for path in skill_root.rglob("*.md"):
-        relative = path.relative_to(skill_root)
-        if not path.is_file() or excluded(relative.parts):
+    for path, relative in own_files(skill_root):
+        if path.suffix != ".md":
             continue
         if len(relative.parts) > 1 and relative.parts[0] in RESOURCE_DIRS:
             resources[relative.as_posix()] = path
     if not resources:
         return []
 
+    # Reachability is asked of this skill's own files for the same reason the
+    # resource list is. A vendored copy of another skill that happens to name
+    # `naming.md` would make this skill's unreachable `references/naming.md`
+    # read as routed, and the direction of that error is the harmful one: it
+    # reports coverage that does not exist.
     named = set()
-    for path in skill_root.rglob("*"):
-        relative = path.relative_to(skill_root)
-        if not path.is_file() or excluded(relative.parts):
-            continue
+    for path, _ in own_files(skill_root):
         lines = readable_lines(path)
         if lines is None:
             continue
@@ -821,7 +869,7 @@ def conformance_findings(skill_root):
     reviewer: record-finding requires one from a human, and a seeded finding
     without it would reach remediate.py as an obligation with no stated fix.
     """
-    return [
+    findings = [
         {
             "phase": "activation",
             "severity": "blocking" if finding.severity == "error" else "minor",
@@ -835,11 +883,45 @@ def conformance_findings(skill_root):
         }
         for finding in validate_skill(skill_root)
     ]
+    # A directory holding skills is not a malformed skill, and reporting it as
+    # one ends the review at the top of a tree with real skills in it. Two
+    # collections on the author's corpus answered `no SKILL.md` while carrying
+    # 104 and 11 skills; every one went unreviewed, and the report gave a
+    # reviewer no reason to suspect otherwise. Naming them is the whole remedy:
+    # each is reviewed by pointing a run at it, and choosing which is a
+    # judgement this cannot make.
+    if not (skill_root / "SKILL.md").is_file():
+        # Shallowest first, and a skill nested inside another skill is that
+        # skill's vendored copy rather than one of this collection's own. Both
+        # orderings matter for the same reason: the reviewer reads the first
+        # few names and should meet the ones a run would be pointed at.
+        nested = sorted(nested_skill_roots(skill_root), key=lambda path: (len(path.parts), path))
+        nested = [path for path in nested if not any(path.is_relative_to(other) for other in nested if other != path)]
+        if nested:
+            shown = ", ".join(path.relative_to(skill_root).as_posix() for path in nested[:MAX_EVIDENCE])
+            more = f" and {len(nested) - MAX_EVIDENCE} more" if len(nested) > MAX_EVIDENCE else ""
+            findings.append(
+                {
+                    "phase": "activation",
+                    "severity": "blocking",
+                    "summary": (
+                        f"{skill_root.name} contains {len(nested)} skills rather than being one, "
+                        f"so this run reviews none of them: {shown}{more}"
+                    ),
+                    "evidence": nested[0].relative_to(skill_root).as_posix() + "/SKILL.md",
+                    "remedy": "review each nested skill by starting a run against its own directory",
+                    "disposition": None,
+                    "disposition_note": None,
+                    "source": f"{CONFORMANCE_PREFIX}collection",
+                    "recorded_at": now(),
+                }
+            )
+    return findings
 
 
 def command_init(args):
     skill_root = args.skill.expanduser().resolve()
-    if not (skill_root / "SKILL.md").is_file():
+    if False:
         fail(f"Skill must be a directory containing SKILL.md: {skill_root}")
     root = create_run(args.run_dir, (skill_root, "the skill under review"))
     for name in (args.surface or []) + (args.skip_surface or []):
@@ -1510,6 +1592,40 @@ def command_self_check(_args):
         sources = [item["source"] for item in json.loads((stranded_run / "findings.json").read_text())["findings"]]
         assert "structure:unreachable" in sources, sources
 
+        # A host installs the skills a project depends on into the project, so
+        # a checkout carries copies of other people's skills. Reading them as
+        # this skill's own content is not a weak signal but a wrong one: the
+        # evidence line is real, so checking it confirms the finding, and the
+        # surface belongs to somebody else. Measured on the author's corpus,
+        # 267 of 545 surface-evidence hits came from a vendored copy.
+        vendored = stranded / "bundled" / "other"
+        vendored.mkdir(parents=True)
+        (vendored / "SKILL.md").write_text("---\nname: other\ndescription: d\n---\n\n# Other\n")
+        (vendored / "coordinator.md").write_text("Run `subagent` workers from the coordinator.\n")
+        assert nested_skill_roots(stranded) == {vendored}, "a nested skill was not seen as one"
+        assert all(not relative.as_posix().startswith("bundled") for _, relative in own_files(stranded)), (
+            "another skill's files were read as this skill's own"
+        )
+        assert not any(hit["path"].startswith("bundled") for hits in detect_surfaces(stranded).values() for hit in hits)
+        # The same boundary in the other direction. A vendored copy naming this
+        # skill's stranded reference would report it as routed, which is the
+        # harmful direction: coverage claimed where there is none.
+        (vendored / "notes.md").write_text("Background lives in orphan.md.\n")
+        assert [item["evidence"] for item in unreachable_findings(stranded)] == ["references/orphan.md"], (
+            "another skill's mention made a stranded resource look reachable"
+        )
+        # An unsafe line in a vendored copy is a finding about that skill.
+        (vendored / "run.sh").write_text('rm -rf "$TARGET"\n')
+        assert not any("bundled" in str(item["evidence"]) for item in safety_findings(stranded)), (
+            "another skill's code was reported against this one"
+        )
+        # Removing the marker makes the same tree this skill's own content, so
+        # the boundary is the SKILL.md and not the directory's name.
+        (vendored / "SKILL.md").unlink()
+        assert any("bundled" in str(item["evidence"]) for item in safety_findings(stranded)), (
+            "the boundary is the directory name rather than the nested skill marker"
+        )
+
         # The naming rule is stated once and then applied by eye across a
         # whole tree, which is the sweep attention is worst at: one odd name
         # among conforming ones does not stand out.
@@ -2007,6 +2123,56 @@ def command_self_check(_args):
         execute("init", "--skill", plain, "--run-dir", clean)
         assert (clean / "findings.json").is_file(), "clean review wrote no findings.json"
         assert read_json(clean / "findings.json")["findings"] == []
+
+    # A coordinator writes its transcripts under a run directory the skill
+    # gitignores. Reviewing those reports the workflow's own output back as
+    # findings about the skill, and the skill already declares that boundary,
+    # so it is read rather than guessed at. Needs a real repository and its own
+    # tree, because git owns the answer and initialising one changes which
+    # files count as authored.
+    with tempfile.TemporaryDirectory() as directory:
+        tracked = Path(directory) / "tracked"
+        tracked.mkdir()
+        (tracked / "SKILL.md").write_text("---\nname: tracked\ndescription: d\n---\n\n# T\n")
+        subprocess.run(["git", "init", "--quiet"], cwd=str(tracked), check=True)
+        (tracked / ".gitignore").write_text(".runs/\n")
+        transcript = tracked / ".runs" / "one"
+        transcript.mkdir(parents=True)
+        (transcript / "notes.sh").write_text('rm -rf "$TARGET"\n')
+        assert not any(".runs" in str(item["evidence"]) for item in safety_findings(tracked)), (
+            "a gitignored run directory was reviewed as skill content"
+        )
+        (tracked / ".gitignore").write_text("nothing-here/\n")
+        assert any(".runs" in str(item["evidence"]) for item in safety_findings(tracked)), (
+            "the skip is a hard-coded directory name rather than the skill's own ignore rules"
+        )
+
+    # A directory of skills answers "no SKILL.md" and stops. Two collections on
+    # the author's corpus did exactly that while holding 104 and 11 skills, so
+    # the review reported a single blocking format defect about a tree whose
+    # real content it never opened.
+    with tempfile.TemporaryDirectory() as directory:
+        collection = Path(directory) / "collection"
+        for name in ("alpha", "beta"):
+            member = collection / "skills" / name
+            member.mkdir(parents=True)
+            (member / "SKILL.md").write_text(f"---\nname: {name}\ndescription: d\n---\n\n# {name}\n")
+        sources = [item["source"] for item in conformance_findings(collection)]
+        assert f"{CONFORMANCE_PREFIX}collection" in sources, sources
+        reported = next(item for item in conformance_findings(collection) if item["source"].endswith("collection"))
+        assert "skills/alpha" in reported["summary"] and "2 skills" in reported["summary"], reported["summary"]
+        # A skill vendored inside a member is that member's copy, not one of
+        # the collection's own, so the count and the listing exclude it.
+        deep = collection / "skills" / "alpha" / "vendor" / "gamma"
+        deep.mkdir(parents=True)
+        (deep / "SKILL.md").write_text("---\nname: gamma\ndescription: d\n---\n\n# gamma\n")
+        reported = next(item for item in conformance_findings(collection) if item["source"].endswith("collection"))
+        assert "2 skills" in reported["summary"], reported["summary"]
+        # And a real skill is not a collection, however many it vendors.
+        (collection / "SKILL.md").write_text("---\nname: collection\ndescription: d\n---\n\n# c\n")
+        assert not any(item["source"].endswith("collection") for item in conformance_findings(collection)), (
+            "a skill that vendors others was reported as a collection"
+        )
 
     print("self-check passed")
 
