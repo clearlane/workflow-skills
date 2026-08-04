@@ -381,6 +381,44 @@ SAFETY_PATTERNS = (
         "looks like a literal credential",
         "read the secret from the environment or a secret store, and rotate this one if it is real",
     ),
+    # The four patterns above are shell-shaped, so they see a dangerous command
+    # only when it is written in shell. The same command built in Python or
+    # JavaScript and handed to a shell was invisible: `os.system("rm -rf " +
+    # target)` matched nothing, which is the exact line the safety phase exists
+    # to find. These read the language-level spelling of the same act.
+    (
+        # A literal argument is fine; the finding is the interpolation.
+        re.compile(r"\bos\.(?:system|popen)\s*\(\s*(?:[\"'][^\"']*[\"']\s*(?:\+|%)|f[\"']|[A-Za-z_])"),
+        "builds a shell command from a value and runs it",
+        "pass an argument list to subprocess.run without a shell, or validate and quote the value first",
+    ),
+    (
+        # shell=True is only a finding when the command on that line is built
+        # rather than literal, since a fixed string carries nothing to inject.
+        re.compile(
+            r"(?:f[\"'][^\"']*\{|[\"'][^\"']*[\"']\s*\+|%\s*[A-Za-z_(])[^\n]*shell\s*=\s*True"
+            r"|shell\s*=\s*True[^\n]*(?:f[\"'][^\"']*\{|[\"'][^\"']*[\"']\s*\+)"
+        ),
+        "runs an interpolated command through a shell",
+        "drop shell=True and pass an argument list, so the value cannot be read as syntax",
+    ),
+    (
+        re.compile(r"\b(?:exec|execSync)\s*\(\s*(?:`[^`]*\$\{|[\"'][^\"']*[\"']\s*\+|[A-Za-z_$][\w$]*\s*\+)"),
+        "builds a shell command from a value and runs it",
+        "use execFile or spawn with an argument array, or escape the value for the shell",
+    ),
+    (
+        # A bare name as the whole argument. `exec(compile(...))` and a
+        # commented line are excluded, since a call and a mention differ.
+        re.compile(r"(?<![\w.])(?:eval|exec)\s*\(\s*[A-Za-z_$][\w$]*\s*[,)]"),
+        "evaluates a value as code",
+        "parse the value with a format that carries no execution, such as json",
+    ),
+    (
+        re.compile(r"\bshutil\.rmtree\s*\(\s*(?![\"'])[A-Za-z_]"),
+        "deletes a tree at a path held in a variable",
+        "confine the delete to a path the code created, or take a restorable snapshot first",
+    ),
 )
 
 
@@ -411,6 +449,12 @@ def safety_findings(skill_root):
         except OSError:
             continue
         for number, line in enumerate(lines, 1):
+            # A commented line is a description of code, not code. Reporting
+            # one sends a reviewer to read a sentence about a risk instead of
+            # the risk, and the most common such sentence is the note left
+            # where someone already decided against the dangerous call.
+            if line.lstrip().startswith(("#", "//")):
+                continue
             for pattern, summary, remedy in SAFETY_PATTERNS:
                 if not pattern.search(line):
                     continue
@@ -1115,6 +1159,41 @@ def command_self_check(_args):
         # And silent on a skill that does none of it, or the leads are noise
         # a reviewer learns to skip past.
         assert safety_findings(plain) == [], safety_findings(plain)
+
+        # The shell-shaped patterns saw only shell. A dangerous command built
+        # in a language and handed to a shell went unreported, which is the
+        # line the safety phase exists to find, so each language spelling is
+        # replayed with the safe form of the same call beside it.
+        language = root / "language"
+        language.mkdir()
+        (language / "SKILL.md").write_text("---\nname: language\ndescription: " + "d" * 40 + "\n---\n\n# L\n")
+        unsafe = [
+            'os.system("rm -rf " + target)',
+            'os.system(f"rm -rf {path}")',
+            'subprocess.run(f"rm -rf {path}", shell=True)',
+            "shutil.rmtree(user_supplied)",
+            "eval(user_input)",
+        ]
+        (language / "run.py").write_text("\n".join(unsafe) + "\n")
+        (language / "run.js").write_text("child_process.exec(`git checkout ${branch}`)\nexecSync('rm -rf ' + dir)\n")
+        located = {item["evidence"] for item in safety_findings(language)}
+        assert located == {f"run.py:{number}" for number in range(1, len(unsafe) + 1)} | {"run.js:1", "run.js:2"}, (
+            located
+        )
+        # The safe spelling of each is the whole point of reporting the unsafe
+        # one, so a scanner that cannot tell them apart reports nothing useful.
+        safe = [
+            'subprocess.run(["rm", "-rf", str(path)], check=True)',
+            'os.system("clear")',
+            'shutil.rmtree("build")',
+            'exec(compile(source, "<x>", "exec"), namespace)',
+            "# eval(x) would be unsafe here",
+            "result = evaluate(data)",
+            "shell = True  # documented, and no command on this line",
+        ]
+        (language / "run.py").write_text("\n".join(safe) + "\n")
+        (language / "run.js").write_text("execFile('git', ['checkout', branch])\n")
+        assert safety_findings(language) == [], safety_findings(language)
 
         # A reference nothing names is unreachable: an agent following the
         # skill can never load it. Reviewers miss this because it is an
