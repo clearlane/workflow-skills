@@ -121,6 +121,8 @@ Malformed evidence and unsafe execution are different failures. A wrong field ty
 
 Run the target's own checks rather than asserting the merge looks right. A validation with an empty check list is malformed, not passing: it claims a verdict no observation supports.
 
+A passing verdict is also refused while the merged target carries a format error, since a merge rewrites `SKILL.md` and can leave a skill no host will load. That is rejected as malformed evidence rather than a failed validation: the merge was not proven unsafe, so the target is kept, no attempt is spent, and the run resumes once the named fix is applied.
+
 Retries are bounded. A failed validation returns the run to `merge` so the next attempt has the previous verdict to work from, and each attempt is preserved rather than overwritten. Exhausting the bound rolls the target back and exits as a failure, because a rolled-back run reported as a success defeats the bound entirely.
 
 ## Completion and Durability

@@ -59,6 +59,7 @@ from state import (
 from state import (
     print_status as print_envelope,
 )
+from validate import validate as validate_skill
 
 CAPABILITY_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 # Which schema governs each agent-authored artifact. The analyses directory
@@ -786,6 +787,19 @@ def command_complete_phase(args):
         except SystemExit as error:
             rollback_after_error(root, state, inventory, error)
         if value["passed"]:
+            # A merge rewrites the target's SKILL.md, so it can leave a skill
+            # the host will refuse to load while the run reports success. The
+            # claim is contradicted by a fact the coordinator can check itself,
+            # so it is rejected here rather than believed and passed on.
+            #
+            # Malformed evidence rather than a failed validation: the merge was
+            # not proven unsafe, so rolling the target back would destroy good
+            # work over a frontmatter defect. The target and phase stay intact,
+            # no attempt is spent, and re-running succeeds once it is fixed.
+            errors = [f for f in validate_skill(Path(inventory["target"]["path"])) if f.severity == "error"]
+            if errors:
+                detail = "\n".join(f"  {f.message}\n    fix: {f.remedy}" for f in errors)
+                malformed(f"validation.json reports passed, but the merged target does not conform:\n{detail}")
             # A completion requirement, not unsafe merge evidence: a missing or
             # malformed verdict must not discard a correct merge.
             validate_feedback(root)
@@ -1094,6 +1108,22 @@ def command_self_check(_args):
         assert read_json(run / "state.json")["phase"] == "validation"
         unproven["observations"][0]["changed_files"] = ["scripts/absorb.py"]
         write_evidence(run / "feedback.json", unproven)
+
+        # A merge that leaves the target non-conforming cannot pass, however
+        # confident validation.json is: the merge rewrote SKILL.md, so it is
+        # the run that can still fix it. Rejected as malformed evidence, so a
+        # frontmatter defect neither rolls back a sound merge nor spends an
+        # attempt, and the run resumes once the target is repaired.
+        merged = (target / "SKILL.md").read_text()
+        (target / "SKILL.md").write_text(merged.replace("name: target", "name: bad--target"))
+        nonconforming = advance(run, check=False)
+        assert nonconforming.returncode != 0 and "does not conform" in nonconforming.stderr
+        assert "fix: " in nonconforming.stderr, nonconforming.stderr
+        after = read_json(run / "state.json")
+        assert after["phase"] == "validation", after["phase"]
+        assert after["validation_attempts"] == 1, "a format defect must not spend a validation attempt"
+        (target / "SKILL.md").write_text(merged)
+
         advance(run)
         state = read_json(run / "state.json")
         assert state["phase"] == "complete"
