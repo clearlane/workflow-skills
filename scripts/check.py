@@ -66,6 +66,9 @@ COORDINATORS = ("design.py", "review.py", "absorb.py", "restructure.py", "remedi
 # Canonical name for a reference's closing section. references/structure.md
 # owns the skeleton; this is the one part of it a parser can confirm.
 REFERENCE_CLOSING = "Checks"
+# The counterpart for a workflow: where it says what it owns and which sibling
+# owns the rest. A reader lands here before deciding to run anything.
+WORKFLOW_SCOPE_SECTION = "When to Use"
 CORE_VERBS = ("init", "status", "complete-phase", "self-check")
 # Run-lifecycle functions state.py owns. A coordinator defining one of these
 # has forked the lifecycle rather than composed it.
@@ -414,6 +417,54 @@ def check_workflow_dispatch(root):
         for coordinator in sorted(coordinators):
             if not (root / "scripts" / coordinator).is_file():
                 failures.append(f"{name}: dispatches to scripts/{coordinator}, which does not exist")
+    return failures
+
+
+def check_workflow_boundaries(root):
+    """Every workflow must scope itself against the sibling that owns the rest.
+
+    The five workflows partition the work by verb, but three of them said so
+    nowhere: design.md had no scope section at all, and restructure.md and
+    absorb.md named no sibling anywhere. The distinction between "the files are
+    in the wrong place" and "the contract is wrong" lived only in SKILL.md's
+    router table, which a reader who followed a direct link into a workflow
+    never sees.
+
+    Requiring the sibling link inside the scope section, rather than anywhere
+    in the document, is what makes this catch design.md: it linked absorb.md
+    from a body paragraph about sequencing, which tells a reader who has
+    already chosen this workflow what to do next, not a reader deciding
+    whether they are in the right document.
+
+    This mirrors the '## Checks' rule for references. A workflow's boundary is
+    the thing its readers need first, so it gets the section a reader can find
+    by position.
+    """
+    workflows = sorted((root / "workflows").glob("*.md"))
+    names = {path.name for path in workflows}
+    failures = []
+    for path in workflows:
+        parsed = document.parse(path)
+        name = path.relative_to(root)
+        scope = parsed.section(WORKFLOW_SCOPE_SECTION)
+        if scope is None:
+            failures.append(f"{name}: no '## {WORKFLOW_SCOPE_SECTION}' section saying what it owns and excludes")
+            continue
+        siblings = {
+            link.path.rsplit("/", 1)[-1]
+            for link in parsed.links
+            if not link.external
+            and link.path
+            and link.path.rsplit("/", 1)[-1] in names - {path.name}
+            # section() returns the body, so a link counts only where a reader
+            # deciding which workflow to run will actually meet it.
+            and f"({link.path})" in scope
+        }
+        if not siblings:
+            failures.append(
+                f"{name}: '{WORKFLOW_SCOPE_SECTION}' links no sibling workflow, so nothing "
+                "tells a reader in the wrong document which one owns their task"
+            )
     return failures
 
 
@@ -1209,6 +1260,7 @@ def main():
         ("shared runtime", lambda: check_shared_runtime(ROOT)),
         ("reference skeleton", lambda: check_reference_skeleton(ROOT)),
         ("workflow dispatch", lambda: check_workflow_dispatch(ROOT)),
+        ("workflow boundaries", lambda: check_workflow_boundaries(ROOT)),
         ("examples validate", lambda: check_examples_validate(ROOT)),
         ("phase owners", lambda: check_phase_owners(ROOT)),
         ("documented capabilities", lambda: check_capability_rows(ROOT)),
