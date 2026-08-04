@@ -36,6 +36,7 @@ from state import (
 from state import (
     print_status as print_envelope,
 )
+from validate import validate as validate_skill
 
 # Capability -> phase that designs it, and the resource holding its contract.
 CAPABILITY_PHASES = (
@@ -138,6 +139,16 @@ def command_complete_phase(args):
     if args.phase != expected:
         fail(f"Next phase is {expected!r}, not {args.phase!r}")
     require_text(args.note, "--note")
+    # Closing the last phase is the run's claim that the skill is ready, so it
+    # is the point where a format error stops being work in progress. Until
+    # now that claim was checked only by a later review, which meant a design
+    # run could close cleanly on a skill no host would load: the run built the
+    # thing, so it is the run that should hear about it.
+    if expected == state["phases"][-1]:
+        errors = [f for f in validate_skill(Path(state["skill"]["path"])) if f.severity == "error"]
+        if errors:
+            detail = "\n".join(f"  {f.message}\n    fix: {f.remedy}" for f in errors)
+            fail(f"Cannot close the design run: the skill does not conform to the format:\n{detail}")
     decision = {
         "phase": expected,
         "resource": phase_resource(expected),
@@ -277,9 +288,31 @@ def command_self_check(_args):
 
         # Every phase reaches completion and reports a terminal next action.
         run = root / "finish"
-        execute("init", "--name", "Finish", "--skill", root / "finish-skill", "--run-dir", run)
-        for phase in read_json(run / "state.json")["phases"]:
+        built = root / "finish-skill"
+        built.mkdir()
+        execute("init", "--name", "Finish", "--skill", built, "--run-dir", run)
+        phases = read_json(run / "state.json")["phases"]
+        for phase in phases[:-1]:
             execute("complete-phase", "--run-dir", run, "--phase", phase, "--note", f"did {phase}")
+
+        # The last phase is the run's claim the skill is ready, so it must not
+        # close over a skill a host would refuse to load. A run that never
+        # wrote SKILL.md is the extreme case of that and used to close clean.
+        def close(check=False):
+            return execute("complete-phase", "--run-dir", run, "--phase", phases[-1], "--note", "done", check=check)
+
+        result = close()
+        assert result.returncode != 0 and "does not conform" in result.stderr, result.stderr
+        core = built / "SKILL.md"
+        core.write_text("---\nname: finish--skill\ndescription: d\n---\n", encoding="utf-8")
+        result = close()
+        assert result.returncode != 0 and "consecutive hyphens" in result.stderr, result.stderr
+        # The failure states the fix, so the run is not left to re-derive it.
+        assert "fix: " in result.stderr, result.stderr
+        # A warning alone is the author's call and must not block closure: this
+        # skill's directory is named for the run, not for the skill.
+        core.write_text("---\nname: finish-skill\ndescription: d\n---\n", encoding="utf-8")
+        close(check=True)
         status = json.loads(execute("status", "--run-dir", run).stdout)
         assert status["phase"] is None and status["remaining"] == []
         result = execute("complete-phase", "--run-dir", run, "--phase", "review", "--note", "x", check=False)

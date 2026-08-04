@@ -88,7 +88,7 @@ python3 scripts/design.py add-capability \
 
 `checks` places validation where failure becomes actionable rather than as a trailing verification phase, and puts approval immediately before irreversible actions, following [checks.md](../references/checks.md).
 
-`review` closes the run against the owner-boundary questions in [closure.md](../references/closure.md).
+`review` closes the run against the owner-boundary questions in [closure.md](../references/closure.md). Completing it refuses while the skill carries a format error a host would reject it for, and names the fix for each. Those are the boundary questions a parser can settle, so the run hears about them rather than a later reviewer.
 
 ## Exercise the Result
 
