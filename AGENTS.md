@@ -11,7 +11,7 @@ python3 -m pip install -r requirements.txt
 python3 scripts/check.py
 ```
 
-`scripts/check.py` is the only check entrypoint. It runs every deterministic check, including each script's own `self-check`. Do not add a parallel entrypoint, a Makefile target that runs a subset, or a CI step that names individual checks: the list lives in the script so CI, `CONTRIBUTING.md`, and this file cannot drift from it.
+`scripts/check.py` is the only check entrypoint. It runs every deterministic check, including each script's own `self-check`. Do not add a parallel entrypoint, a Makefile target that runs a subset, or a CI step that names individual checks: the list lives in the script so CI, `CONTRIBUTING.md`, and this file cannot drift from it. A task runner that invokes `check.py` is fine and is the point; one that reaches past it to individual scripts is rejected by the suite.
 
 A change is not done until that command exits zero.
 
@@ -33,11 +33,15 @@ The suite proves structure. These are the judgements it cannot make.
 
 Prefer an existing validator. A new check must be shown to fail on a real violation before it is kept: introduce the violation, watch it fail, revert. A check that cannot fail is indistinguishable from one that passes.
 
-Checks carrying their own logic go behind a `self-check` subcommand, so the checker itself is checked. Every script in `scripts/` answers to that name and prints `self-check passed`; `check.py` finds them by globbing, so a new script is covered without editing a list. A self-check that exits zero without checking anything fails twice over: silently, because the line is missing, and by printing the line and asserting nothing, because `check.py` counts the assertions.
+Checks carrying their own logic go behind a `self-check` subcommand, so the checker itself is checked. Every script in `scripts/` answers to that name and prints `self-check passed`; `check.py` finds them by globbing, so a new script is covered without editing a list.
+
+Three gates stand behind that, each catching what the one before it cannot. A self-check that stays silent is caught by the missing line. One that prints the line and asserts nothing, or asserts only constants, is caught by `self-checks assert`. One that names a check without observing its result is caught by `scripts/mutate.py`, which replaces each check's body with an empty result and requires the owning self-check to notice. Write the case to assert on what the check returns, in both directions: a conforming input reports nothing and a violating input reports something.
+
+A check that reads the tree only through imports cannot be reached by a fixture, so it cannot be proven at all. Give it a parameter for the thing it inspects; `check_coordinator_verbs` and `check_phase_owners` carry that seam for this reason.
 
 ## Dependencies
 
-`pyproject.toml` is the single source of truth for versions and the supported Python floor. `requirements.txt` is a pointer to it, kept because CI caches on it. Never add a version bound anywhere else, including in a workflow file.
+`pyproject.toml` is the single source of truth for versions and the supported Python floor. `requirements.txt` is a pointer to it, kept because CI caches on it. Never add a version bound anywhere else, including in a workflow file; the suite rejects one. The Python matrix is not a bound: the workflow chooses which runtimes run, and its first entry is held to the floor `pyproject.toml` declares.
 
 The floor is load-bearing: `scripts/document.py` evaluates a PEP 604 union at class-creation time, so it fails on import below the declared minimum. CI runs the floor and the current release.
 
