@@ -205,28 +205,47 @@ def check_shared_runtime(root):
     return failures
 
 
+def declared_verbs(module):
+    """The subcommand names a coordinator's parser actually accepts.
+
+    Built from the parser rather than read from --help, because --help is
+    prose: it carries every description and epilog in the file, so a verb named
+    in a sentence is indistinguishable there from a verb the parser accepts.
+    An AST scan for add_parser("...") would miss the loop each coordinator uses
+    to register its shared subcommands, so the parser itself is the source.
+    """
+    verbs = set()
+    for action in module.parser()._actions:
+        # argparse exposes no public accessor for registered subcommands, but
+        # the action type is public and its `choices` mapping is the same
+        # object argparse itself dispatches on, so this asks the parser what it
+        # will accept rather than restating it.
+        if isinstance(action, argparse._SubParsersAction):
+            verbs |= set(action.choices)
+    return verbs
+
+
 def check_coordinator_verbs(root):
-    """The three coordinators must drive a run with the same commands.
+    """The coordinators must drive a run with the same commands.
 
     An author who learns one coordinator should be able to drive the others, and
     a generic wrapper should be able to advance any run without knowing which
     coordinator it holds. Two grammars for one state machine make both
     impossible, and the divergence is invisible until someone tries.
+
+    Substring-matching each verb against --help was the first answer and it
+    proved nothing. The help text contains the author's own descriptions, so
+    renaming `init` to `begin` while mentioning the old name in a sentence left
+    the check reporting the verb present when no such subcommand existed. What
+    the parser accepts is the fact this check is about, so it is what is asked.
     """
+    del root  # the coordinators are imported, so this reads the same tree
     failures = []
-    for name in COORDINATORS:
-        result = subprocess.run(
-            [sys.executable, str(root / "scripts" / name), "--help"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            failures.append(f"scripts/{name}: --help failed")
-            continue
-        missing = [verb for verb in CORE_VERBS if verb not in result.stdout]
+    for module in (design, review, absorb, restructure, remediate):
+        verbs = declared_verbs(module)
+        missing = [verb for verb in CORE_VERBS if verb not in verbs]
         if missing:
-            failures.append(f"scripts/{name}: does not expose {', '.join(missing)}")
+            failures.append(f"scripts/{module.__name__}.py: registers no subcommand named {', '.join(missing)}")
     return failures
 
 
@@ -1768,7 +1787,24 @@ def self_check():
     assert check_schema_lint(ROOT) == [] or shutil.which("check-jsonschema")
     assert os.environ.get("CHECK_EXTERNAL_LINKS") == "1" or check_external_links(ROOT) == []
     assert check_executable_bits(ROOT) == [], "the shipped tree disagrees with git about executable bits"
+    # The old form of this check substring-matched --help, so a coordinator
+    # that renamed a verb and mentioned the old name in its description passed.
+    # A stand-in parser replays exactly that.
     assert check_coordinator_verbs(ROOT) == [], "a coordinator stopped exposing the core verbs"
+
+    class Renamed:
+        __name__ = "renamed"
+
+        @staticmethod
+        def parser():
+            root = argparse.ArgumentParser(description=f"Runs {' '.join(CORE_VERBS)} for you.")
+            commands = root.add_subparsers(dest="command", required=True)
+            for verb in CORE_VERBS:
+                commands.add_parser("begin" if verb == "init" else verb)
+            return root
+
+    assert declared_verbs(Renamed) == set(CORE_VERBS) - {"init"} | {"begin"}
+    assert "init" in Renamed.parser().format_help(), "the case does not reproduce the substring hole"
     assert check_phase_owners(ROOT) == [], "a derived phase lost its owning contract"
 
     print("self-check passed")

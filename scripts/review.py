@@ -1617,7 +1617,13 @@ def command_self_check(_args):
     print("self-check passed")
 
 
-def main():
+def parser():
+    """Build the command parser, so the shape of the CLI can be asked as well as run.
+
+    The other coordinators expose this too. It is separate from main() because
+    what commands exist is a fact worth checking, and the only way to ask it of
+    a parser built inside main() is to read the help text, which is prose.
+    """
     parser = argparse.ArgumentParser(description="Coordinate a phased workflow-skill review.")
     # Global, so it precedes the subcommand like any other tool-wide flag. A
     # per-subcommand copy would let one run report failures in a shape another
@@ -1688,7 +1694,11 @@ def main():
     check = subparsers.add_parser("self-check", help="verify coordinator behavior and exit")
     check.set_defaults(handler=command_self_check)
 
-    arguments = parser.parse_args()
+    return parser
+
+
+def main():
+    arguments = parser().parse_args()
     arguments.handler(arguments)
 
 
