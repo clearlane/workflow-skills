@@ -1287,6 +1287,71 @@ def discovered_self_checks(root):
     return checks
 
 
+VERSION_BOUND = re.compile(r"(?<![\w.-])([a-zA-Z][\w.-]*)\s*(?:==|>=|<=|~=|!=)\s*v?\d")
+# Files that would carry a package version if anyone put one there. The
+# workflow is the one that matters; the others are where a pin migrates to
+# when the workflow rejects it.
+BOUND_FILES = (".github/workflows/checks.yml", "requirements.txt", "Dockerfile", "Containerfile")
+# Task runners. Each would be a second way to run part of the suite.
+RUNNER_FILES = ("Makefile", "justfile", "Justfile", "Taskfile.yml", "Taskfile.yaml", "noxfile.py", "tox.ini")
+
+
+def check_single_version_source(root):
+    """Package versions live in pyproject.toml and nowhere else.
+
+    AGENTS.md states this as an absolute and nothing enforced it. A pin added
+    to the CI workflow is the specific failure: it silently overrides the
+    declared range for every run that matters, so the versions a contributor
+    installs and the versions CI enforces diverge, and the file that claims to
+    be the single source of truth stops being consulted.
+
+    The Python version matrix is exempt because it is not a package bound: the
+    workflow decides which runtimes are exercised, and check_ci_floor already
+    holds it to the floor pyproject declares.
+    """
+    failures = []
+    for name in BOUND_FILES:
+        path = root / name
+        if not path.is_file():
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("#") or "python-version" in stripped:
+                continue
+            match = VERSION_BOUND.search(line)
+            if match:
+                failures.append(
+                    f"{name}:{number}: version bound {match.group(0).strip()!r}; pyproject.toml owns versions"
+                )
+    return failures
+
+
+def check_single_entrypoint(root):
+    """scripts/check.py is the only way to run the checks.
+
+    AGENTS.md states this too, and the reason is drift: a Makefile target
+    naming three of the scripts runs a subset, passes, and reads as though the
+    suite passed. The list of checks lives in check.py so CI, CONTRIBUTING.md,
+    and AGENTS.md cannot disagree about it, which only holds while nothing
+    else offers a second entrypoint.
+
+    A runner invoking check.py itself is fine, and is the point: a convenience
+    alias for the one command is not a parallel entrypoint.
+    """
+    failures = []
+    for name in RUNNER_FILES:
+        path = root / name
+        if not path.is_file():
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for script in re.findall(r"scripts/([a-z_]+\.py)", line):
+                if script != CHECKER:
+                    failures.append(
+                        f"{name}:{number}: runs scripts/{script}; scripts/{CHECKER} is the only check entrypoint"
+                    )
+    return failures
+
+
 def check_ci_floor(root):
     """The CI matrix must start at the floor pyproject.toml declares.
 
@@ -1467,6 +1532,28 @@ def self_check():
         assert self_checks_assert_something(Path(directory)) == [], "a real assertion was rejected"
         (scripts / "impostor.py").write_text("x = 1\n", encoding="utf-8")
         assert self_checks_assert_something(Path(directory)), "a script with no self-check was accepted"
+
+    # Both AGENTS.md absolutes are replayed, since each passes on a tree that
+    # obeys it whether or not the check does anything.
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / ".github" / "workflows").mkdir(parents=True)
+        workflow = tree / ".github" / "workflows" / "checks.yml"
+        workflow.write_text(
+            "jobs:\n  checks:\n    strategy:\n      matrix:\n        python-version: ['3.10', '3.13']\n"
+            "    steps:\n      - run: python -m pip install -r requirements.txt\n",
+            encoding="utf-8",
+        )
+        assert check_single_version_source(tree) == [], check_single_version_source(tree)
+        workflow.write_text(
+            "jobs:\n  checks:\n    steps:\n      - run: pip install -r requirements.txt 'ruff==0.5.0'\n",
+            encoding="utf-8",
+        )
+        assert check_single_version_source(tree), "a pin in the CI workflow was accepted"
+        (tree / "Makefile").write_text("check:\n\tpython3 scripts/check.py\n", encoding="utf-8")
+        assert check_single_entrypoint(tree) == [], "a runner delegating to the one entrypoint was rejected"
+        (tree / "Makefile").write_text("lint:\n\tpython3 scripts/names.py\n", encoding="utf-8")
+        assert check_single_entrypoint(tree), "a Makefile running part of the suite was accepted"
 
     # A check nothing registers never runs, and a check with no case behind it
     # can have its condition inverted with the suite still green. Both holes
@@ -1944,6 +2031,8 @@ def main():
     checks = (
         ("filenames", lambda: run_script(ROOT, "names.py", str(ROOT))),
         *discovered_self_checks(ROOT),
+        ("single version source", lambda: check_single_version_source(ROOT)),
+        ("single entrypoint", lambda: check_single_entrypoint(ROOT)),
         ("checks are wired", lambda: check_checks_are_wired(ROOT)),
         ("self-checks assert", lambda: self_checks_assert_something(ROOT)),
         ("CI tests the floor", lambda: check_ci_floor(ROOT)),
