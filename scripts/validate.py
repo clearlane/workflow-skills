@@ -100,9 +100,21 @@ def parse_scalars(block):
     rather than interpreted, because the fields this validator bounds are all
     scalars and guessing at the rest would mean claiming a certainty a 30-line
     parser does not have.
+
+    Block scalars are the exception, because ignoring them was not a refusal to
+    guess but a wrong answer: `description: >-` read as the two-character
+    string ">-", so a description of any length passed the bound. A field a
+    host reads as 4000 characters cannot be reported here as 2. Comparing this
+    parser against PyYAML across 283 published skills is what surfaced it, and
+    the same comparison surfaced backslash escapes being left in, which
+    inflated a length instead.
     """
     values = {}
-    for line in block.splitlines():
+    lines = block.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        index += 1
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         if line[:1].isspace() or line.lstrip().startswith("- "):
@@ -111,8 +123,24 @@ def parse_scalars(block):
         if not separator:
             continue
         value = value.strip()
+        if value[:1] in "|>" and set(value[1:]) <= set("+-0123456789"):
+            # A block scalar: the value is the indented lines that follow.
+            # Folded (>) joins them with spaces and literal (|) with newlines,
+            # which differ by one character per line and never by enough to
+            # decide a bound, so both are joined the same way.
+            collected = []
+            while index < len(lines) and (not lines[index].strip() or lines[index][:1].isspace()):
+                collected.append(lines[index].strip())
+                index += 1
+            value = " ".join(part for part in collected if part)
+            values[key.strip()] = value
+            continue
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            quote = value[0]
             value = value[1:-1]
+            # A quoted scalar carries escapes that the host resolves before it
+            # counts characters, so leaving them in overstates the length.
+            value = value.replace("\\" + quote, quote) if quote == '"' else value.replace(quote * 2, quote)
         values[key.strip()] = value
     return values
 
@@ -323,6 +351,28 @@ def self_check():
         # `metadata:` would report as an unknown field.
         core.write_text("---\nname: good-skill\ndescription: d\nmetadata:\n  author: someone\n---\n", encoding="utf-8")
         assert validate(skill) == [], "a nested mapping was misparsed as unknown fields"
+
+        # A block scalar is the common spelling for a long description, and
+        # reading `>-` as a two-character value let any length pass the bound.
+        # Comparing this parser against PyYAML over 283 published skills is how
+        # that was found, so the bound is asserted through the same spelling.
+        for header in ("|", "|-", ">", ">-", ">2"):
+            folded = "\n".join(f"  {'d' * 80}" for _ in range(20))
+            core.write_text(
+                f"---\nname: good-skill\ndescription: {header}\n{folded}\n---\n",
+                encoding="utf-8",
+            )
+            assert "description" in rules(validate(skill)), f"a block scalar ({header}) evaded the bound"
+        core.write_text("---\nname: good-skill\ndescription: >-\n  short enough\n---\n", encoding="utf-8")
+        assert validate(skill) == [], "a short block scalar was rejected"
+
+        # An escape is resolved by the host before it counts characters, so
+        # leaving it in overstates the length of a quoted scalar. Sized to land
+        # exactly on the limit once resolved and one over if it is not, since
+        # any shorter value passes either way and proves nothing.
+        quoted = "x" * (DESCRIPTION_LIMIT - 1) + '\\"'
+        core.write_text(f'---\nname: good-skill\ndescription: "{quoted}"\n---\n', encoding="utf-8")
+        assert validate(skill) == [], "an escape was counted as two characters"
 
         missing = Path(directory) / "not-a-skill"
         missing.mkdir()
