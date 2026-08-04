@@ -181,6 +181,16 @@ Verifying that each approved operation happened is not the same as verifying tha
 
 Digest the tree when the plan is bound, over exactly the paths the plan does **not** name, and re-check it before recording execution. Excluding the named paths on both sides is what lets an approved change pass while an unreviewed one fails. A digest over the whole tree flags every legitimate operation, and a check that fires on correct work is a check someone will disable.
 
+## A Conclusion Names The Subject It Was Reached About
+
+The same rule applies to a run that concludes rather than mutates. A verdict, a finding, and a decision note are all claims about a tree as it stood when the work was done.
+
+This matters most when the run's own shape is derived from the subject. A workflow that selects its phases by inspecting what the subject contains cannot examine anything that appears afterwards: the phase that would have looked at it was never created. The run then completes every phase it does have and records a clean result over unexamined material.
+
+Digest the subject when the run is initialised and re-check it before recording any conclusion. Changing the subject mid-run is legitimate, so say the conclusions are stale and a new run is needed, rather than implying the subject is at fault.
+
+A run that **builds** its subject is the exception, and worth distinguishing: there is no prior tree its conclusions could misdescribe, and the subject may not exist yet at all.
+
 ## A Snapshot Must Contain What It Promises To Restore
 
 Rollback restores a tree from a snapshot and then verifies the result against the baseline digest. Both halves assume the tree contains its own content.
