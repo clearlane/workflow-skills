@@ -31,10 +31,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cli import run_self_check
 
-# A per-user dotfile directory. Every host configures itself in one, so the
-# shape is the host rather than any particular host. Both spellings are
-# matched, since `$HOME` is what a shell snippet writes.
+# A per-user dotfile directory. Both spellings are matched, since `$HOME` is
+# what a shell snippet writes.
+#
+# The shape alone does not say "host", which is what this used to assume. Every
+# command-line tool configures itself in one, so a skill that integrates with a
+# tool names the tool's directory for the same reason it names its flags. On
+# the author's corpus this reported `~/.gam` (a Google Workspace CLI),
+# `~/.banana` (an image generator) and `~/.postiz` (a scheduler) as hosts the
+# skill was bound to. Those are the skill's subject matter, not its runtime,
+# and a rule that cannot tell the difference asks an author to remove the one
+# path their skill exists to use.
+#
+# What distinguishes a host is that skills are installed into it, so a home
+# dotfile counts when the same name is corroborated: it is a host someone has
+# named, or the same name owns a directory a host scans. Measured across the
+# corpus, that separates every case correctly in both directions, where the
+# unqualified shape had five false positives and no way to see them.
 HOME_DOTFILE = re.compile(r"(?:~|\$HOME)/\.([A-Za-z][\w.-]*)")
+# Hosts named outright. A short list is right here rather than exhaustive: it
+# is the floor under the corroborating shape, for a host whose per-user
+# directory a document names without ever showing where it installs skills.
+NAMED_HOSTS = frozenset(
+    {"claude", "agents", "codex", "gemini", "cursor", "copilot", "windsurf", "aider", "zed", "kiro", "continue"}
+)
 # The XDG base directories are a freedesktop.org specification every host
 # honours, so naming one is the opposite of naming a host: it is the neutral
 # answer references/settings.md requires. Shell rc files belong to the shell.
@@ -99,17 +119,28 @@ def is_core_guidance(relative):
     return relative.parts[0] in NEUTRAL_ROOTS or posix in NEUTRAL_FILES
 
 
-def host_paths(line):
+def host_paths(line, extra_hosts=None):
     """Host-owned paths a line names, recognised by shape rather than by name.
 
     Returns every match, because a line naming two hosts has made the mistake
     twice and reporting one would leave the second to a later run.
+
+    `extra_hosts` carries corroboration found elsewhere in the same document,
+    so a reference that shows a host's install path once is not required to
+    repeat it on every line that names that host's home directory.
     """
     found = []
+    # A host's own install directory corroborates its dotfile directory, so the
+    # line is read for those first. Passed in by the caller when the evidence
+    # lives elsewhere in the document, since a settings reference commonly
+    # names the install path once and the home directory many times.
+    corroborated = NAMED_HOSTS | {match.group(1).lstrip(".") for match in HOST_INSTALL_PATH.finditer(line)}
+    corroborated |= {name.lstrip(".") for name in extra_hosts or ()}
     for match in HOME_DOTFILE.finditer(line):
         # `~/.local/state` names the XDG directory, not a `.local` host, so the
         # first segment is what the allowlist is asked about.
-        if match.group(1).split("/")[0] not in CROSS_HOST_HOME:
+        name = match.group(1).split("/")[0]
+        if name not in CROSS_HOST_HOME and name in corroborated:
             found.append(match.group(0))
     for match in HOST_INSTALL_PATH.finditer(line):
         if match.group(1) not in CROSS_HOST_DIRECTORIES:
@@ -138,6 +169,23 @@ def self_check():
     assert host_paths("Copy into `.q/prompts/`.") == [".q/prompts"]
     # Two hosts on one line are two mistakes.
     assert host_paths("Either `~/.windsurf` or `.aider/skills/`.") == ["~/.windsurf", ".aider/skills"]
+
+    # A tool is not a host. Every command-line tool keeps a per-user directory,
+    # so the shape alone reported the subject matter of any skill that
+    # integrates with one: these three are a Google Workspace CLI, an image
+    # generator and a scheduler, taken from the author's corpus, where the
+    # unqualified shape asked their authors to remove the paths those skills
+    # exist to use.
+    assert host_paths("Ledger stored at `~/.banana/costs.json`.") == []
+    assert host_paths("Service account at `~/.gam/oauth2service.json`.") == []
+    assert host_paths("Token lives in `~/.hermes/profiles/admin`.") == []
+    # Corroboration is what makes it a host: a name someone has listed, or the
+    # same name owning a directory that skills are installed into.
+    assert host_paths("State in `~/.codex/state.json`.") == ["~/.codex"]
+    assert host_paths("Both `.hermes/skills/` and `~/.hermes/config`.") == ["~/.hermes", ".hermes/skills"]
+    # A document may show the install path once and the home directory often,
+    # so the caller can carry the corroboration across lines.
+    assert host_paths("Config in `~/.hermes/config`.", extra_hosts=[".hermes"]) == ["~/.hermes"]
 
     # The XDG directories are the neutral answer, not a host.
     assert host_paths("Read `$XDG_CONFIG_HOME`, defaulting to `~/.config`.") == []

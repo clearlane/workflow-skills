@@ -774,8 +774,13 @@ def neutrality_findings(skill_root):
             lines = path.read_text(errors="replace").splitlines()
         except OSError:
             continue
+        # A settings reference names a host's install path once and its home
+        # directory on many lines, so corroboration is gathered per document
+        # rather than per line. Read from this document alone: a host named in
+        # a neighbouring file has not been named here.
+        corroborating = {match.group(1) for line in lines for match in neutrality.HOST_INSTALL_PATH.finditer(line)}
         for number, line in enumerate(lines, 1):
-            for host in neutrality.host_paths(line):
+            for host in neutrality.host_paths(line, extra_hosts=corroborating):
                 findings.append(
                     {
                         "phase": "structure",
@@ -1606,6 +1611,19 @@ def command_self_check(_args):
             "# Linked\n\nResolve `$XDG_CONFIG_HOME`, defaulting to `~/.config`.\n"
         )
         assert neutrality_findings(stranded) == [], neutrality_findings(stranded)
+        # A tool a skill integrates with also keeps a per-user directory, and
+        # that directory is the skill's subject matter. Reporting it asks the
+        # author to delete the path the skill exists to read.
+        (stranded / "references" / "linked.md").write_text("# Linked\n\nThe ledger is at `~/.banana/costs.json`.\n")
+        assert neutrality_findings(stranded) == [], neutrality_findings(stranded)
+        # Corroboration is what separates the two, and it is read across the
+        # whole document because a settings reference names the install path
+        # once and the home directory on every later line.
+        (stranded / "references" / "linked.md").write_text(
+            "# Linked\n\nCopy into `.banana/skills/`.\n\nThe ledger is at `~/.banana/costs.json`.\n"
+        )
+        corroborated = [item["evidence"] for item in neutrality_findings(stranded)]
+        assert "references/linked.md:5" in corroborated, corroborated
         # Computing a finding and never seeding it leaves the reviewer exactly
         # as uninformed, so this is asserted through init as well.
         (stranded / "references" / "linked.md").write_text("# Linked\n\nCopy into `.aider/skills/`.\n")

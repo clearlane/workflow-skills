@@ -53,7 +53,7 @@ import restructure
 import review
 import state
 from design import CAPABILITY_PHASES
-from neutrality import host_paths, is_core_guidance
+from neutrality import HOST_INSTALL_PATH, host_paths, is_core_guidance
 from validate import COMPATIBILITY_LIMIT, DESCRIPTION_LIMIT, NAME_LIMIT
 from validate import RULES as CONFORMANCE_RULES
 from validate import validate as validate_skill
@@ -249,13 +249,19 @@ def check_vendor_tokens(root):
         # repository. Everything else may name a host freely.
         neutral = is_core_guidance(relative)
         tokens = VENDOR_TOKENS + (HOST_TOKENS if neutral else ())
-        for number, line in enumerate(parsed.text.splitlines(), 1):
+        lines = parsed.text.splitlines()
+        # A host's install path corroborates its home directory anywhere in the
+        # same document, since a settings reference names the first once and
+        # the second repeatedly. Scoped to the document, because a host named
+        # in a neighbouring file has not been named here.
+        corroborating = {match.group(1) for line in lines for match in HOST_INSTALL_PATH.finditer(line)}
+        for number, line in enumerate(lines, 1):
             for token in tokens:
                 if token in line:
                     failures.append(f"{relative}:{number}: vendor token {token}")
             if not neutral:
                 continue
-            for path in host_paths(line):
+            for path in host_paths(line, extra_hosts=corroborating):
                 failures.append(f"{relative}:{number}: host-owned path {path}; name the capability, not the runtime")
     return failures
 
@@ -2511,6 +2517,27 @@ def self_check():
         assert check_vendor_tokens(tree) == [], "runtime-neutral guidance was rejected"
         guidance(tree, "references/neutral.md", f"# N\n\nOpen {HOST_TOKENS[0]}.\n\n## Checks\n\n- one\n")
         assert check_vendor_tokens(tree), "a host token in a reference was accepted"
+
+        # Corroboration is document-wide, and both directions of that decide
+        # real findings. A skill that integrates with a command-line tool names
+        # that tool's own dotfile, which is its subject matter and not the
+        # runtime it is bound to.
+        guidance(tree, "references/neutral.md", "# N\n\nRead `~/.banana/costs.json`.\n\n## Checks\n\n- one\n")
+        assert check_vendor_tokens(tree) == [], "a tool's own dotfile was called a host"
+        # The same shape is a host once the document shows that name owning a
+        # directory skills are installed into, even on another line, which is
+        # how a settings reference is actually written.
+        guidance(
+            tree,
+            "references/neutral.md",
+            "# N\n\nInstall into `.banana/skills/`.\n\nRead `~/.banana/costs.json`.\n\n## Checks\n\n- one\n",
+        )
+        # Asserting on the specific path, because the install path is a
+        # finding in its own right: a bare truthiness check here would pass
+        # with corroboration entirely removed and prove nothing.
+        assert any("~/.banana" in failure for failure in check_vendor_tokens(tree)), (
+            "a home directory corroborated elsewhere in the document was accepted"
+        )
         guidance(tree, "references/neutral.md", "# N\n\nRun it.\n\n## Checks\n\n- one\n")
         guidance(tree, "references/upstream/vendored.md", f"# V\n\nFrom {HOST_TOKENS[0]}.\n")
         assert check_vendor_tokens(tree) == [], "vendored upstream material was held to neutrality"
