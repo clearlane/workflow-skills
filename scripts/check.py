@@ -118,6 +118,34 @@ REFERENCE_CLOSING = "Checks"
 # owns the rest. A reader lands here before deciding to run anything.
 WORKFLOW_SCOPE_SECTION = "When to Use"
 CORE_VERBS = ("init", "status", "complete-phase", "self-check")
+# An imperative may sit behind a condition or a connective and still be an
+# order: "If the reviewer disagrees, loop back to phase 2" instructs as
+# plainly as "loop back to phase 2" does. A negation stays included, because
+# "never retry more than three times" states the same bound from the other
+# side. What is excluded is a subject, which is what a description opens with.
+PROSE_IMPERATIVE = (
+    r"(?:(?:if|when|once|while|unless|after|on|for)\b[^,.;:]{0,120}?,\s*"
+    r"|then\s+|otherwise,?\s+|instead,?\s+|next,?\s+|first,?\s+|finally,?\s+"
+    r"|and\s+|or\s+|but\s+|do not\s+|don't\s+|never\s+|always\s+)*"
+)
+PROSE_REPEAT = r"(?:retry|repeat|iterate|loop|poll|re-?run|re-?try|re-?review|re-?check|attempt|try)"
+PROSE_NUMBER = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|twice|thrice)"
+PROSE_COUNT = r"(?:times|attempts?|iterations?|passes|rounds?|cycles?)"
+PROSE_BOUND = (
+    rf"(?:\b(?:up to|at most|no more than|a maximum of|maximum of|no fewer than)\s+{PROSE_NUMBER}\b"
+    rf"|\b{PROSE_NUMBER}\s+(?:\w+\s+)?{PROSE_COUNT}\b|\b(?:twice|thrice)\b)"
+)
+PROSE_JUMP = r"(?:return|go back|loop(?: back)?|jump|skip|fall back|route)\s+(?:back\s+)?to"
+PROSE_CONTROL_FLOW = (
+    (
+        re.compile(rf"^{PROSE_IMPERATIVE}{PROSE_REPEAT}\b[^.;]{{0,80}}?{PROSE_BOUND}", re.I),
+        "prose states a repeat bound the coordinator cannot prove held",
+    ),
+    (
+        re.compile(rf"^{PROSE_IMPERATIVE}{PROSE_JUMP}\s+[`*_\"']*(?:phase|step|stage)\b", re.I),
+        "prose transfers control to another phase, which no run can resume",
+    ),
+)
 # Run-lifecycle functions state.py owns. A coordinator defining one of these
 # has forked the lifecycle rather than composed it.
 RUNTIME_OWNED = ("load_run", "open_run", "create_run", "current_phase", "pending_phase")
@@ -654,6 +682,55 @@ def check_workflow_boundaries(root):
                 f"{name}: '{WORKFLOW_SCOPE_SECTION}' links no sibling workflow, so nothing "
                 "tells a reader in the wrong document which one owns their task"
             )
+    return failures
+
+
+def check_prose_control_flow(root):
+    """A workflow must not instruct a bound or a phase jump in prose.
+
+    AGENTS.md says control flow belongs in a coordinator, and until now
+    check_workflow_dispatch was the whole of the enforcement: it asks whether a
+    workflow names a coordinator at all. Every workflow here names one, so a
+    document could name `scripts/design.py` in its first paragraph and then
+    tell the agent "retry up to three times" or "if the reviewer disagrees, go
+    back to Phase 2", and the suite would report the dispatch check green. A
+    bound stated in prose cannot be proven to have held and a prose jump cannot
+    be resumed, which is the whole reason the rule exists.
+
+    The hard part is that describing what the coordinator does is legitimate
+    and required: remediate.md must be able to say the bound defaults to five,
+    and design.md must be able to list "retry bound reached" as behavior to
+    exercise. So the discriminator is grammatical mood, not vocabulary. An
+    imperative opens with its verb in base form, optionally behind a condition
+    or connective, and that is an instruction to the reader. A description
+    names a subject first - "the coordinator retries", "validation returns to
+    merge", "`--max-iterations` is the hard bound" - and the verb is never the
+    first word. Only a sentence in the imperative is read as an order.
+
+    A vocabulary scan was tried first and refuted. Matching the words
+    themselves - retry, loop, resume, bound, until, otherwise - hit 28 lines in
+    this repository's own five workflows and 373 across the corpus's, and every
+    one of the 28 was correct prose describing a coordinator. That check could
+    only ever have shipped by deleting true statements, which is the failure
+    mode AGENTS.md names: weakening the subject to satisfy the checker.
+
+    Only two shapes are claimed, because only two survived measurement with no
+    false positive: a repeat verb carrying a numeric bound, and a transfer of
+    control naming a phase or step as its target. Conditional branching in
+    general is deliberately not claimed. "If VAT is uncertain, stop for review"
+    is a safety instruction with no control flow to resume, and no pattern
+    separated that class from a genuine branch, so claiming it would have made
+    the check noisy enough to be disabled. A narrow gate that never cries wolf
+    is worth more than a broad one nobody trusts.
+    """
+    failures = []
+    for path in sorted((root / "workflows").glob("*.md")):
+        name = path.relative_to(root)
+        for line, sentence in document.parse(path).sentences():
+            for pattern, complaint in PROSE_CONTROL_FLOW:
+                if pattern.match(sentence):
+                    failures.append(f"{name}:{line}: {complaint}: {sentence[:80]!r}")
+                    break
     return failures
 
 
@@ -2118,6 +2195,42 @@ def self_check():
 
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
+        (tree / "workflows").mkdir()
+        # Describing the coordinator is the whole point of a workflow document,
+        # and every one of these sentences appears in shape in this repository.
+        # A check that cannot tell them from an order is one that gets
+        # satisfied by deleting true statements.
+        described = (
+            "# W\n\n"
+            "The coordinator retries up to three times before returning a terminal result.\n\n"
+            "`--max-iterations` is the hard bound, defaulting to five.\n\n"
+            "Failed validation returns to merge until the configured attempt bound.\n\n"
+            "- Retry bound reached, returning a terminal result rather than looping.\n\n"
+            "A resumed run reaches its phase through recorded state, not by counting.\n\n"
+            # These two carry the exact words an order would, mid-sentence and
+            # behind a subject. They are what separates this check from the
+            # vocabulary scan it replaced: that scan fired on both, and both
+            # are true statements about a coordinator.
+            "Validation fails when the run may retry up to three times without recording why.\n\n"
+            "Whether a drifted plan must return to phase 2 is the coordinator's decision.\n\n"
+            "## Iterate\n\n"
+            "Each iteration triages every open obligation, twice over if the fixer asks.\n\n"
+            "```bash\nfor attempt in 1 2 3; do retry; done\n```\n"
+        )
+        guidance(tree, "workflows/w.md", described)
+        assert check_prose_control_flow(tree) == [], check_prose_control_flow(tree)
+        guidance(tree, "workflows/w.md", described + "\nRetry up to three times.\n")
+        assert check_prose_control_flow(tree), "a prose retry bound was accepted"
+        guidance(tree, "workflows/w.md", described + "\nIf the reviewer disagrees, loop back to phase 2.\n")
+        assert check_prose_control_flow(tree), "a prose jump to another phase was accepted"
+        # A bound inside a fence is an example of a coordinator, not an order,
+        # and a heading is a label rather than a sentence. Both matched the
+        # line scan this check replaced.
+        guidance(tree, "workflows/w.md", "# W\n\n## Retry twice\n\n```bash\nretry at most three times\n```\n")
+        assert check_prose_control_flow(tree) == [], "a fenced or heading bound was reported as prose"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
         (tree / "examples").mkdir()
         example = tree / "examples" / "a.json"
         example.write_text('{"not": "stamped"}', encoding="utf-8")
@@ -2352,6 +2465,7 @@ def main():
         ("heading code markers", lambda: check_heading_code_markers(ROOT)),
         ("workflow dispatch", lambda: check_workflow_dispatch(ROOT)),
         ("workflow boundaries", lambda: check_workflow_boundaries(ROOT)),
+        ("prose control flow", lambda: check_prose_control_flow(ROOT)),
         ("examples validate", lambda: check_examples_validate(ROOT)),
         ("phase owners", lambda: check_phase_owners(ROOT)),
         ("documented capabilities", lambda: check_capability_rows(ROOT)),
