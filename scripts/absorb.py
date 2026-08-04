@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import neutrality
 from cli import (
     EX_DATAERR,
     EX_SOFTWARE,
@@ -690,6 +691,40 @@ def print_status(root, state, inventory):
     )
 
 
+def host_bound_paths(skill_root):
+    """Host-owned paths left in the merged target's core guidance.
+
+    workflows/absorb.md requires every runtime dependency to be `generalize`
+    or `omit`, naming hidden-directory conventions among the things to express
+    neutrally or drop. Nothing enforced it. A disposition is a claim the plan
+    makes about what the merge will do, and the merge is carried out by an
+    agent editing prose, so the two can disagree: the plan says `generalize`,
+    the paragraph is copied across unchanged, and validation passes because it
+    never looked. That is the whole failure mode absorption's evidence
+    requirements exist to close, applied to the one contract with no check
+    behind it.
+
+    Reported as evidence of a claim the target contradicts, in the same place
+    the conformance check already sits, and for the same reason: a fact the
+    coordinator can establish itself should not be taken on the plan's word.
+    """
+    found = []
+    for path in sorted(skill_root.rglob("*.md")):
+        relative = path.relative_to(skill_root)
+        if not path.is_file() or excluded(relative.parts):
+            continue
+        if not neutrality.is_core_guidance(relative):
+            continue
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for number, line in enumerate(lines, 1):
+            for host in neutrality.host_paths(line):
+                found.append(f"{relative.as_posix()}:{number} names the host-owned path {host}")
+    return found
+
+
 def command_init(args):
     target = inspect_skill(args.target, allow_missing=args.new_target)
     if not target["exists"] and not args.new_target:
@@ -800,6 +835,17 @@ def command_complete_phase(args):
             if errors:
                 detail = "\n".join(f"  {f.message}\n    fix: {f.remedy}" for f in errors)
                 malformed(f"validation.json reports passed, but the merged target does not conform:\n{detail}")
+            # The same reasoning one contract over. Every runtime dependency is
+            # dispositioned `generalize` or `omit`, and a host path surviving
+            # in the merged guidance is that disposition contradicted by the
+            # file it describes.
+            bound = host_bound_paths(Path(inventory["target"]["path"]))
+            if bound:
+                detail = "\n".join(f"  {item}" for item in bound)
+                malformed(
+                    "validation.json reports passed, but the merged target is bound to a host; "
+                    f"every runtime dependency is dispositioned generalize or omit:\n{detail}"
+                )
             # A completion requirement, not unsafe merge evidence: a missing or
             # malformed verdict must not discard a correct merge.
             validate_feedback(root)
@@ -1123,6 +1169,25 @@ def command_self_check(_args):
         assert after["phase"] == "validation", after["phase"]
         assert after["validation_attempts"] == 1, "a format defect must not spend a validation attempt"
         (target / "SKILL.md").write_text(merged)
+
+        # The same reasoning for the neutrality contract. Every runtime
+        # dependency is dispositioned `generalize` or `omit`, and the merge is
+        # an agent editing prose, so the plan and the file can disagree: a
+        # paragraph copied across unchanged leaves the target bound to a host
+        # while validation.json still reports passed. Held to the same
+        # malformed-evidence treatment, since generalising a paragraph is a fix
+        # the run can make without discarding the rest of a sound merge.
+        (target / "SKILL.md").write_text(
+            "---\nname: target\ndescription: Combined target skill.\n---\n\n"
+            "# Target\n\nStore run state under `~/.windsurf/state/`.\n"
+        )
+        assert host_bound_paths(target), "a host path in merged guidance was not seen"
+        bound_result = advance(run, check=False)
+        assert bound_result.returncode != 0 and "bound to a host" in bound_result.stderr, bound_result.stderr
+        assert read_json(run / "state.json")["validation_attempts"] == 1, "a neutrality defect spent an attempt"
+        # Generalised, which is what `generalize` means, and the run proceeds.
+        (target / "SKILL.md").write_text(merged)
+        assert host_bound_paths(target) == [], host_bound_paths(target)
 
         advance(run)
         state = read_json(run / "state.json")
