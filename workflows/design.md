@@ -2,7 +2,13 @@
 
 Create or refactor a multi-step skill without holding workflow control in prose. The coordinator at `scripts/design.py` derives the phase list from the contract you record, so a skill with no settings never walks a settings phase.
 
-When the work merges existing skills rather than designing new behavior, follow [absorb.md](absorb.md) first, then run this workflow for whatever the merged contract still lacks.
+## When to Use
+
+Use this workflow when what a skill should do is what is being decided: a new skill, or an existing one whose contract no longer matches its behavior.
+
+Every sibling workflow starts from material this one does not have yet, so the dividing question is what already exists. Merging several skills into one is [absorb.md](absorb.md), and this workflow then covers whatever the merged contract still lacks. Auditing a skill whose quality is unknown is [review.md](review.md), and closing the findings it produced is [remediate.md](remediate.md). Moving files without changing behavior is [restructure.md](restructure.md).
+
+Do not use this workflow to audit a skill you are not changing, or for a single direct task with no reusable workflow contract.
 
 ## Define the Contract
 

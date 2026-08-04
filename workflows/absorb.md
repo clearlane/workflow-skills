@@ -10,6 +10,8 @@ Use this workflow when consolidating overlapping skills, folding an upstream ski
 
 Do not use it to copy a skill unchanged, to edit one skill in place, or to vendor a source tree as a nested skill folder.
 
+Absorption reconciles contracts that already exist; it does not invent one. A capability no source provides is designed afterwards with [design.md](design.md), against the merged contract. Rearranging one tree without merging anything into it is [restructure.md](restructure.md). A merged target is a good subject for [review.md](review.md), because absorption preserves each source's decisions without judging them.
+
 ## Inputs
 
 Require:
