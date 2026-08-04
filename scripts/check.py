@@ -87,6 +87,14 @@ REFERENCE_CLOSING = "Checks"
 # The counterpart for a workflow: where it says what it owns and which sibling
 # owns the rest. A reader lands here before deciding to run anything.
 WORKFLOW_SCOPE_SECTION = "When to Use"
+# The house phrasing for the negative half of that section. These are a stated
+# convention rather than an attempt to recognise every way English can decline
+# a task, so a section that uses none of them has not written the clause.
+SCOPE_EXCLUSIONS = ("do not use", "don't use", "never use", "not for")
+# Fence languages whose content an agent runs by copying it. A `json` fence in
+# a workflow is the shape of an artifact, so a coordinator named only there is
+# still not an invocation anyone can run.
+RUNNABLE_FENCES = ("bash", "sh", "shell", "zsh", "console")
 CORE_VERBS = ("init", "status", "complete-phase", "self-check")
 # Run-lifecycle functions state.py owns. A coordinator defining one of these
 # has forked the lifecycle rather than composed it.
@@ -484,6 +492,17 @@ def check_reachability(root):
     return failures
 
 
+def fence_language(info):
+    """The language word from a fence info string, lowercased.
+
+    CommonMark allows attributes after the language, and a bare fence has no
+    info string at all, so comparing the whole string to a language name
+    silently disagrees with the parser at both margins.
+    """
+    words = info.split(maxsplit=1)
+    return words[0].lower() if words else ""
+
+
 def check_workflow_dispatch(root):
     """A workflow document must hand control to a coordinator, not hold it.
 
@@ -494,6 +513,19 @@ def check_workflow_dispatch(root):
 
     A workflow that names no coordinator either has control flow in prose or is
     a reference filed in the wrong directory.
+
+    Naming it is not the same as dispatching to it. The check asked only that
+    the string appear somewhere, which a sentence satisfies: rewriting every
+    fenced block in remediate.md into "run the init subcommand of
+    scripts/remediate.py" left the whole suite green while removing every
+    command an agent could copy. SKILL.md's 'Running a Coordinator' section
+    promises these documents show an invocation that resolves, and a promise
+    about a command has to be checked against a command.
+
+    The fence language matters, because absorb.md carries a `json` fence
+    naming scripts/absorb.py as an artifact field. That is the shape of a file
+    the run writes, not something anyone types, so counting it would let the
+    prose-only rewrite pass again.
     """
     failures = []
     for path in sorted((root / "workflows").glob("*.md")):
@@ -510,9 +542,18 @@ def check_workflow_dispatch(root):
                 "and a document that only states contracts belongs in references/"
             )
             continue
+        # Fences come from the parser rather than a backtick count, so an
+        # indented block or a longer fence marker reads the same as a plain one.
+        runnable = "\n".join(content for info, content, _ in parsed.fences if fence_language(info) in RUNNABLE_FENCES)
         for coordinator in sorted(coordinators):
             if not (root / "scripts" / coordinator).is_file():
                 failures.append(f"{name}: dispatches to scripts/{coordinator}, which does not exist")
+                continue
+            if f"scripts/{coordinator}" not in runnable:
+                failures.append(
+                    f"{name}: mentions scripts/{coordinator} only in prose; a workflow shows its "
+                    "coordinator in a fenced command block a reader can copy and run"
+                )
     return failures
 
 
@@ -560,6 +601,56 @@ def check_workflow_boundaries(root):
             failures.append(
                 f"{name}: '{WORKFLOW_SCOPE_SECTION}' links no sibling workflow, so nothing "
                 "tells a reader in the wrong document which one owns their task"
+            )
+    return failures
+
+
+def check_workflow_exclusions(root):
+    """A scope section must decline work as well as claim it.
+
+    check_workflow_boundaries already requires the sibling link, which is the
+    'use Y' half. It is satisfied by a sentence that only hands work onward:
+    design.md's section says merging is absorb.md's and moving files is
+    restructure.md's, and every one of those reads as a positive claim about
+    another document. A section written entirely that way says what each
+    workflow does and never says this one is the wrong document, so an agent
+    that matched the positive description first has no sentence that would
+    stop it.
+
+    The alternative considered was to require the link and the refusal in one
+    sentence, on the theory that 'not for X, use Y instead' is the clause that
+    matters. Measured on this tree that rejects absorb.md and design.md, whose
+    exclusions and sibling links are adjacent sentences rather than one, and
+    the sentences it accepts elsewhere qualify on incidental words: 'a
+    capability no source provides', 'rearranging one tree without merging'.
+    That is a rule about sentence construction wearing a routing rule's
+    clothes, so the refusal is required in the section rather than in a
+    particular sentence of it.
+
+    The phrases are a house convention, not a classifier. Across the 87 scope
+    sections in the 23 skills on this machine they matched 12 times: 11 were
+    real exclusions, and the twelfth said a pass "typically does not use a
+    single canonical brief", which is about the workflow's inputs. That one is
+    a section passing on a phrase it did not mean, which this check cannot
+    tell apart from the real thing; it is the direction that lets a violation
+    through rather than the one that stops conforming work, and no wording of
+    a substring rule avoids it. Of the sections it did not match, none stated
+    a redirection in words this set lacks, so requiring the phrase asks
+    authors for a convention rather than for a sentence they would not write.
+    """
+    failures = []
+    for path in sorted((root / "workflows").glob("*.md")):
+        parsed = document.parse(path)
+        scope = parsed.section(WORKFLOW_SCOPE_SECTION)
+        # A missing section is check_workflow_boundaries' finding to report,
+        # and reporting it twice would make one edit answer to two names.
+        if scope is None:
+            continue
+        folded = " ".join(scope.split()).lower()
+        if not any(phrase in folded for phrase in SCOPE_EXCLUSIONS):
+            failures.append(
+                f"{path.relative_to(root)}: '{WORKFLOW_SCOPE_SECTION}' never declines a task; "
+                f"say what this workflow is not for using one of {', '.join(SCOPE_EXCLUSIONS)}"
             )
     return failures
 
@@ -1905,12 +1996,20 @@ def self_check():
         (tree / "workflows").mkdir()
         (tree / "scripts").mkdir()
         (tree / "scripts" / "w.py").write_text("x = 1\n", encoding="utf-8")
-        guidance(tree, "workflows/w.md", "# W\n\nRun `python3 scripts/w.py init`.\n")
+        guidance(tree, "workflows/w.md", "# W\n\nStart a run:\n\n```bash\npython3 scripts/w.py init\n```\n")
         assert check_workflow_dispatch(tree) == [], "a workflow naming a real coordinator was rejected"
         guidance(tree, "workflows/w.md", "# W\n\nDo it by hand.\n")
         assert check_workflow_dispatch(tree), "a workflow holding control in prose was accepted"
-        guidance(tree, "workflows/w.md", "# W\n\nRun `python3 scripts/ghost.py init`.\n")
+        guidance(tree, "workflows/w.md", "# W\n\n```bash\npython3 scripts/ghost.py init\n```\n")
         assert check_workflow_dispatch(tree), "a workflow dispatching to a missing coordinator was accepted"
+        # The gap that motivated the fence requirement: naming the coordinator
+        # in a sentence is not showing anyone how to run it.
+        guidance(tree, "workflows/w.md", "# W\n\nRun the init subcommand of `python3 scripts/w.py`.\n")
+        assert check_workflow_dispatch(tree), "a coordinator named only in prose was accepted as dispatch"
+        # A coordinator named in an artifact fence is data the run writes, so
+        # the language has to decide, not the presence of backticks.
+        guidance(tree, "workflows/w.md", '# W\n\n```json\n{"changed_files": ["scripts/w.py"]}\n```\n')
+        assert check_workflow_dispatch(tree), "a coordinator named only in a data fence was accepted as dispatch"
 
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
@@ -1923,6 +2022,21 @@ def self_check():
         assert check_workflow_boundaries(tree), "a workflow with no scope section was accepted"
         guidance(tree, "workflows/a.md", f"# A\n\n## {WORKFLOW_SCOPE_SECTION}\n\nAlways.\n\n## Body\n\n[b](b.md)\n")
         assert check_workflow_boundaries(tree), "a sibling link outside the scope section was accepted"
+
+    with tempfile.TemporaryDirectory() as directory:
+        tree = Path(directory)
+        (tree / "workflows").mkdir()
+        section = f"# A\n\n## {WORKFLOW_SCOPE_SECTION}\n\n"
+        guidance(tree, "workflows/a.md", f"{section}Use it for A. Do not use it for B; see [b.md](b.md).\n")
+        assert check_workflow_exclusions(tree) == [], "a section stating what it declines was rejected"
+        # The shape the sibling-link rule already accepts: every sentence is a
+        # positive claim, including the ones naming another workflow.
+        guidance(tree, "workflows/a.md", f"{section}Use it for A. Merging is [b.md](b.md), which owns that.\n")
+        assert check_workflow_exclusions(tree), "a scope section that only claims work was accepted"
+        # No section at all is check_workflow_boundaries' finding, so this one
+        # stays silent rather than reporting the same edit twice.
+        guidance(tree, "workflows/a.md", "# A\n\n## Steps\n\nDo the thing.\n")
+        assert check_workflow_exclusions(tree) == [], "a missing section was reported by the exclusion check too"
 
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
@@ -2050,6 +2164,7 @@ def main():
         ("heading code markers", lambda: check_heading_code_markers(ROOT)),
         ("workflow dispatch", lambda: check_workflow_dispatch(ROOT)),
         ("workflow boundaries", lambda: check_workflow_boundaries(ROOT)),
+        ("workflow exclusions", lambda: check_workflow_exclusions(ROOT)),
         ("examples validate", lambda: check_examples_validate(ROOT)),
         ("phase owners", lambda: check_phase_owners(ROOT)),
         ("documented capabilities", lambda: check_capability_rows(ROOT)),
