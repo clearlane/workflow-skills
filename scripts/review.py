@@ -855,8 +855,15 @@ def write_report(root, state, findings):
     counts = {level: sum(1 for item in findings if item["severity"] == level) for level in SEVERITIES}
     answers = load_answers(root)
     asked = [identifier for phase in state["phases"] for identifier, _ in phase_questions(phase)]
-    settled = set(answers) | set(answered_by_findings(findings))
-    covered = [identifier for identifier in asked if identifier in settled]
+    # Counted by asking the gate, rather than by a second rule that agrees with
+    # it most of the time. The two had drifted apart: the report matched ids
+    # alone, so an answer the gate had rejected as belonging to a question the
+    # contract has since moved was still reported as coverage. A report that
+    # overstates what a review established is worse than no count at all.
+    outstanding = {
+        identifier for phase in state["phases"] for identifier, _ in outstanding_questions(root, phase, findings)
+    }
+    covered = [identifier for identifier in asked if identifier not in outstanding]
     lines = [
         f"# Skill Review: {state['skill']['name']}",
         "",
@@ -1535,6 +1542,35 @@ def command_self_check(_args):
         report = (run / "report.md").read_text()
         assert "F1" in report and "fixed" in report, report
         assert "1 blocking" in report, report
+
+        # The report's coverage line and the gate are two readings of one
+        # question, and they had answered it differently: the report matched
+        # ids while the gate compared the recorded text, so an answer the gate
+        # was still demanding was already being counted as coverage. A report
+        # that overstates what a review established is the failure this whole
+        # mechanism exists to prevent, so the count is taken from the gate.
+        drifted = json.loads(original_answers)
+        first = next(iter(drifted["answers"]))
+        answered_run.write_text(json.dumps(drifted))
+        run_state = json.loads((Path(run) / "state.json").read_text())
+        write_report(Path(run), run_state, load_findings(Path(run)))
+        honest = (Path(run) / "report.md").read_text()
+        drifted["answers"][first]["question"] = "A question the reviewer was never shown?"
+        answered_run.write_text(json.dumps(drifted))
+        try:
+            write_report(Path(run), run_state, load_findings(Path(run)))
+            after = (Path(run) / "report.md").read_text()
+        finally:
+            answered_run.write_text(original_answers)
+            write_report(Path(run), run_state, load_findings(Path(run)))
+
+        def coverage(text):
+            line = next(part for part in text.splitlines() if "Contract questions answered" in part)
+            return line.rsplit(":", 1)[1].strip()
+
+        answered, total = coverage(honest).split("/")
+        assert int(answered) >= 1, coverage(honest)
+        assert coverage(after) == f"{int(answered) - 1}/{total}", (coverage(honest), coverage(after))
 
         # The SARIF is only useful if a consumer that knows nothing about this
         # repository can read it, so validate against the published schema.
