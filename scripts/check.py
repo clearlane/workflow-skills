@@ -100,6 +100,7 @@ CROSS_HOST_DIRECTORIES = frozenset({".github", ".gitlab", ".githooks", ".well-kn
 NEUTRAL_ROOTS = ("references", "workflows")
 NEUTRAL_FILES = ("SKILL.md", "AGENTS.md", "CONTRIBUTING.md")
 # Upstream material is vendored verbatim, so it describes the host it came from.
+# Matched as a directory, not as a string prefix: see check_vendor_tokens.
 NEUTRAL_EXEMPT = ("references/upstream",)
 PHASE_SECTION = "Phases the Coordinator Always Runs"
 DESIGN_WORKFLOW = "workflows/design.md"
@@ -262,6 +263,16 @@ def check_vendor_tokens(root):
 
     The shapes complement the names rather than replace them: `Claude Code` and
     `CLAUDE.md` are prose and a filename, which no path shape can see.
+
+    The one carve-out is `references/upstream/`, whose material is vendored
+    verbatim and therefore describes the host it came from. That was tested with
+    `str.startswith`, which is a string prefix and not a path: it also exempted
+    `references/upstream.md` and `references/upstream-notes.md`, neither of
+    which is vendored, so writing new guidance under any name beginning with
+    those characters bought a silent exemption from the neutrality rule this
+    repository exists to state. state.ignored already asks the anchored
+    question, matching the prefix itself or the prefix followed by a separator,
+    so the carve-out is a directory again rather than a spelling.
     """
     failures = []
     for parsed in document.walk(root):
@@ -270,8 +281,8 @@ def check_vendor_tokens(root):
         # A document is core guidance if it is a contract in references/ or
         # workflows/, or one of the top-level documents that speak for the
         # repository. Everything else may name a host freely.
-        neutral = (relative.parts[0] in NEUTRAL_ROOTS or posix in NEUTRAL_FILES) and not posix.startswith(
-            NEUTRAL_EXEMPT
+        neutral = (relative.parts[0] in NEUTRAL_ROOTS or posix in NEUTRAL_FILES) and not state.ignored(
+            posix, NEUTRAL_EXEMPT
         )
         tokens = VENDOR_TOKENS + (HOST_TOKENS if neutral else ())
         for number, line in enumerate(parsed.text.splitlines(), 1):
@@ -2109,6 +2120,13 @@ def self_check():
         guidance(tree, "references/neutral.md", "# N\n\nRun it.\n\n## Checks\n\n- one\n")
         guidance(tree, "references/upstream/vendored.md", f"# V\n\nFrom {HOST_TOKENS[0]}.\n")
         assert check_vendor_tokens(tree) == [], "vendored upstream material was held to neutrality"
+        # The carve-out is a directory, and a string prefix is not one. Both of
+        # these sit beside references/upstream/ rather than inside it, and both
+        # passed while the test was startswith.
+        for escape in ("references/upstream.md", "references/upstream-notes.md"):
+            guidance(tree, escape, f"# E\n\nOpen {HOST_TOKENS[0]}.\n\n## Checks\n\n- one\n")
+            assert check_vendor_tokens(tree), f"{escape} escaped neutrality by name"
+            (tree / escape).unlink()
         guidance(tree, "references/upstream/vendored.md", f"# V\n\n{VENDOR_TOKENS[0]}\n")
         assert check_vendor_tokens(tree), "a vendor token was accepted anywhere"
 
