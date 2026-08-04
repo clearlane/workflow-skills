@@ -47,6 +47,7 @@ from state import (
 from state import (
     print_status as print_envelope,
 )
+from validate import validate as validate_skill
 
 # Ordered phases, each with the resource holding its contract. Unlike design,
 # the list is fixed: a restructure always gathers evidence before diagnosing and
@@ -62,8 +63,13 @@ PHASES = (
 PHASE_NAMES = tuple(name for name, _ in PHASES)
 # Operations that change the tree. A manifest of only these is a no-op proposal,
 # and executing one would burn an approval on nothing.
-MUTATING = frozenset({"move", "rename", "create", "delete"})
+MUTATING = frozenset({"move", "rename", "create", "delete", "update"})
 NEEDS_DESTINATION = frozenset({"move", "rename"})
+# A keep asserts the file comes through byte-identical, so it stays inside the
+# digest that proves nothing unreviewed changed. Excluding it, as every other
+# named path is excluded, made the strongest claim in the manifest the only one
+# nothing checked: a file could be declared kept and rewritten in the same run.
+UNCHANGED = frozenset({"keep"})
 
 
 def phase_resource(phase):
@@ -271,9 +277,14 @@ def untouched_digest(scope, manifest):
     tree the plan promised not to touch, and it must come through execution
     byte-identical. A file that appears, vanishes, or changes inside that set
     was never reviewed by whoever approved the manifest.
+
+    A kept path is not excluded, because `keep` is a promise that the file does
+    not change, and the digest is what makes that promise checkable.
     """
     touched = set()
     for operation in manifest["operations"]:
+        if operation["action"] in UNCHANGED:
+            continue
         touched.add(operation["path"])
         destination = operation.get("destination")
         if destination:
@@ -388,7 +399,24 @@ def command_execute(args):
             fail(f"{operation['path']} still exists but the manifest deletes it", EX_DATAERR)
         if operation["action"] == "create" and not target.exists():
             fail(f"{operation['path']} was not created", EX_DATAERR)
+        if operation["action"] == "update" and not target.exists():
+            fail(f"{operation['path']} was updated in place but no longer exists", EX_DATAERR)
         applied.append(operation["path"])
+    # Moving a file changes what points at it, and repairing every reference
+    # surface in the same step is the contract this workflow already carries.
+    # Link targets are the part of that a parser can settle, so a move that
+    # left SKILL.md pointing at the old path is caught by the run that made it
+    # rather than by whoever next tries to follow the link. Only when the scope
+    # is itself a skill: restructuring a repository is the commoner case, and
+    # it has no SKILL.md to check.
+    if (scope / "SKILL.md").is_file():
+        broken = [f for f in validate_skill(scope) if f.severity == "error" and f.rule == "links"]
+        if broken:
+            detail = "\n".join(f"  {f.message}\n    fix: {f.remedy}" for f in broken)
+            fail(
+                f"the operations applied, but references to the moved files were not repaired:\n{detail}",
+                EX_DATAERR,
+            )
     state["applied"] = applied
     record_decision(root, "execute", args.note)
     advance(root, state, "execute", f"executed:{len(applied)}")
@@ -492,6 +520,66 @@ def command_self_check(_args):
             result = execute("execute", "--run-dir", run, "--note", "x", check=False)
             assert result.returncode == EX_DATAERR, (label, result.returncode, result.stdout)
             assert "outside the approved operations" in result.stderr, (label, result.stderr)
+
+        # A move relocates what other files point at, and the workflow requires
+        # every reference surface repaired in the same step. When the scope is
+        # a skill, link targets are the checkable part of that: this move is
+        # applied faithfully and still leaves SKILL.md pointing at the old path.
+        skill = root / "skill-scope"
+        (skill / "references").mkdir(parents=True)
+        (skill / "guide.md").write_text("guide\n")
+        (skill / "SKILL.md").write_text(
+            "---\nname: skill-scope\ndescription: d\n---\n\n[guide](guide.md)\n",
+            encoding="utf-8",
+        )
+        moves = [
+            {"action": "move", "path": "guide.md", "destination": "references/guide.md", "reason": "grouping"},
+            # The repair the move forces. Without a way to declare it, the run
+            # had to choose between a broken link and a scope-digest failure.
+            {"action": "update", "path": "SKILL.md", "reason": "repoint the link at the moved file"},
+        ]
+        run = root / "skill-run"
+        execute("init", "--name", "Skill", "--scope", skill, "--run-dir", run, "--mode", "mutate")
+        (run / "manifest.json").write_text(json.dumps(manifest(skill, moves)))
+        execute("complete-phase", "--run-dir", run, "--phase", "evidence", "--note", "e")
+        execute("complete-phase", "--run-dir", run, "--phase", "diagnose", "--note", "d")
+        execute("propose", "--run-dir", run)
+        execute("approve", "--run-dir", run, "--approved-by", "operator")
+        (skill / "references" / "guide.md").write_text((skill / "guide.md").read_text())
+        (skill / "guide.md").unlink()
+        result = execute("execute", "--run-dir", run, "--note", "moved guide", check=False)
+        assert result.returncode == EX_DATAERR, (result.returncode, result.stdout)
+        assert "were not repaired" in result.stderr, result.stderr
+        assert "fix: " in result.stderr, result.stderr
+
+        # Repairing the reference is what the run was missing, not a different
+        # approval: the same approved operation set now executes.
+        (skill / "SKILL.md").write_text(
+            "---\nname: skill-scope\ndescription: d\n---\n\n[guide](references/guide.md)\n",
+            encoding="utf-8",
+        )
+        result = execute("execute", "--run-dir", run, "--note", "moved guide", check=False)
+        assert result.returncode == 0, result.stderr
+
+        # A keep is the strongest claim in the manifest: this file does not
+        # change. It was also the only one nothing checked, because a kept path
+        # was excluded from the digest exactly like a moved one, so a run could
+        # declare a file kept and rewrite it in the same breath.
+        kept = fresh_scope("kept-scope")
+        keeps = [*operations, {"action": "keep", "path": "src/a.py", "reason": "unchanged"}]
+        run = root / "kept-run"
+        execute("init", "--name", "Kept", "--scope", kept, "--run-dir", run, "--mode", "mutate")
+        (run / "manifest.json").write_text(json.dumps(manifest(kept, keeps)))
+        execute("complete-phase", "--run-dir", run, "--phase", "evidence", "--note", "e")
+        execute("complete-phase", "--run-dir", run, "--phase", "diagnose", "--note", "d")
+        execute("propose", "--run-dir", run)
+        execute("approve", "--run-dir", run, "--approved-by", "operator")
+        (kept / "src" / "b.py").write_text((kept / "b.py").read_text())
+        (kept / "b.py").unlink()
+        (kept / "src" / "a.py").write_text("rewritten while declared kept\n")
+        result = execute("execute", "--run-dir", run, "--note", "x", check=False)
+        assert result.returncode == EX_DATAERR, (result.returncode, result.stdout)
+        assert "outside the approved operations" in result.stderr, result.stderr
 
         # A manifest edited between propose and approve is refused at approve.
         scope = fresh_scope("reorder-scope")

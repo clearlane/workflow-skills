@@ -50,7 +50,7 @@ The script only observes: it never writes inside the scope, follows no symlinks,
 
 **Diagnose.** Classify the scope shape and mark each observation `confirmed`, `preference`, `deliberate-exception`, or `blocked` using [layout.md](../references/layout.md). Only confirmed findings may enter a proposal.
 
-**Propose.** Write `manifest.json` in the run directory: every path-level `move`, `rename`, `create`, `delete`, and `keep` decision with its reason, and the reference surfaces each one affects. Record keeps as well as changes, so a reader can tell a considered decision from an overlooked file. Present alongside it the detected shape and its evidence, the confirmed problems and deliberate exceptions, the current and proposed trees, and the baseline commands, conflict handling, and rollback method.
+**Propose.** Write `manifest.json` in the run directory: every path-level `move`, `rename`, `create`, `delete`, `update`, and `keep` decision with its reason, and the reference surfaces each one affects. Declare as `update` each file edited in place to keep a moved file working, because execution refuses any change to a file the manifest does not name. Record keeps as well as changes, so a reader can tell a considered decision from an overlooked file; a keep is enforced, so a path declared kept must come through byte-identical. Present alongside it the detected shape and its evidence, the confirmed problems and deliberate exceptions, the current and proposed trees, and the baseline commands, conflict handling, and rollback method.
 
 A schema-valid example is in [examples/restructure-run/manifest.json](../examples/restructure-run/manifest.json).
 
@@ -80,7 +80,7 @@ python3 scripts/restructure.py execute \
   --note "<what was applied and in what order>"
 ```
 
-The coordinator re-checks the approval binding and confirms every mutating operation actually landed, so a manifest carried out only in part is caught here rather than at handoff.
+The coordinator re-checks the approval binding and confirms every mutating operation actually landed, so a manifest carried out only in part is caught here rather than at handoff. When the scope is itself a skill, it also refuses a run whose moves left `SKILL.md` pointing at a path that no longer exists: repairing references is part of the same step, and a link target is the part of that a parser can settle.
 
 **Validate.** Run the same checks used for the baseline, rescan for stale paths with a positive control for the new ones, verify discovery surfaces, and inspect version-control status and diff. In this repository the check entrypoint is `python3 scripts/check.py`. Record the outcome:
 
