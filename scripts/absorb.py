@@ -593,14 +593,90 @@ def next_action(phase):
         "plan": "Write plan.json with complete capability coverage, then run complete-phase --phase plan.",
         "merge": "Edit target only, write apply.json, then run complete-phase --phase merge.",
         "validation": "Run relevant checks, write validation.json, then run complete-phase --phase validation.",
-        "complete": "Run complete. Keep artifacts for audit or remove them explicitly.",
         "rolled-back": "Target restored after unsafe or exhausted execution. Revise plan or start new run.",
     }[phase]
+
+
+def durability(target_path):
+    """Whether the merged work would survive this run directory being deleted.
+
+    A completed absorption has edited a working tree and nothing more. If that
+    tree is a scratch copy or the edits are uncommitted, the run reports success
+    over work that one `rm -rf` removes, and the only record that anything was
+    absorbed is the run directory itself. Reporting it is the difference between
+    a run that finished and a change that landed.
+    """
+    target = Path(target_path)
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(target),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return {
+            "durable": False,
+            "detail": "The target is not a git repository, so the merge exists only as files on disk.",
+        }
+    if result.stdout.strip():
+        return {
+            "durable": False,
+            "detail": "The target has uncommitted changes; commit them or the merge is lost with the working tree.",
+        }
+    # Committed is not the same as reachable. A run against a throwaway clone
+    # commits happily and the work still exists in exactly one directory, which
+    # is how a completed absorption ends up somewhere nobody will look again.
+    unpushed = subprocess.run(
+        ["git", "log", "--oneline", "@{upstream}..HEAD"],
+        cwd=str(target),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if unpushed.returncode != 0:
+        return {
+            "durable": False,
+            "detail": (
+                "The target's branch tracks nothing, so the merge exists only in this "
+                "clone. Push it, or merge it into the tree that is actually published."
+            ),
+        }
+    if unpushed.stdout.strip():
+        count = len(unpushed.stdout.strip().splitlines())
+        return {
+            "durable": False,
+            "detail": f"The merge is committed but {count} commit(s) are unpushed, so it exists only in this clone.",
+        }
+    return {"durable": True, "detail": "The target's merged work is committed and pushed."}
+
+
+def completion_action(target_path):
+    state = durability(target_path)
+    if state["durable"]:
+        return "Run complete and the merge is committed. Keep artifacts for audit or remove them explicitly."
+    return f"Run complete, but the merge is not durable. {state['detail']}"
 
 
 def print_status(root, state, inventory):
     phase = state["phase"]
     phases = walked_phases(phase)
+    target_path = inventory["target"]["path"]
+    action = completion_action(target_path) if phase == "complete" else next_action(phase)
+    detail = {
+        "target": target_path,
+        "source_count": len(inventory["sources"]),
+        "validation_attempts": state["validation_attempts"],
+        "max_validation_attempts": state["max_validation_attempts"],
+        "plan_sha256": state.get("plan_sha256"),
+        "execution_plan_sha256": state.get("execution_plan_sha256"),
+        "rollback_scope": state.get("rollback_scope"),
+        "rollback_reason": state.get("rollback_reason"),
+    }
+    if phase == "complete":
+        # Reported as data as well as prose, so a wrapper can refuse to treat an
+        # uncommitted merge as a landed change without parsing a sentence.
+        detail["durable"] = durability(target_path)["durable"]
     print_envelope(
         "absorb",
         root,
@@ -608,17 +684,8 @@ def print_status(root, state, inventory):
         phases,
         phases[: phases.index(phase)],
         phase_resource(phase),
-        next_action(phase),
-        {
-            "target": inventory["target"]["path"],
-            "source_count": len(inventory["sources"]),
-            "validation_attempts": state["validation_attempts"],
-            "max_validation_attempts": state["max_validation_attempts"],
-            "plan_sha256": state.get("plan_sha256"),
-            "execution_plan_sha256": state.get("execution_plan_sha256"),
-            "rollback_scope": state.get("rollback_scope"),
-            "rollback_reason": state.get("rollback_reason"),
-        },
+        action,
+        detail,
     )
 
 
@@ -1268,6 +1335,62 @@ def command_self_check(_args):
                 {"SKILL.md"},
                 tree,
             )
+
+        # A completed run reports whether the merge would survive the run
+        # directory being deleted. Reporting completion over an uncommitted or
+        # scratch tree is how an absorption finishes and lands nowhere.
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            loose = tree / "loose"
+            loose.mkdir()
+            (loose / "SKILL.md").write_text("merged\n", encoding="utf-8")
+            assert not durability(loose)["durable"], "a non-repository target was called durable"
+
+            repository = tree / "repository"
+            repository.mkdir()
+            for command in (
+                ["git", "init", "-q"],
+                ["git", "config", "user.email", "absorb@example.invalid"],
+                ["git", "config", "user.name", "absorb self-check"],
+            ):
+                subprocess.run(command, cwd=str(repository), check=True, capture_output=True)
+            (repository / "SKILL.md").write_text("merged\n", encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=str(repository), check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "merge"],
+                cwd=str(repository),
+                check=True,
+                capture_output=True,
+            )
+            assert not durability(repository)["durable"], "a clone whose branch tracks nothing was called durable"
+            assert "not durable" in completion_action(repository)
+
+            # With an upstream that has the commit, the work is reachable from
+            # somewhere other than this directory.
+            origin = tree / "origin.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, capture_output=True)
+            for command in (
+                ["git", "remote", "add", "origin", str(origin)],
+                ["git", "push", "-q", "-u", "origin", "HEAD"],
+            ):
+                subprocess.run(command, cwd=str(repository), check=True, capture_output=True)
+            assert durability(repository)["durable"], "a pushed merge was called fragile"
+            assert "committed" in completion_action(repository)
+
+            # A commit made after the push is again reachable from one place.
+            (repository / "SKILL.md").write_text("merged further\n", encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=str(repository), check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-q", "-m", "later"],
+                cwd=str(repository),
+                check=True,
+                capture_output=True,
+            )
+            assert not durability(repository)["durable"], "an unpushed commit was called durable"
+
+            (repository / "SKILL.md").write_text("uncommitted\n", encoding="utf-8")
+            assert not durability(repository)["durable"], "an uncommitted merge was called durable"
+            assert "not durable" in completion_action(repository)
     print("self-check passed")
 
 

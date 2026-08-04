@@ -123,6 +123,12 @@ Run the target's own checks rather than asserting the merge looks right. A valid
 
 Retries are bounded. A failed validation returns the run to `merge` so the next attempt has the previous verdict to work from, and each attempt is preserved rather than overwritten. Exhausting the bound rolls the target back and exits as a failure, because a rolled-back run reported as a success defeats the bound entirely.
 
+## Completion and Durability
+
+A completed run has edited a working tree and nothing more. Finishing is not landing: work merged into a throwaway clone, or left uncommitted, exists in exactly one directory and disappears with it, while the run directory still reports success. The coordinator therefore reports at completion whether the merge is reachable from anywhere other than that tree, as `detail.durable` alongside the prose, so a wrapper can refuse to treat a finished run as a landed change.
+
+Committed is not the same as reachable: a clone whose branch tracks nothing, or one holding unpushed commits, still keeps the absorption in a single place. Completion says which of these holds and what remains to be done about it. The run does not commit or push on the author's behalf, because deciding where work lands is not a decision a coordinator should make silently.
+
 ## Orchestrator Feedback
 
 Absorption is the one workflow that runs itself against unfamiliar material every time, so each run is the best available test of the coordinator. Treat friction as a finding rather than an obstacle to work around:
