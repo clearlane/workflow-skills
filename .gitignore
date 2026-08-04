@@ -11,6 +11,12 @@ __pycache__/
 build/
 dist/
 .ruff_cache/
+# Environments and run directories the checks themselves create. A check that
+# builds a throwaway tree in the repository must not leave anything a later
+# `git add -A` would commit, and committing one makes every subsequent check
+# scan it.
+.venv*/
+.probe-run/
 
 # Generated agent skill directories (see skills-lock.json)
 agent/
