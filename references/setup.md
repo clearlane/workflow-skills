@@ -41,6 +41,8 @@ Pre-flight accepts the validated invocation, effective settings, target environm
 
 Use stable check IDs and normalized statuses. Redact secrets; report presence, source, scope, tenant, or expiry rather than values.
 
+Some prerequisites cannot be proven before use: a capability the host resolves at call time, a credential valid only against a live service. State that the check is best-effort and pair it with a runtime backstop that fails with the same remediation. Claiming certainty a check does not have is worse than declaring the limit, because it turns a clear pre-flight failure into a mid-run one. Name the capability the run needs, never a fixed path where it was once found: a hardcoded location is silently wrong on any other layout.
+
 ## Coordinator Shape
 
 ```text

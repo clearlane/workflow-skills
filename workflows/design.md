@@ -13,6 +13,8 @@ Before starting a run, write down:
 - Runtime capabilities available: scripts, workflow API, state store, delegation, approval, progress UI.
 - Deployment shape and host discovery requirements.
 
+The contract records what has been decided, so anything still open is work this phase owes. Enumerate what is underspecified per capability, present it grouped by what it affects, and resolve it before the run advances. Agreement is not resolution: an answer of "whatever you think is best" leaves the question open, so answer it with concrete recommendations and their consequences, and treat it as unresolved until one is chosen.
+
 Then decide which capabilities the skill actually needs. Each one selects its phase and nothing else:
 
 | Capability | Select when | Contract |
@@ -42,6 +44,8 @@ python3 scripts/design.py init \
 ```
 
 Omit `--capability` entirely for a skill that needs none. The run directory must be empty and must not sit inside the skill being designed.
+
+When the deliverable ships as a bundle rather than one skill, the selection covers component kinds too: ask what each kind is for, present kind, count, and purpose as one table, and get it approved before the first file exists. A skeleton is cheap to change and a built-out bundle is not, which is what makes this the checkpoint. [packaging.md](../references/packaging.md) owns what the scaffold contains.
 
 Inspect the current phase, its owning resource, and the next action at any time:
 

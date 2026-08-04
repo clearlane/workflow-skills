@@ -102,6 +102,7 @@ Each artifact kind has one schema in `schemas/`, and shared vocabulary lives in 
 | `apply.schema.json` | `apply.json` | agent |
 | `validation.schema.json` | `validation.json` | agent |
 | `feedback.schema.json` | `feedback.json` | agent |
+| `remediation.schema.json` | `iterations/<n>.json` | agent |
 
 Resolve `$ref` between schemas from disk. Publishing them under URLs makes them addressable and quotable; fetching them at validation time would make every run depend on a web host.
 

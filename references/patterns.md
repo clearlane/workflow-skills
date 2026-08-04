@@ -81,11 +81,21 @@ while not done(result) and attempt < maxAttempts:
 Every loop needs:
 
 - Measurable termination condition.
-- Hard iteration or time bound.
+- Hard iteration or time bound, checked before the next iteration does work rather than after.
 - Persisted best-known result when work is expensive.
 - Failure result when bound expires.
 
 Never use "repeat until good" without objective condition and bound.
+
+A condition a model evaluates is measurable only when the loop can read its answer exactly:
+
+- The signal is an exact whole line the loop matches, never a natural-language self-report. Whole-line matching is what stops the loop's own documentation of the signal from ending it.
+- The bound is an entrypoint argument with a documented default, validated as a positive integer before any state exists.
+- The instruction the model reads names the self-serving exits and rejects each one: running out of patience, judging remaining work too small to matter, or treating an unverified fix as done.
+
+Exit before the bound when an iteration fails for a reason no further iteration can fix, such as a missing prerequisite or an unreadable subject. Report that as its own outcome: spending the remaining budget reproducing one failure hides the cause.
+
+Exhausting the bound is a failure result carrying the exhausted-budget outcome. A loop that exits successfully on exhaustion leaves a caller unable to tell a finished subject from an unfinished one.
 
 ## 6. Safety Gate
 

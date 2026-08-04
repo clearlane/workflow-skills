@@ -55,6 +55,29 @@
       "type": "integer",
       "minimum": 1
     },
+    "review_run": {
+      "description": "The review run this remediation consumes. Recorded so each iteration's obligations trace to a verdict another run reached, rather than to the run doing the fixing.",
+      "$ref": "common.schema.json#/$defs/text"
+    },
+    "iterations": {
+      "description": "Iterations completed so far, counted against max_iterations.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_iterations": {
+      "description": "The bound on the remediation loop. Reaching it is a distinct terminal outcome, not a success.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "accepted_obligations": {
+      "description": "Finding ids the accepted verdict obliged this run to fix. Static, so it says what was owed even after the live count reaches zero.",
+      "$ref": "common.schema.json#/$defs/textList"
+    },
+    "outstanding": {
+      "description": "Obliged findings the latest re-review still reports. Seeded from the accepted verdict so a run that has not iterated reports what it owes rather than zero, which would read as a met bar.",
+      "type": "integer",
+      "minimum": 0
+    },
     "plan_sha256": {
       "$ref": "#/$defs/optionalDigest"
     },

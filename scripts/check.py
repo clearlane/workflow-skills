@@ -26,6 +26,7 @@ import absorb
 import cli
 import design
 import document
+import remediate
 import restructure
 import review
 import state
@@ -56,11 +57,12 @@ DESIGN_WORKFLOW = "workflows/design.md"
 REVIEW_WORKFLOW = "workflows/review.md"
 ABSORB_WORKFLOW = "workflows/absorb.md"
 RESTRUCTURE_WORKFLOW = "workflows/restructure.md"
+REMEDIATE_WORKFLOW = "workflows/remediate.md"
 README = "README.md"
 CHECKER = "check.py"
 # The commands every coordinator must expose, so one run is driven the same way
 # as another and a wrapper does not need to know which it is holding.
-COORDINATORS = ("design.py", "review.py", "absorb.py", "restructure.py")
+COORDINATORS = ("design.py", "review.py", "absorb.py", "restructure.py", "remediate.py")
 # Canonical name for a reference's closing section. references/structure.md
 # owns the skeleton; this is the one part of it a parser can confirm.
 REFERENCE_CLOSING = "Checks"
@@ -92,6 +94,7 @@ ENTRY_DOCUMENTS = (
     "references/setup.md",
     "workflows/restructure.md",
     "workflows/review.md",
+    REMEDIATE_WORKFLOW,
 )
 
 
@@ -219,12 +222,20 @@ def check_phase_owners(root):
     phase names, and it fails the moment a phase is added without a contract.
     """
     failures = []
-    entry_documents = {DESIGN_WORKFLOW, REVIEW_WORKFLOW, ABSORB_WORKFLOW, RESTRUCTURE_WORKFLOW, "SKILL.md"}
+    entry_documents = {
+        DESIGN_WORKFLOW,
+        REVIEW_WORKFLOW,
+        ABSORB_WORKFLOW,
+        RESTRUCTURE_WORKFLOW,
+        REMEDIATE_WORKFLOW,
+        "SKILL.md",
+    }
     coordinators = (
         ("design", design.derive_phases(design.CAPABILITIES), design.phase_resource),
         ("review", review.derive_phases(review.SURFACES), review.phase_resource),
         ("absorb", absorb.derive_phases(), absorb.phase_resource),
         ("restructure", restructure.PHASE_NAMES, restructure.phase_resource),
+        ("remediate", remediate.derive_phases(), remediate.phase_resource),
     )
     owners = {}
     for coordinator, phases, resolve in coordinators:

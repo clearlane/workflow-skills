@@ -51,6 +51,8 @@ Treat raw invocation as untrusted.
 
 Use command arguments for values user already knows. Ask questions only for unresolved choices, conditional details, or exact approval.
 
+An argument that names a subject loosely resolves to exactly one before any state exists: accept a direct hit, otherwise search, ask when several match, and report what is available when none do. Never pick one of several matches silently. Resolution is fuzzy and belongs to the adapter; what the coordinator receives is the one resolved subject, validated strictly.
+
 ## Context and Runtime Capabilities
 
 Acquire minimum context coordinator needs:
@@ -91,6 +93,12 @@ Translate failures without taking control from coordinator:
 - Unsupported host capability: fail clearly or choose documented safe fallback.
 
 Do not invent retry, rollback, or resume behavior in adapter. Render coordinator result.
+
+## Stopping a Run
+
+A workflow a user can start needs a way to stop, and stopping is not undoing. A cancel entrypoint ends the run, records the terminal status, and leaves the work already produced in place: a partly improved subject is a legitimate outcome, unlike a partly applied merge, which its coordinator rolls back. Say which of the two a given run is, because the user cannot tell from the outside.
+
+Cancelling refuses to guess. With several runs live, it names them and asks rather than stopping whichever it found first, and it reports how far the stopped run got so the user knows what remains.
 
 ## Checks
 

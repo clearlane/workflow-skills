@@ -1,0 +1,32 @@
+{
+  "changed_files": [
+    "scripts/apply.py"
+  ],
+  "findings_sha256": "10c14f652b9fb650084821e022aa778187672885e04aa1df98f5d52528a211ff",
+  "iteration": 1,
+  "notes": [
+    "The re-review still reports one minor finding, which carries no fix obligation once judged, so the run completes."
+  ],
+  "recheck": {
+    "blocking": 0,
+    "major": 0,
+    "minor": 1,
+    "ran": "python3 scripts/review.py status --run-dir ./review-run"
+  },
+  "schema": "https://clearlane.github.io/workflow-skills/schemas/remediation.schema.json",
+  "triaged": [
+    {
+      "action": "fixed",
+      "finding_id": "F1",
+      "reason": "Gate moved above the write and bound to the proposal digest, as the finding's remedy stated",
+      "severity": "blocking"
+    },
+    {
+      "action": "dismissed",
+      "finding_id": "F2",
+      "reason": "The file is reached from the workflow, not from a reference; the reviewer scanned only references/",
+      "severity": "minor"
+    }
+  ],
+  "version": 2
+}

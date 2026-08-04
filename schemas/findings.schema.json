@@ -58,6 +58,13 @@
           "description": "A path, optionally with a line. Required at record time, which is what makes the mapping to a SARIF location total.",
           "$ref": "common.schema.json#/$defs/text"
         },
+        "remedy": {
+          "description": "The change that would resolve this finding, when the reviewer already knows it. Optional because a review that can name the defect but not the fix is still a valid review; recorded here so a remediation run triages against the reviewer's own statement rather than re-deriving one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "disposition": {
           "description": "Null until resolved. A blocking finding must leave this state before the verdict phase will complete.",
           "type": [
