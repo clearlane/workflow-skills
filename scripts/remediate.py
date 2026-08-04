@@ -45,6 +45,7 @@ from state import (
 from state import (
     print_status as print_envelope,
 )
+from validate import validate as validate_skill
 
 # The loop's phases. Unlike design, the shape never varies: a remediation run
 # always reads a verdict, always iterates, and always ends in a terminal status
@@ -336,6 +337,20 @@ def command_record_iteration(args):
     # which is static and would report the original obligations forever.
     state["outstanding"] = outstanding
     if outstanding == 0:
+        # Reaching zero is the run's claim that the subject is fixed, and the
+        # obligations it inherited include the format errors a host rejects.
+        # Those the coordinator can re-check itself, so a recheck that reports
+        # them closed while they are still in the file is refused rather than
+        # believed. This is not a failed iteration: the fixes so far are kept
+        # and the loop continues, so the run neither completes on a false claim
+        # nor loses its work over one.
+        errors = [f for f in validate_skill(Path(state["skill"]["path"])) if f.severity == "error"]
+        if errors:
+            detail = "\n".join(f"  {f.message}\n    fix: {f.remedy}" for f in errors)
+            fail(
+                f"Iteration reports no obliged findings open, but the skill still does not conform:\n{detail}",
+                EX_DATAERR,
+            )
         state["phase"] = "complete"
         save_state(root, state, "bar-met")
         record_decision(root, "iterate", args.note)
@@ -598,6 +613,19 @@ def command_self_check(_args):
                 {"blocking": 0, "major": 0, "minor": 0},
             ),
         )
+        # Reaching zero outstanding is a claim about the subject, and the
+        # format part of it is one the coordinator can settle. A recheck that
+        # reports everything closed while the skill still would not load is
+        # refused, and the loop keeps its fixes rather than ending on it.
+        core = subject / "SKILL.md"
+        sound = core.read_text()
+        core.write_text(sound.replace("name: subject", "name: bad--subject"))
+        result = execute("record-iteration", "--run-dir", clean, "--note", "all clear", check=False)
+        assert result.returncode != 0 and "does not conform" in result.stderr, result.stderr
+        assert "fix: " in result.stderr, result.stderr
+        assert read_json(clean / "state.json")["phase"] == "iterate", "a false claim must not end the loop"
+        core.write_text(sound)
+
         execute("record-iteration", "--run-dir", clean, "--note", "all clear")
         status = json.loads(execute("status", "--run-dir", clean).stdout)
         assert status["phase"] == "complete" and status["detail"]["outstanding"] == 0, status
