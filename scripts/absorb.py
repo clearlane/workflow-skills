@@ -189,7 +189,101 @@ def validate_plan(root, inventory):
         planned_paths.add(safe_relative_path(operation["path"], f"{path}: file operation path"))
         if operation["op"] == "move" and operation.get("from") is not None:
             planned_paths.add(safe_relative_path(operation["from"], f"{path}: move source"))
+
+    # A capability integrated into a file that no operation touches is a plan
+    # that decided where something goes and then did not go there. The merge
+    # writes the file anyway, the bound plan does not authorize it, and the run
+    # is rolled back at the gate: the omission is the plan's, and it is visible
+    # here, before any target file has been touched.
+    #
+    # Only `integrate` implies an edit. `retain` names the owner that already
+    # holds the concern and `generalize` points at guidance the merge need not
+    # rewrite, so both legitimately name files no operation touches.
+    unplanned = {}
+    for item in value["capability_map"] + value["runtime_adapter_map"]:
+        if item.get("decision") != "integrate":
+            continue
+        destination = item.get("destination")
+        if destination is None:
+            continue
+        # Destinations may name an anchor within a document; the file is what
+        # a file operation can be compared against.
+        target = destination.split("#", 1)[0].strip()
+        if not target or target.endswith("/"):
+            continue
+        if target not in planned_paths:
+            unplanned.setdefault(target, []).append(item["key"])
+    if unplanned:
+        detail = "\n  ".join(f"{file} (from {', '.join(sorted(keys))})" for file, keys in sorted(unplanned.items()))
+        fail(
+            f"{path}: these integration destinations have no file operation, so the "
+            f"merge would touch a path the plan does not authorize:\n  {detail}",
+            EX_DATAERR,
+            path,
+        )
+
+    require_coordinator_contracts(path, value, planned_paths, Path(inventory["target"]["path"]))
     return value, planned_paths
+
+
+# Contracts every coordinator joins. Each is an obligation only while it is
+# actually closed against members it does not name: an open schema accepts a
+# new coordinator without being edited, and demanding an edit anyway would
+# reject a correct plan.
+COORDINATOR_CONTRACTS = (
+    "schemas/status.schema.json",
+    "schemas/state.schema.json",
+)
+
+
+def closed_contracts(target_root):
+    """The coordinator contracts that would reject an undeclared member.
+
+    Read from the target rather than assumed, because whether a contract is
+    closed changes over time: the same plan is correct against an open schema
+    and incomplete against a closed one.
+    """
+    closed = []
+    for relative in COORDINATOR_CONTRACTS:
+        path = target_root / relative
+        if not path.is_file():
+            continue
+        try:
+            schema = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        # Either shape refuses a coordinator nobody declared: a closed object
+        # rejects its state keys, and a closed enum rejects its kind.
+        if schema.get("additionalProperties") is False:
+            closed.append(relative)
+            continue
+        kind = schema.get("properties", {}).get("kind", {})
+        if isinstance(kind, dict) and kind.get("enum"):
+            closed.append(relative)
+    return closed
+
+
+def require_coordinator_contracts(path, value, planned_paths, target_root):
+    """A plan that adds a coordinator must also plan the closed contracts it joins."""
+    added = sorted(
+        operation["path"]
+        for operation in value["file_operations"]
+        if operation["op"] == "create"
+        and operation["path"].startswith("scripts/")
+        and operation["path"].endswith(".py")
+    )
+    if not added:
+        return
+    missing = [contract for contract in closed_contracts(target_root) if contract not in planned_paths]
+    if missing:
+        fail(
+            f"{path}: creates {', '.join(added)} but does not plan "
+            f"{', '.join(missing)}. These contracts are closed against members "
+            f"they do not name, so a coordinator that joins them without being "
+            f"declared cannot print a status or write its own state.",
+            EX_DATAERR,
+            path,
+        )
 
 
 def require_coverage(path, decided, expected, label):
@@ -1125,6 +1219,55 @@ def command_self_check(_args):
         assert (target / "SKILL.md").read_text() == baseline
         assert not (run / "rollback").exists()
         assert any(path.name.endswith("-plan.json") for path in (run / "revisions").iterdir())
+
+        # A plan that adds a coordinator without planning the contracts it
+        # joins is the omission that produced a rolled-back merge: the schemas
+        # are closed against members they do not name, so the merge had to
+        # touch a path the plan never authorized. The obligation follows the
+        # target's actual schemas, since the same plan is complete against an
+        # open contract and incomplete against a closed one.
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            (tree / "schemas").mkdir()
+            assert closed_contracts(tree) == [], "a tree with no schemas obliges nothing"
+
+            open_state = {"properties": {"phase": {"type": "string"}}}
+            write_json(tree / "schemas" / "state.schema.json", open_state)
+            assert closed_contracts(tree) == [], "an open schema was treated as an obligation"
+
+            open_state["additionalProperties"] = False
+            write_json(tree / "schemas" / "state.schema.json", open_state)
+            assert closed_contracts(tree) == ["schemas/state.schema.json"]
+
+            write_json(
+                tree / "schemas" / "status.schema.json",
+                {"properties": {"kind": {"enum": ["design"]}}},
+            )
+            assert len(closed_contracts(tree)) == 2, closed_contracts(tree)
+
+            adding = {
+                "file_operations": [{"op": "create", "path": "scripts/new.py"}],
+                "capability_map": [],
+                "runtime_adapter_map": [],
+            }
+            plan_path = Path("plan.json")
+            try:
+                require_coordinator_contracts(plan_path, adding, {"scripts/new.py"}, tree)
+            except SystemExit as error:
+                assert error.code == EX_DATAERR, error.code
+            else:
+                raise AssertionError("a coordinator joining closed contracts was accepted")
+
+            complete = set(closed_contracts(tree)) | {"scripts/new.py"}
+            require_coordinator_contracts(plan_path, adding, complete, tree)
+
+            # A plan that adds no coordinator carries no such obligation.
+            require_coordinator_contracts(
+                plan_path,
+                {"file_operations": [{"op": "update", "path": "SKILL.md"}]},
+                {"SKILL.md"},
+                tree,
+            )
     print("self-check passed")
 
 
