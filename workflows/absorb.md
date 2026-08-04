@@ -53,7 +53,9 @@ python3 scripts/absorb.py complete-phase --run-dir <run-directory> \
 
 Artifact validation is a precondition of the transition, not a different verb: a phase whose evidence the contract requires will refuse to close without it.
 
-## 1. Analysis
+The sections below explain one phase each, in the order a run usually meets them. The order itself is the coordinator's, and `status` is what answers which phase a run is on: a resumed run reaches its phase through the recorded state, not by counting headings.
+
+## Analysis
 
 Analyze the existing target plus one source per independent worker when the runtime bounds concurrency. Otherwise analyze sequentially. Give each worker the target inventory, one skill inventory, this workflow, and the absorption reference. Workers must not edit any skill. Skip target analysis only for `--new-target` runs.
 
@@ -61,7 +63,7 @@ Write `analyses/target.json` and one `analyses/<source-id>.json` per source, usi
 
 Close the phase only after every source has a valid analysis.
 
-## 2. Synthesis Plan
+## Plan
 
 Compare all analyses together and write `plan.json`. Account for every target and source capability exactly once in `capability_map`, and every runtime dependency exactly once in `runtime_adapter_map`.
 
@@ -75,7 +77,7 @@ Organize the target around one canonical contract:
 
 Mark every capability `integrate`, `retain`, or `omit`, and every runtime dependency `generalize` or `omit`. Nothing is discarded silently.
 
-## 3. Plan Binding and Rollback Snapshot
+## Binding and the Rollback Snapshot
 
 Advancing from planning validates complete mappings, verifies unchanged inputs, binds the canonical plan hash internally, and snapshots the target baseline before any mutation.
 
@@ -85,7 +87,7 @@ This workflow does not pause for approval between planning, merge, repair, valid
 python3 scripts/absorb.py revise-plan --run-dir <run-directory>
 ```
 
-## 4. Merge
+## Merge
 
 Edit the target only. Sources stay read-only for the whole run.
 
@@ -97,7 +99,7 @@ Edit the target only. Sources stay read-only for the whole run.
 
 Write `apply.json` with the bound `plan_sha256`, cumulative changed files, cumulative deleted files, and notes. Paths must be target-relative and match the actual target diff.
 
-## 5. Bounded Validation
+## Validation
 
 Run the checks relevant to the changed skill:
 
@@ -113,7 +115,7 @@ A changed plan, a changed source, an unrecorded out-of-scope diff, a diff that c
 
 Evidence the coordinator cannot read, such as a wrong field type or an empty check list, is a reporting mistake rather than unsafe execution. It is rejected without rollback, leaving the target and phase intact so a corrected file advances the run.
 
-## 6. Orchestrator Feedback
+## Orchestrator Feedback
 
 Every run is also a test of this workflow and its coordinator against real material. A passing validation does not complete the run until `feedback.json` records the verdict:
 
