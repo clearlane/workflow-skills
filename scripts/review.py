@@ -24,6 +24,7 @@ import names
 from cli import (
     EX_DATAERR,
     EX_USAGE,
+    Failure,
     fail,
 )
 from design import CAPABILITY_PHASES
@@ -422,6 +423,47 @@ SAFETY_PATTERNS = (
 )
 
 
+def require_evidence(value, skill_root):
+    """A path cited as evidence must resolve inside the reviewed skill.
+
+    review.md says every finding cites a path, or a path and line, inside the
+    reviewed skill, and the coordinator rejects a claim without one. It
+    rejected only an empty string: `--evidence does/not/exist.md:9999` was
+    accepted and recorded, so the report carried a citation pointing nowhere.
+    That is worse than no citation, because a reader who does not follow it
+    reads a defect as established, and a remediation run triages against it.
+
+    A command and its result is also legitimate evidence and cannot be
+    resolved as a path, so only values shaped like a path are checked. The
+    test is deliberately narrow: something with a slash or a known text
+    suffix, optionally followed by a line number, is a path claim.
+    """
+    require_text(value, "--evidence")
+    candidate = value.strip()
+    location, separator, line = candidate.rpartition(":")
+    if separator and line.isdigit():
+        candidate = location
+    else:
+        line = ""
+    looks_like_path = "/" in candidate or Path(candidate).suffix.lower() in TEXT_SUFFIXES
+    if not looks_like_path or " " in candidate:
+        return
+    if Path(candidate).is_absolute() or ".." in Path(candidate).parts:
+        fail(f"--evidence must stay inside the reviewed skill: {value}", EX_DATAERR)
+    target = skill_root / candidate
+    if not target.is_file():
+        fail(f"--evidence names {candidate}, which does not exist in the reviewed skill", EX_DATAERR)
+    if line:
+        # A line past the end of the file is a citation a reader cannot follow,
+        # and is the shape a stale finding takes after the file shrinks.
+        try:
+            length = len(target.read_text(errors="replace").splitlines())
+        except OSError:
+            return
+        if int(line) < 1 or int(line) > length:
+            fail(f"--evidence names {candidate}:{line}, which has {length} lines", EX_DATAERR)
+
+
 def safety_findings(skill_root):
     """Locate the safety questions a pattern can find, as leads to settle.
 
@@ -706,7 +748,7 @@ def command_record_finding(args):
     if args.severity not in SEVERITIES:
         fail(f"Severity must be one of {', '.join(SEVERITIES)}")
     require_text(args.summary, "--summary")
-    require_text(args.evidence, "--evidence")
+    require_evidence(args.evidence, Path(state["skill"]["path"]))
     findings = load_findings(root)
     finding = {
         "id": f"F{len(findings) + 1}",
@@ -839,10 +881,11 @@ def command_answer(args):
         fail(f"Phase {asked_in!r} is not reached yet; reached phases: {', '.join(reached)}")
     if args.verdict not in VERDICTS:
         fail(f"Verdict must be one of {', '.join(VERDICTS)}")
-    # Redundant with the schema's `text` type, which also rejects whitespace,
-    # and kept for the message: the schema failure names a JSON pointer, this
-    # names the flag the caller passed.
-    require_text(args.evidence, "--evidence")
+    # The schema's `text` type also rejects whitespace; this names the flag the
+    # caller passed rather than a JSON pointer, and resolves a cited path
+    # against the skill so an answer cannot close a question with a citation
+    # that leads nowhere.
+    require_evidence(args.evidence, Path(state["skill"]["path"]))
     findings = load_findings(root)
     if args.finding and not any(item["id"] == args.finding for item in findings):
         fail(f"Unknown finding id: {args.finding}")
@@ -1159,6 +1202,22 @@ def command_self_check(_args):
         # And silent on a skill that does none of it, or the leads are noise
         # a reviewer learns to skip past.
         assert safety_findings(plain) == [], safety_findings(plain)
+
+        # A citation that leads nowhere is worse than no citation, because a
+        # reader who does not follow it reads the defect as established. Each
+        # shape is replayed: a missing file, a line past the end, traversal,
+        # an absolute path, and the two legitimate forms.
+        cited = root / "cited"
+        cited.mkdir()
+        (cited / "SKILL.md").write_text("---\nname: cited\ndescription: " + "d" * 40 + "\n---\n\n# C\n")
+        for bad in ("does/not/exist.md:9999", "docs/gone.md", "../outside.md", "/etc/passwd", "SKILL.md:9999"):
+            try:
+                require_evidence(bad, cited)
+            except Failure:
+                continue
+            raise AssertionError(f"evidence {bad!r} was accepted")
+        for good in ("SKILL.md", "SKILL.md:3", "ran `python3 scripts/check.py` and it reported two failures"):
+            require_evidence(good, cited)
 
         # The shell-shaped patterns saw only shell. A dangerous command built
         # in a language and handed to a shell went unreported, which is the
