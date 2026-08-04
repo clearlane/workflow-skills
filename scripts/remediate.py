@@ -64,7 +64,7 @@ WORKING_PHASES = ("verdict", "iterate")
 TERMINAL_PHASES = ("complete", "exhausted", "cancelled")
 PHASES = tuple(PHASE_RESOURCES)
 # Severities carrying a fix obligation, so a run cannot complete while one is
-# open. references/review.md owns why; this is the machine-readable half.
+# open. references/remediation.md owns why; this is the machine-readable half.
 OBLIGED = ("blocking", "major")
 DEFAULT_MAX_ITERATIONS = 5
 

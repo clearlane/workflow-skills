@@ -20,7 +20,7 @@ Each iteration takes the current findings and decides every one of them, in seve
 | `major` | Fix | Only by deferring to a later iteration, with a reason |
 | `minor` | Judge individually | Yes, once judged: fixed, deferred, or dismissed |
 
-Dismissal is available to minor findings alone, because dismissing a finding that carries a fix obligation is how a loop terminates with the defect intact. Judge a minor finding against three questions: does fixing it genuinely improve the skill, is it a reviewer false positive, and does the current behavior serve a purpose the reviewer missed. Dismissing the whole class in one move answers none of them.
+Dismissal is available to minor findings alone, because dismissing a finding that carries a fix obligation is how a loop terminates with the defect intact. Judge each minor finding one at a time, against the three questions [review.md](review.md#disposition) owns; dismissing the whole class in one move answers none of them.
 
 Findings arrive from the review's artifact, not from re-reading the skill. A remediation run that re-derived its own findings would be a second reviewer with no shared contract, and the two would drift.
 

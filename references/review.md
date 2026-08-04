@@ -16,13 +16,15 @@ Record the remedy alongside the evidence when the fix is already known. A findin
 
 ## Severity
 
-| Severity | Meaning | Test | A remediation run owes it |
-|---|---|---|---|
-| `blocking` | Use of the skill can lose data, bypass a gate, or produce a wrong result silently | Would a normal run cause harm the user cannot undo or detect? | Fix before anything else |
-| `major` | The skill works but a contract is violated, so it degrades under load, failure, or reuse | Does it break on interruption, concurrency, an unusual input, or a second run? | Fix |
-| `minor` | Correct but costly: duplication, dead resources, naming drift, avoidable context | Would fixing it be a small targeted change? | Judge individually, then fix or dismiss |
+| Severity | Meaning | Test |
+|---|---|---|
+| `blocking` | Use of the skill can lose data, bypass a gate, or produce a wrong result silently | Would a normal run cause harm the user cannot undo or detect? |
+| `major` | The skill works but a contract is violated, so it degrades under load, failure, or reuse | Does it break on interruption, concurrency, an unusual input, or a second run? |
+| `minor` | Correct but costly: duplication, dead resources, naming drift, avoidable context | Would fixing it be a small targeted change? |
 
 Severity ranks consequence, not confidence. An uncertain suspicion of a blocking defect is recorded as blocking and disposed of explicitly.
+
+A severity states what a defect costs, which is a property of the skill. What a later run owes each severity is a property of that run, and [remediation.md](remediation.md) owns it.
 
 ## Disposition
 
