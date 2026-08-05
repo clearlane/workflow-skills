@@ -28,6 +28,8 @@ Do not create skill when direct instruction, existing project command, or curren
 
 Create only resources that task needs. Delete generated placeholders and empty scaffolding.
 
+Spell each destination exactly as the table does. A directory one letter away, `reference/` for `references/`, is not an alternative convention: every route written against the documented name misses it, and the material sits where nothing looks. [layout.md](layout.md) decides whether an arrangement the table does not route is wrong at all; this rule only covers the near-miss, which has one right answer.
+
 Give every reference the same shape, so a reader routes by position instead of
 by reading each document's ending to learn what that document called things:
 
