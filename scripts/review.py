@@ -82,21 +82,6 @@ PHASE_RESOURCES = {
 # designed must be reviewable against the same contract.
 SURFACES = tuple(name for name, _, _ in CAPABILITY_PHASES)
 SURFACE_RESOURCES = {name: resource for name, _, resource in CAPABILITY_PHASES}
-
-# Detection signals. A surface is claimed only with recorded file evidence, so
-# the phase list argues from the reviewed skill rather than from a checklist.
-SURFACE_KEYWORDS = {
-    "coordinator": ("coordinator", "pipeline(", "phase("),
-    "state": ("state.json", "resume", "checkpoint"),
-    "settings": ("settings", "preference"),
-    "setup": ("pre-flight", "preflight", "prerequisite"),
-    "install": ("install",),
-    "events": ("lifecycle", "event handler", "hook"),
-    "tools": ("mcp", "external service", "external tool"),
-    "workers": ("worker", "delegate", "subagent"),
-    "commands": ("command entrypoint", "slash command", "invocation"),
-    "packaging": ("bundle", "manifest", "marketplace"),
-}
 # Suffixes that make a bare string look like a filename. This is a naming
 # question, so an allowlist is the right shape: it decides whether `--evidence
 # design.md` cites a file or is prose, and over-reading prose as a path would
@@ -343,27 +328,56 @@ def readable_lines(path):
         return None
 
 
+# Directories whose contents describe a concept rather than implement it. A
+# skill that explains what a settings adapter is does not thereby have one, and
+# this is the distinction the keyword scan could not make.
+DOCUMENTATION_DIRS = frozenset({"references", "reference", "docs", "doc", "guides", "knowledge"})
+
+
+def surface_evidence(relative):
+    """The surfaces a single path is evidence for, by what it is rather than what it says.
+
+    A surface is a component the skill exposes, and each one costs a whole
+    review phase of questions about a thing that must exist to be answerable.
+    Detection therefore has to be about the artifact, and a name is the
+    artifact's own claim about what it is: `scripts/settings.py` is a settings
+    adapter, `workflows/setup.md` is a setup workflow.
+
+    Reading a keyword out of any line of any file was the previous rule, and it
+    could not tell a component from a sentence. Across the author's corpus 917
+    of 1021 signals were a word inside prose, and the resulting phases were
+    demanded of skills that had no such component at all: `The Anglo-Saxon
+    Preference` in a writing guide raised a settings surface, `don't bundle
+    unrelated edits` in a contributing guide raised packaging, and `hooks` in
+    social media advice raised events. 433 surface phases were demanded across
+    119 skills while only 31 of them ship an executable of any kind, and each
+    false phase is three questions a reviewer must answer about something that
+    is not there. Under-detection is the recoverable direction: `add-surface`
+    exists precisely because a surface can be noticed late, and it re-baselines
+    the run. There is no corresponding way to withdraw a phase once a reviewer
+    has been sent to answer for it.
+
+    Documentation about a surface is excluded for the same reason. This
+    repository's own `references/packaging.md` is a contract describing
+    packaging, not a bundle the skill ships.
+    """
+    stem = relative.stem.lower()
+    directories = {part.lower() for part in relative.parts[:-1]}
+    if directories & DOCUMENTATION_DIRS:
+        return ()
+    return tuple(
+        name for name in SURFACES if stem == name or stem.startswith((f"{name}-", f"{name}_")) or name in directories
+    )
+
+
 def detect_surfaces(skill_root):
-    """Collect bounded file evidence for each surface the skill may expose."""
+    """Collect bounded file evidence for each surface the skill exposes."""
     evidence = {name: [] for name in SURFACES}
-    for path, relative in own_files(skill_root):
-        lines = readable_lines(path)
-        if lines is None:
-            continue
-        stem = path.stem.lower()
-        for name in SURFACES:
+    for _, relative in own_files(skill_root):
+        for name in surface_evidence(relative):
             hits = evidence[name]
-            if len(hits) >= MAX_EVIDENCE:
-                continue
-            if stem == name:
+            if len(hits) < MAX_EVIDENCE:
                 hits.append({"path": relative.as_posix(), "line": 0, "signal": "filename"})
-                continue
-            for number, line in enumerate(lines, 1):
-                lowered = line.lower()
-                match = next((word for word in SURFACE_KEYWORDS[name] if word in lowered), None)
-                if match:
-                    hits.append({"path": relative.as_posix(), "line": number, "signal": match})
-                    break
     return evidence
 
 
@@ -1983,19 +1997,41 @@ def command_self_check(_args):
         assert state["phases"] == list(ALWAYS_FIRST + ALWAYS_LAST), state["phases"]
         assert state["detail"]["surfaces"] == [], state
 
-        # Evidence in the skill, not a checklist, selects the extra phases.
+        # Evidence in the skill, not a checklist, selects the extra phases, and
+        # the evidence is a component rather than a sentence about one. Each
+        # surface costs a phase of questions that only a real component can
+        # answer, and describing a coordinator in prose leaves nothing to
+        # answer them against.
         rich = root / "rich"
         (rich / "scripts").mkdir(parents=True)
         (rich / "SKILL.md").write_text("# Rich\n\nRun the coordinator and resume from state.json.\n")
         (rich / "scripts" / "settings.py").write_text("# settings adapter\n")
+        (rich / "scripts" / "coordinator.py").write_text("# coordinator\n")
         rich_run = root / "rich-run"
         result = execute("init", "--skill", rich, "--run-dir", rich_run)
         state = read_status(result.stdout)
-        assert {"coordinator", "state"} <= set(state["detail"]["surfaces"]), state
-        assert "settings" in state["detail"]["surfaces"], state
+        assert {"coordinator", "settings"} <= set(state["detail"]["surfaces"]), state
+        # The same sentence naming state.json is not a state surface, because
+        # no file in this skill is one. This is the direction that had to
+        # change: 917 of 1021 signals across the author's corpus were a word
+        # inside prose, and `add-surface` is the recovery for the other
+        # direction while a phase already opened has no way back.
+        assert "state" not in state["detail"]["surfaces"], state
+        # A reference *about* a surface is not the surface. This repository's
+        # own references/packaging.md is a contract describing packaging, and
+        # counting it would give every skill that documents a concept the
+        # phases for owning one.
+        (rich / "references").mkdir()
+        (rich / "references" / "packaging.md").write_text("# Packaging\n\nWhat a bundle is.\n")
+        assert "packaging" not in [name for name, hits in detect_surfaces(rich).items() if hits], detect_surfaces(rich)
+        # The same filename outside a documentation directory is the component.
+        (rich / "scripts" / "packaging.py").write_text("# packaging adapter\n")
+        assert "packaging" in [name for name, hits in detect_surfaces(rich).items() if hits], detect_surfaces(rich)
+        (rich / "scripts" / "packaging.py").unlink()
         assert state["phases"][0] == "activation" and state["phases"][-1] == "verdict"
         inventory = json.loads((rich_run / "inventory.json").read_text())
-        assert inventory["evidence"]["state"], "state surface must carry file evidence"
+        assert inventory["evidence"]["coordinator"], "a detected surface must carry file evidence"
+        assert not inventory["evidence"]["state"], "a surface with no component must carry no evidence"
 
         # An explicit skip removes a detected surface and its phase.
         skipped_run = root / "skipped-run"
