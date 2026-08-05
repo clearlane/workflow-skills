@@ -1026,7 +1026,11 @@ def check_readme_structure(root):
     scope = parsed.section(README_SECTION)
     if scope is None:
         return [f"{README}: missing section {README_SECTION!r}"]
-    listed = set(re.findall(r"^- " + TICK + r"([^" + TICK + r"]+)" + TICK, scope, re.M))
+    # The parser, not a bullet pattern: the previous regex required a hyphen
+    # bullet in column zero, so an asterisk bullet, an indented one, or a
+    # nested entry was not merely missed but silently exempted from the
+    # existence check below.
+    listed = set(parsed.section_list_subjects(README_SECTION))
     for entry in sorted(listed):
         if not (root / entry).exists():
             failures.append(f"{README}: lists {entry}, which does not exist")
@@ -2879,6 +2883,28 @@ def self_check():
         (tree / "references" / "b.md").unlink()
         guidance(tree, README, f"# R\n\n## {README_SECTION}\n\n- {TICK}references/gone.md{TICK} — g\n")
         assert check_readme_structure(tree), "a listed but absent resource was accepted"
+        # The two halves must be provable apart. Listing a path that does not
+        # exist while every shipped file is still listed isolates the
+        # existence half; without this the coverage half fires on the same
+        # fixture and the existence check can be gutted unnoticed.
+        guidance(
+            tree,
+            README,
+            f"# R\n\n## {README_SECTION}\n\n- {TICK}references/a.md{TICK} — a\n- {TICK}references/gone.md{TICK} — g\n",
+        )
+        listed_absent = check_readme_structure(tree)
+        assert listed_absent == [f"{README}: lists references/gone.md, which does not exist"], listed_absent
+        # An entry outside the inventory section is another section's business.
+        # Subjects are filtered by section bounds, and a filter that ignored
+        # them would resolve this path against the repository root and report
+        # a file the inventory never claimed to list.
+        guidance(
+            tree,
+            README,
+            f"# R\n\n## {README_SECTION}\n\n- {TICK}references/a.md{TICK} — a\n"
+            f"\n## Elsewhere\n\n- {TICK}references/absent.md{TICK} — not an inventory entry\n",
+        )
+        assert check_readme_structure(tree) == [], "an entry outside the inventory section was checked"
         guidance(tree, README, "# R\n\n## Elsewhere\n\ntext\n")
         assert check_readme_structure(tree), f"a README with no '{README_SECTION}' section was accepted"
 

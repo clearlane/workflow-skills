@@ -92,6 +92,10 @@ class Document:
     # its container rather than standing on its own.
     paragraphs: list = field(default_factory=list)
     prose: list = field(default_factory=list)
+    # The code span each list item opens with, or None when it opens with
+    # prose. An inventory entry names its subject first, so this is the
+    # subject; anything later in the item is description.
+    list_subjects: list = field(default_factory=list)
 
     @property
     def line_count(self):
@@ -146,6 +150,20 @@ class Document:
         if start is None:
             return []
         return [items for line, items in self.lists if start.line < line <= end]
+
+    def section_list_subjects(self, title, level=2):
+        """The leading code span of each list item under one heading.
+
+        An inventory entry names its subject first and then describes it, and
+        the description may itself name things: the README's schemas entry
+        mentions `common.schema.json` in prose, which is a real file elsewhere
+        but not an entry to check for existence at that path. Taking the span
+        that opens the item keeps the subject and leaves the prose alone.
+        """
+        start, end = self._section_bounds(title, level)
+        if start is None:
+            return []
+        return [leading for line, leading in self.list_subjects if start.line < line <= end and leading is not None]
 
     def sentences(self):
         """Every prose sentence with its line, excluding fences and headings.
@@ -310,6 +328,13 @@ def parse(path, text=None):
                 paragraph = None
             elif items is not None and list_depth == 1:
                 items.append(_inline_text(token))
+                # An entry names its subject in the span it opens with. Later
+                # spans are description: the README's schemas entry mentions
+                # another schema by name in its prose, which is a real file at
+                # a different path and not an entry to resolve.
+                children = token.children or []
+                leading = children[0].content if children and children[0].type == "code_inline" else None
+                parsed.list_subjects.append((line, leading))
             _collect_links(token, parsed, line)
     return parsed
 
@@ -455,6 +480,29 @@ def self_check():
     # The same loss in a list item: a README entry names its path in inline
     # code, so dropping it left the description with nothing to describe.
     assert parsed.section_lists("With the skills CLI")[0] == ["path/to/file.md — a described path"]
+
+    # An inventory entry names its subject in the span it opens with, and the
+    # rest of the item is description. The README check used to recover this
+    # with a bullet regex anchored to a hyphen in column zero, so an asterisk
+    # bullet or an indented one produced no entry at all, which exempted the
+    # path it named from the existence check rather than failing it.
+    subjects = parse(
+        Path("subjects.md"),
+        "## Inventory\n\n"
+        "- `hyphen.md` — described\n"
+        "* `asterisk.md` — described\n\n"
+        "- prose first, then `not-a-subject.md`\n",
+    ).section_list_subjects("Inventory")
+    assert subjects == ["hyphen.md", "asterisk.md"], subjects
+    # An indented bullet opening a section is an entry too. It is checked on
+    # its own because indenting one under a preceding item makes it that
+    # item's child in CommonMark, so the two cases cannot share a fixture.
+    indented = parse(Path("indented.md"), "## Inventory\n\n  - `indented.md` — described\n")
+    assert indented.section_list_subjects("Inventory") == ["indented.md"], indented.lists
+    # A span inside the description is not the entry's subject: the README's
+    # schemas entry names another schema in prose, at a path that does not
+    # resolve where the entry sits.
+    assert "not-a-subject.md" not in subjects, subjects
 
     # A heading means one thing under one parent and another under a different
     # one, so the ancestry travels with it. Two "Same" headings under two
