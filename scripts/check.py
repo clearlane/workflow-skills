@@ -386,7 +386,7 @@ def check_coordinator_registration(root):
     run.
     """
     failures = []
-    kinds = json.loads((root / "schemas" / "status.schema.json").read_text(encoding="utf-8"))
+    kinds = json.loads((root / state.SCHEMA_ROOT / "status.schema.json").read_text(encoding="utf-8"))
     declared = set(kinds["properties"]["kind"]["enum"])
     expected = {name.removesuffix(".py") for name in COORDINATORS}
     for missing in sorted(expected - declared):
@@ -397,7 +397,7 @@ def check_coordinator_registration(root):
     # The keys each coordinator seeds into shared state, read from the source
     # rather than from a list here, so adding a key to a coordinator cannot
     # drift from what the schema admits.
-    state_schema = json.loads((root / "schemas" / "state.schema.json").read_text(encoding="utf-8"))
+    state_schema = json.loads((root / state.SCHEMA_ROOT / "state.schema.json").read_text(encoding="utf-8"))
     allowed = set(state_schema.get("properties", {}))
     for name in COORDINATORS:
         for key in sorted(state_keys_written(root / "scripts" / name) - allowed):
@@ -903,7 +903,7 @@ def check_examples_validate(root):
             # so they carry no stamp and have no schema of their own.
             continue
         schema = str(declared).rsplit("/", 1)[-1]
-        if not (root / "schemas" / schema).is_file():
+        if not (root / state.SCHEMA_ROOT / schema).is_file():
             failures.append(f"{name}: claims unknown schema {schema}")
             continue
         for error in state.schema_errors(schema, value):
@@ -1145,7 +1145,7 @@ def check_schema_lint(root):
     executable = shutil.which("check-jsonschema")
     if executable is None:
         return []
-    schemas = sorted((root / "schemas").glob("*.schema.json"))
+    schemas = sorted((root / state.SCHEMA_ROOT).glob("*.schema.json"))
     if not schemas:
         return ["schemas/: no schema files found"]
     result = subprocess.run(
@@ -1253,7 +1253,7 @@ def _walk_schema(node, path, failures):
 def check_schema_keywords(root):
     """Catch misspelled keywords, which the metaschema accepts as annotations."""
     failures = []
-    for path in sorted((root / "schemas").glob("*.schema.json")):
+    for path in sorted((root / state.SCHEMA_ROOT).glob("*.schema.json")):
         document = json.loads(path.read_text(encoding="utf-8"))
         found = []
         _walk_schema(document, "", found)
@@ -1271,7 +1271,7 @@ def check_vendored_schemas(root):
     """
     failures = []
     for name, expected in VENDORED_SCHEMAS.items():
-        path = root / "schemas" / "vendor" / name
+        path = root / state.SCHEMA_ROOT / "vendor" / name
         if not path.is_file():
             failures.append(f"schemas/vendor/{name}: missing")
             continue
@@ -1314,7 +1314,7 @@ def referenced_schemas(root, named):
     reachable, pending = set(named), list(named)
     while pending:
         name = pending.pop()
-        path = root / "schemas" / name
+        path = root / state.SCHEMA_ROOT / name
         if not path.is_file():
             continue
         for reference in re.findall(r'"\$ref"\s*:\s*"([^"#]+)', path.read_text(encoding="utf-8")):
@@ -1346,7 +1346,7 @@ def check_schema_coverage(root):
     last reference to it is deleted, which the exemption never could.
     """
     failures = []
-    schemas = sorted(path.name for path in (root / "schemas").glob("*.schema.json"))
+    schemas = sorted(path.name for path in (root / state.SCHEMA_ROOT).glob("*.schema.json"))
     if not schemas:
         return ["schemas/: no schema files found"]
     used = set()
@@ -1371,7 +1371,7 @@ def check_schema_coverage(root):
         # reports the artifact valid, and the content is silently dropped: the
         # run proceeds as though the agent never wrote it. Closing the root
         # turns that into an error naming the key.
-        document = json.loads((root / "schemas" / name).read_text(encoding="utf-8"))
+        document = json.loads((root / state.SCHEMA_ROOT / name).read_text(encoding="utf-8"))
         if document.get("type") != "object" or "properties" not in document:
             continue
         if document.get("additionalProperties") is not False:
@@ -2358,15 +2358,15 @@ def self_check():
     # a check that only ever sees a correct tree proves nothing.
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
-        (tree / "schemas").mkdir()
+        (tree / state.SCHEMA_ROOT).mkdir(parents=True)
         (tree / "scripts").mkdir()
         for name in ("status.schema.json", "state.schema.json"):
-            shutil.copy2(ROOT / "schemas" / name, tree / "schemas" / name)
+            shutil.copy2(ROOT / state.SCHEMA_ROOT / name, tree / state.SCHEMA_ROOT / name)
         for name in COORDINATORS:
             shutil.copy2(ROOT / "scripts" / name, tree / "scripts" / name)
         assert check_coordinator_registration(tree) == [], "the real contracts should agree"
 
-        status_path = tree / "schemas" / "status.schema.json"
+        status_path = tree / state.SCHEMA_ROOT / "status.schema.json"
         status = json.loads(status_path.read_text(encoding="utf-8"))
         dropped = status["properties"]["kind"]["enum"].pop()
         status_path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
@@ -2374,10 +2374,12 @@ def self_check():
         status["properties"]["kind"]["enum"].append(dropped)
         status_path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
 
-        state_path = tree / "schemas" / "state.schema.json"
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        state["properties"].pop("phase")
-        state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        state_path = tree / state.SCHEMA_ROOT / "state.schema.json"
+        # Not named `state`: that shadows the imported module this function now
+        # reads SCHEMA_ROOT from, which fails as a use before assignment.
+        state_schema = json.loads(state_path.read_text(encoding="utf-8"))
+        state_schema["properties"].pop("phase")
+        state_path.write_text(json.dumps(state_schema, indent=2) + "\n", encoding="utf-8")
         assert check_coordinator_registration(tree), "an undeclared state key was accepted"
 
     # A dependency that resolves only transitively is invisible until the
@@ -2679,8 +2681,8 @@ def self_check():
 
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
-        (tree / "schemas").mkdir()
-        schema = tree / "schemas" / "a.schema.json"
+        (tree / state.SCHEMA_ROOT).mkdir(parents=True)
+        schema = tree / state.SCHEMA_ROOT / "a.schema.json"
         valid = {"type": "object", "properties": {"a": {"type": "string"}}, "additionalProperties": False}
         schema.write_text(json.dumps(valid), encoding="utf-8")
         assert check_schema_keywords(tree) == [], "a schema using only real keywords was rejected"
@@ -2725,10 +2727,10 @@ def self_check():
 
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
-        (tree / "schemas" / "vendor").mkdir(parents=True)
+        (tree / state.SCHEMA_ROOT / "vendor").mkdir(parents=True)
         name, digest = next(iter(VENDORED_SCHEMAS.items()))
-        vendored = tree / "schemas" / "vendor" / name
-        shutil.copy2(ROOT / "schemas" / "vendor" / name, vendored)
+        vendored = tree / state.SCHEMA_ROOT / "vendor" / name
+        shutil.copy2(ROOT / state.SCHEMA_ROOT / "vendor" / name, vendored)
         assert check_vendored_schemas(tree) == [], "the published schema did not match its recorded digest"
         vendored.write_bytes(vendored.read_bytes() + b"\n")
         assert check_vendored_schemas(tree), f"an edited vendored schema was accepted against {digest[:8]}"
@@ -2828,10 +2830,10 @@ def self_check():
     with tempfile.TemporaryDirectory() as directory:
         tree = Path(directory)
         (tree / "scripts").mkdir()
-        (tree / "schemas").mkdir()
+        (tree / state.SCHEMA_ROOT).mkdir(parents=True)
         guidance(tree, ARTIFACT_REFERENCE, "# A\n\nThe run writes `a.schema.json`.\n")
         closed = {"type": "object", "properties": {"a": {"type": "string"}}, "additionalProperties": False}
-        (tree / "schemas" / "a.schema.json").write_text(json.dumps(closed), encoding="utf-8")
+        (tree / state.SCHEMA_ROOT / "a.schema.json").write_text(json.dumps(closed), encoding="utf-8")
         (tree / "scripts" / "w.py").write_text('SCHEMA = "a.schema.json"\n', encoding="utf-8")
         assert check_schema_coverage(tree) == [], "a documented, used, closed schema was rejected"
         (tree / "scripts" / "w.py").write_text("x = 1\n", encoding="utf-8")
@@ -2848,10 +2850,10 @@ def self_check():
         # sides are proved: reachable passes, and unreachable still fails.
         (tree / "scripts" / "w.py").write_text('SCHEMA = "a.schema.json"\n', encoding="utf-8")
         shared = {"$defs": {"text": {"type": "string"}}}
-        (tree / "schemas" / "shared.schema.json").write_text(json.dumps(shared), encoding="utf-8")
+        (tree / state.SCHEMA_ROOT / "shared.schema.json").write_text(json.dumps(shared), encoding="utf-8")
         guidance(tree, ARTIFACT_REFERENCE, "# A\n\nThe run writes `a.schema.json` using `shared.schema.json`.\n")
         assert check_schema_coverage(tree), "a schema nothing references was accepted"
-        (tree / "schemas" / "a.schema.json").write_text(
+        (tree / state.SCHEMA_ROOT / "a.schema.json").write_text(
             json.dumps({**closed, "properties": {"a": {"$ref": "shared.schema.json#/$defs/text"}}}),
             encoding="utf-8",
         )
@@ -2860,7 +2862,7 @@ def self_check():
         guidance(tree, ARTIFACT_REFERENCE, "# A\n\nNothing.\n")
         assert check_schema_coverage(tree), "an undocumented schema was accepted"
         guidance(tree, ARTIFACT_REFERENCE, "# A\n\nThe run writes `a.schema.json`.\n")
-        (tree / "schemas" / "a.schema.json").write_text(
+        (tree / state.SCHEMA_ROOT / "a.schema.json").write_text(
             json.dumps({key: value for key, value in closed.items() if key != "additionalProperties"}),
             encoding="utf-8",
         )
@@ -2906,13 +2908,13 @@ def self_check():
     if shutil.which("check-jsonschema"):
         with tempfile.TemporaryDirectory() as directory:
             tree = Path(directory)
-            (tree / "schemas").mkdir()
+            (tree / state.SCHEMA_ROOT).mkdir(parents=True)
             assert check_schema_lint(tree), "a schemas directory with no schemas was accepted"
             # Valid JSON, invalid schema: `type` takes a string or a list of
             # them, so this is exactly the fault jsonschema would not report
             # when validating an instance, which is why the metaschema pass
             # exists.
-            (tree / "schemas" / "broken.schema.json").write_text('{"type": 7}', encoding="utf-8")
+            (tree / state.SCHEMA_ROOT / "broken.schema.json").write_text('{"type": 7}', encoding="utf-8")
             assert check_schema_lint(tree), "check-jsonschema accepted an invalid schema"
 
     assert os.environ.get("CHECK_EXTERNAL_LINKS") == "1" or check_external_links(ROOT) == []

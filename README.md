@@ -149,8 +149,8 @@ Core instructions load first; everything else is loaded on demand, which is the 
 
 **Supporting files**
 
-- `schemas/` — one JSON Schema per run-artifact kind, with shared definitions in `common.schema.json`
-- `schemas/vendor/` — third-party schemas vendored so validation stays offline, pinned by digest
+- `references/schemas/` — one JSON Schema per run-artifact kind, with shared definitions in `common.schema.json`
+- `references/schemas/vendor/` — third-party schemas vendored so validation stays offline, pinned by digest
 - `examples/skill-settings/` — small runtime-neutral settings fixtures
 - `examples/absorb-run/` — one schema-valid example of every agent-authored absorption artifact
 - `examples/restructure-run/` — a schema-valid operation manifest for a restructure run

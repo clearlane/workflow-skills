@@ -82,7 +82,7 @@ Avoid folders named after each absorbed source unless source identity affects ru
 
 ## Run Artifacts
 
-[artifacts.md](artifacts.md) owns the run directory, the schema and version stamp, and the coordinator/agent ownership split. The field-level shape of every artifact below lives in `schemas/`, which the coordinator validates against directly; this section owns only the rules a schema cannot express.
+[artifacts.md](artifacts.md) owns the run directory, the schema and version stamp, and the coordinator/agent ownership split. The field-level shape of every artifact below lives in `references/schemas/`, which the coordinator validates against directly; this section owns only the rules a schema cannot express.
 
 | Artifact | Schema | Written by |
 |---|---|---|

@@ -53,7 +53,14 @@ from cli import (
 )
 
 EXCLUDED_DIRECTORIES = {".git", ".hg", ".svn", "__pycache__", "node_modules"}
-SCHEMA_DIRECTORY = Path(__file__).resolve().parent.parent / "schemas"
+# references/structure.md routes schemas to references/. The published $id
+# below keeps its historical URL: it is the identity artifacts already carry in
+# the wild, and moving a file on disk must not silently rename what a written
+# artifact claims to be.
+# The path is relative to the repository root so a caller can join it against
+# a fixture tree as well as against the real one; check.py builds both.
+SCHEMA_ROOT = Path("references") / "schemas"
+SCHEMA_DIRECTORY = Path(__file__).resolve().parent.parent / SCHEMA_ROOT
 SCHEMA_BASE = "https://clearlane.github.io/workflow-skills/schemas/"
 # Bumped when an artifact's meaning changes in a way that makes an in-flight run
 # unresumable rather than merely older. Version 2 changed the digest algorithm

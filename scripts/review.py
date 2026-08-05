@@ -769,11 +769,30 @@ def naming_findings(skill_root):
     return findings
 
 
-# The destinations references/structure.md routes material to. Only these four,
-# because they are the ones the table names: `workflows/` and `agents/` are
-# real but owned by other contracts, and a skill is free to hold material the
-# table does not route.
-ROUTED_DIRS = ("scripts", "references", "examples", "assets")
+# The destinations references/structure.md routes material to. `workflows/` is
+# here because this repository and twelve other skills ship one, and a table
+# that omits the directory its own owner uses cannot be the single structure it
+# claims to be. Component directories such as `agents/` stay out: packaging.md
+# reserves those for the host to scan, so they are a different contract's.
+ROUTED_DIRS = ("scripts", "references", "examples", "assets", "workflows")
+
+# Nouns the routing table's own Material column uses, mapped to the destination
+# that column assigns them. A directory named for the material it holds has
+# already answered the routing question; it just wrote the answer as a
+# directory name instead of following the route. Every entry here is a word
+# structure.md itself uses, so the rule stays the table's opinion rather than
+# mine: `docs/` is deliberately absent because the table never says "docs".
+ROUTED_MATERIAL = {
+    "knowledge": "references",
+    "schema": "references",
+    "schemas": "references",
+    "template": "assets",
+    "templates": "assets",
+    "boilerplate": "assets",
+    "media": "assets",
+    "sample": "examples",
+    "samples": "examples",
+}
 
 
 def misrouted_directory(name):
@@ -781,54 +800,64 @@ def misrouted_directory(name):
 
     references/layout.md is explicit that layout follows evidence rather than a
     universal folder template, so a check cannot ask whether a tree is ideal.
-    It can ask a narrower question with one right answer: a directory named
-    `reference/` is not an alternative convention, it is `references/` with a
-    letter missing, and every route written against the documented name misses
-    it. Restricting the rule to that shape is what keeps it from becoming the
-    style opinion layout.md refuses to hold.
+    It can ask two narrower questions that have one right answer each, both
+    decided by the routing table rather than by taste.
+
+    A directory named `reference/` is not an alternative convention, it is
+    `references/` with a letter missing, and every route written against the
+    documented name misses it. A directory named `schemas/` is the second
+    shape: the table routes decision tables and schemas to `references/`, so
+    the name states material the table has already placed. Both leave the
+    files where nothing looks; neither requires deciding what an ideal tree is.
     """
     lowered = name.lower()
     for destination in ROUTED_DIRS:
         if lowered in (destination.rstrip("s"), destination + "s"):
             return destination
-    return None
+    return ROUTED_MATERIAL.get(lowered)
 
 
 def layout_findings(skill_root):
-    """Name a directory that misses a routed destination by a letter.
+    """Name a top-level directory the routing table already has a home for.
 
     A misrouted directory is worse than an unconventional one. The skill's own
     guidance, its README, and any host convention all say `references/`, so
     every reader and every route written from memory looks in a directory that
     does not exist, while the files sit one letter away being found by nothing.
+
+    Only the skill root is examined. The table routes material into a skill,
+    not within one: `references/templates/` is a reference directory organising
+    itself, and reporting it would turn a routing rule into an opinion about
+    how deep a tree may nest, which layout.md refuses to hold.
     """
     findings = []
     seen = set()
     for _, relative in own_files(skill_root):
-        for depth in range(1, len(relative.parts)):
-            directory = "/".join(relative.parts[:depth])
-            if directory in seen:
-                continue
-            seen.add(directory)
-            destination = misrouted_directory(relative.parts[depth - 1])
-            if destination is None:
-                continue
-            findings.append(
-                {
-                    "phase": "structure",
-                    "severity": "minor",
-                    "summary": (
-                        f"{directory} is one letter from the routed destination {destination!r}; "
-                        "material routed there will not be found"
-                    ),
-                    "evidence": directory,
-                    "remedy": f"rename {directory} to {destination}",
-                    "disposition": None,
-                    "disposition_note": None,
-                    "source": "structure:layout",
-                    "recorded_at": now(),
-                }
-            )
+        if len(relative.parts) < 2:
+            continue
+        directory = relative.parts[0]
+        if directory in seen:
+            continue
+        seen.add(directory)
+        destination = misrouted_directory(directory)
+        if destination is None:
+            continue
+        findings.append(
+            {
+                "phase": "structure",
+                "severity": "minor",
+                "summary": (
+                    f"{directory}/ holds material references/structure.md routes to "
+                    f"{destination}/; material routed there will not be found"
+                ),
+                "evidence": directory,
+                "remedy": f"move {directory}/ into {destination}/",
+                "disposition": None,
+                "disposition_note": None,
+                "source": "structure:layout",
+                "recorded_at": now(),
+            }
+        )
     return findings
 
 
@@ -1797,12 +1826,42 @@ def command_self_check(_args):
         (stranded / "reference" / "note.md").write_text("# Note\n")
         misrouted = layout_findings(stranded)
         assert [item["evidence"] for item in misrouted] == ["reference"], misrouted
-        assert misrouted[0]["remedy"] == "rename reference to references", misrouted
+        assert misrouted[0]["remedy"] == "move reference/ into references/", misrouted
         # Reported once however many files sit under it, since the finding is
         # about the directory: humanise-text holds three and a per-file report
         # would ask for the same rename three times.
         (stranded / "reference" / "second.md").write_text("# Second\n")
         assert len(layout_findings(stranded)) == 1, layout_findings(stranded)
+        (stranded / "reference" / "note.md").unlink()
+        (stranded / "reference" / "second.md").unlink()
+        (stranded / "reference").rmdir()
+
+        # The second shape the table decides on its own: a directory named for
+        # material the table already routes. `schemas/` is not an unconventional
+        # arrangement, it is the Material column written as a directory name and
+        # then not followed, which is why this repository's own tree tripped it.
+        (stranded / "schemas").mkdir()
+        (stranded / "schemas" / "run.json").write_text("{}\n")
+        material = layout_findings(stranded)
+        assert [item["evidence"] for item in material] == ["schemas"], material
+        assert material[0]["remedy"] == "move schemas/ into references/", material
+        # Routing governs the skill root only. The same name inside a
+        # destination is that destination organising itself, and reporting it
+        # would make this a rule about nesting depth rather than routing.
+        (stranded / "schemas").rename(stranded / "references" / "schemas")
+        assert layout_findings(stranded) == [], layout_findings(stranded)
+        (stranded / "references" / "schemas" / "run.json").unlink()
+        (stranded / "references" / "schemas").rmdir()
+        # `workflow/` must resolve, which is the case the table used to be
+        # unable to decide: this repository ships `workflows/` and so do twelve
+        # other skills, yet the table named four destinations and not that one,
+        # so the near-miss went unreported for the one directory the skill that
+        # owns the table uses itself.
+        assert misrouted_directory("workflow") == "workflows", misrouted_directory("workflow")
+        # Every routed material noun must name a real destination, or the
+        # remedy sends the reviewer to a directory the table does not have.
+        for destination in ROUTED_MATERIAL.values():
+            assert destination in ROUTED_DIRS, destination
         # Every routed name must pass. No entry currently needs a guard for
         # this -- no destination is a variant of another -- and a guard was
         # tried and removed when a mutant showed deleting it changed nothing.
@@ -1811,15 +1870,16 @@ def command_self_check(_args):
         # correctly named directory as misrouted.
         for destination in ROUTED_DIRS:
             assert misrouted_directory(destination) is None, destination
-        # The routed name itself is right, and a directory the table does not
-        # route at all is the skill's business: layout.md refuses to hold a
-        # universal folder template, so anything wider than a near-miss would
-        # be the style opinion it declines to have.
-        (stranded / "reference").rename(stranded / "unrelated")
+        # A directory the table does not route at all is the skill's business:
+        # layout.md refuses to hold a universal folder template, so anything
+        # wider than these two shapes would be the style opinion it declines to
+        # have. `docs/` is the case that matters, being both common and never a
+        # word the table uses.
+        (stranded / "docs").mkdir()
+        (stranded / "docs" / "note.md").write_text("# Note\n")
         assert layout_findings(stranded) == [], layout_findings(stranded)
-        (stranded / "unrelated" / "note.md").unlink()
-        (stranded / "unrelated" / "second.md").unlink()
-        (stranded / "unrelated").rmdir()
+        (stranded / "docs" / "note.md").unlink()
+        (stranded / "docs").rmdir()
 
         # A skill is distributed by copying its directory, so a link out of the
         # tree arrives dangling. This used to be enforced by refusing to build a

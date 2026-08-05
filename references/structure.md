@@ -23,12 +23,19 @@ Do not create skill when direct instruction, existing project command, or curren
 | Activation, invariants, coordinator entry, safety boundaries | Core instruction file |
 | Repeated deterministic logic | `scripts/` or repository-native executable location |
 | Detailed domain knowledge, schemas, decision tables | `references/` |
+| Phase-by-phase process for one run, deferring contracts to references | `workflows/` |
 | Runnable or copyable samples | `examples/` when host or repository uses them |
 | Templates, media, boilerplate, output-only files | `assets/` |
 
 Create only resources that task needs. Delete generated placeholders and empty scaffolding.
 
-Spell each destination exactly as the table does. A directory one letter away, `reference/` for `references/`, is not an alternative convention: every route written against the documented name misses it, and the material sits where nothing looks. [layout.md](layout.md) decides whether an arrangement the table does not route is wrong at all; this rule only covers the near-miss, which has one right answer.
+Spell each destination exactly as the table does. A directory one letter away, `reference/` for `references/`, is not an alternative convention: every route written against the documented name misses it, and the material sits where nothing looks.
+
+Route by the material, not by a name for it. A directory called `schemas/` or `templates/` states the contents of a row this table has already routed, so it answers the routing question and then ignores the answer: schemas belong in `references/`, templates in `assets/`. The destination is fixed; the material's own name becomes the filename or a directory beneath it.
+
+This routing governs the skill root. Inside a destination, arrangement is the owner's: `references/templates/` is a reference directory organising itself, and how deep a tree nests is not a routing question. Component directories a host scans, such as those [packaging.md](packaging.md) reserves, are that contract's to place and are not routed here.
+
+[layout.md](layout.md) decides whether an arrangement this table does not route is wrong at all. These rules cover only the cases the table itself already answers.
 
 Give every reference the same shape, so a reader routes by position instead of
 by reading each document's ending to learn what that document called things:

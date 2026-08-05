@@ -48,7 +48,7 @@ A review with no open blocking or major finding is refused rather than reported 
 
 ## Iterate
 
-Each iteration triages every open obligation, applies the fixes, and then runs a fresh review whose counts it does not author. Record what happened in `iterations/<n>.json` against [remediation.schema.json](../schemas/remediation.schema.json), then:
+Each iteration triages every open obligation, applies the fixes, and then runs a fresh review whose counts it does not author. Record what happened in `iterations/<n>.json` against [remediation.schema.json](../references/schemas/remediation.schema.json), then:
 
 ```bash
 python3 scripts/remediate.py record-iteration \

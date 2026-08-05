@@ -31,6 +31,7 @@ from cli import (
     fail,
 )
 from state import (
+    SCHEMA_ROOT,
     TERMINAL_PHASES,
     VERSION,
     canonical_sha256,
@@ -233,8 +234,8 @@ def validate_plan(root, inventory):
 # new coordinator without being edited, and demanding an edit anyway would
 # reject a correct plan.
 COORDINATOR_CONTRACTS = (
-    "schemas/status.schema.json",
-    "schemas/state.schema.json",
+    f"{SCHEMA_ROOT.as_posix()}/status.schema.json",
+    f"{SCHEMA_ROOT.as_posix()}/state.schema.json",
 )
 
 
@@ -1375,9 +1376,9 @@ def command_self_check(_args):
         write_apply(run, plan_hash, ["SKILL.md"])
         advance(run)
         execute("revise-plan", "--run-dir", run)
-        state = read_json(run / "state.json")
-        assert state["phase"] == "plan"
-        assert state["execution_plan_sha256"] is None
+        run_state = read_json(run / "state.json")
+        assert run_state["phase"] == "plan"
+        assert run_state["execution_plan_sha256"] is None
         assert (target / "SKILL.md").read_text() == baseline
         assert not (run / "rollback").exists()
         assert any(path.name.endswith("-plan.json") for path in (run / "revisions").iterdir())
@@ -1390,19 +1391,19 @@ def command_self_check(_args):
         # open contract and incomplete against a closed one.
         with tempfile.TemporaryDirectory() as directory:
             tree = Path(directory)
-            (tree / "schemas").mkdir()
+            (tree / SCHEMA_ROOT).mkdir(parents=True)
             assert closed_contracts(tree) == [], "a tree with no schemas obliges nothing"
 
             open_state = {"properties": {"phase": {"type": "string"}}}
-            write_json(tree / "schemas" / "state.schema.json", open_state)
+            write_json(tree / SCHEMA_ROOT / "state.schema.json", open_state)
             assert closed_contracts(tree) == [], "an open schema was treated as an obligation"
 
             open_state["additionalProperties"] = False
-            write_json(tree / "schemas" / "state.schema.json", open_state)
-            assert closed_contracts(tree) == ["schemas/state.schema.json"]
+            write_json(tree / SCHEMA_ROOT / "state.schema.json", open_state)
+            assert closed_contracts(tree) == [COORDINATOR_CONTRACTS[1]]
 
             write_json(
-                tree / "schemas" / "status.schema.json",
+                tree / SCHEMA_ROOT / "status.schema.json",
                 {"properties": {"kind": {"enum": ["design"]}}},
             )
             assert len(closed_contracts(tree)) == 2, closed_contracts(tree)

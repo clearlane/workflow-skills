@@ -84,7 +84,7 @@ Each rule earns its place by naming the corruption it catches. A check that cann
 
 ## Schemas
 
-Each artifact kind has one schema in `schemas/`, and shared vocabulary lives in `common.schema.json` so a field cannot mean one thing in a plan and another in an analysis:
+Each artifact kind has one schema in `references/schemas/`, and shared vocabulary lives in `common.schema.json` so a field cannot mean one thing in a plan and another in an analysis:
 
 | Schema | Artifact | Written by |
 |---|---|---|
@@ -205,6 +205,6 @@ Snapshot exactly the tracked regular files. Copying the whole tree also copies s
 
 ## Checks
 
-- `scripts/check.py` validates every schema in `schemas/` against its metaschema, and every artifact a coordinator writes against its schema, so a shape violation fails before a reader depends on it.
+- `scripts/check.py` validates every schema in `references/schemas/` against its metaschema, and every artifact a coordinator writes against its schema, so a shape violation fails before a reader depends on it.
 - Each coordinator's `self-check` exercises its own artifacts end to end, which is what proves the writer and the schema agree rather than merely both existing.
 - That an artifact is *sufficient* evidence for its phase is a judgement no schema makes. Test it by asking whether a reader who was not present could reach the same conclusion from the artifact alone.
