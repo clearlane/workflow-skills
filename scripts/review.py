@@ -241,6 +241,7 @@ ANSWER_ANCHORS = {
     "structure:neutrality": ("structure", "name capabilities rather than a host"),
     "structure:portability": ("structure", "contain every file it reads"),
     "structure:layout": ("structure", "every resource reachable"),
+    "structure:filing": ("structure", "directory its own shape claims"),
     "safety-scan": ("safety", "no raw shell interpolation"),
 }
 
@@ -861,6 +862,102 @@ def layout_findings(skill_root):
     return findings
 
 
+# A run's phase is a stage with a gate: it declares what must hold to enter and
+# what it leaves behind. That is what separates a procedure from a topic broken
+# into stages, which is why both halves are required. A community-growth guide
+# headed "Phase 1: Before You Open" is describing a situation, not instructing
+# a reader to enter one, and it carries no entry or exit line anywhere.
+#
+# Both kinds must appear, not two of either. A document carrying only exits is
+# stating what another pipeline's phases must leave behind: a Voxel recipe
+# headed "Phase 2 deltas" describes how one CPT variant differs from the
+# workflow that owns those phases, and reporting it would tell an author to
+# move a document whose whole subject is another document's procedure.
+PHASE_HEADING = re.compile(r"^(phase|step|stage)\s*\d+\b", re.IGNORECASE)
+# Matched anywhere on a line, because a phase may carry its gate in the heading
+# rather than under it: shadcnblocks writes "Step 2 — Purge (entry: ...)".
+PHASE_ENTRY = re.compile(r"\b(entry|entry criteri(?:on|a)|precondition)\b", re.IGNORECASE)
+PHASE_EXIT = re.compile(r"\b(exit|exit criteri(?:on|a)|postcondition)\b", re.IGNORECASE)
+NUMBERED_STEP = re.compile(r"^\s*\d+[).]\s+\S")
+
+
+def document_shape(path):
+    """What a document's own contents claim it is: 'workflow', 'reference', or None.
+
+    None is the common answer and the important one. Most documents state
+    contracts with some ordering in them, and the shapes below are only the
+    two unambiguous ends: a gated pipeline, and a document with no ordering of
+    any kind. Everything between is the author's call, which references/
+    layout.md is explicit that a check does not get to make.
+    """
+    try:
+        parsed = document.parse(path)
+    except (OSError, ValueError):
+        return None
+    phases = [heading for heading in parsed.headings if PHASE_HEADING.match(heading.text.strip())]
+    entries = PHASE_ENTRY.findall(parsed.text)
+    exits = PHASE_EXIT.findall(parsed.text)
+    if len(phases) >= 2 and entries and exits:
+        return "workflow"
+    # The empty end of the scale asks whether the document instructs at all.
+    # Gate words are matched loosely above so a heading can carry one, which is
+    # too loose to prove absence: an index of other workflows lists an "Exit
+    # artifact" column per row and would read as instructing. Absence is judged
+    # on ordering the reader is meant to follow -- phases, numbered steps, or a
+    # command to run -- which is what a workflow must have and this has none of.
+    numbered = [line for line in parsed.text.splitlines() if NUMBERED_STEP.match(line)]
+    if not phases and not numbered and not parsed.fences:
+        return "reference"
+    return None
+
+
+def filing_findings(skill_root):
+    """Report a document whose shape contradicts the directory holding it.
+
+    references/structure.md states this in both directions, and only one was
+    enforced: a workflow naming no coordinator was caught, while a fully gated
+    pipeline sitting in references/ passed everything. The direction that went
+    unchecked is the one that costs a reader more, because a workflow filed as
+    a reference is not found by anyone browsing for the procedure, and its
+    phases are read as background by anyone who opens it.
+
+    Both tests are deliberately narrow. Measured over the author's corpus of
+    883 such documents, the gated-pipeline shape appears in 40 workflows and 6
+    references, and every one of those 6 is a pipeline: four are named
+    `phases-*.md` and routed as the procedure for a task, and one declares
+    itself a partition-dispatch-validate-write sequence. The empty shape
+    appears once, and it is an ownership index of other workflows.
+    """
+    findings = []
+    for directory, expected in (("workflows", "workflow"), ("references", "reference")):
+        for _, relative in own_files(skill_root):
+            if relative.suffix != ".md" or relative.parts[0] != directory:
+                continue
+            shape = document_shape(skill_root / relative)
+            if shape is None or shape == expected:
+                continue
+            other = "references" if directory == "workflows" else "workflows"
+            reason = (
+                "states contracts with no ordered procedure"
+                if shape == "reference"
+                else "runs gated phases a reader is meant to enter in order"
+            )
+            findings.append(
+                {
+                    "phase": "structure",
+                    "severity": "minor",
+                    "summary": (f"{relative.as_posix()} {reason}, which is the shape of a document in {other}/"),
+                    "evidence": relative.as_posix(),
+                    "remedy": f"move {relative.as_posix()} into {other}/, or give it the shape {directory}/ implies",
+                    "disposition": None,
+                    "disposition_note": None,
+                    "source": "structure:filing",
+                    "recorded_at": now(),
+                }
+            )
+    return findings
+
+
 def portability_findings(skill_root):
     """Report a symlink whose target the skill does not contain.
 
@@ -1225,6 +1322,7 @@ def mechanical_findings(skill_root):
         + neutrality_findings(skill_root)
         + portability_findings(skill_root)
         + layout_findings(skill_root)
+        + filing_findings(skill_root)
     )
 
 
@@ -1830,6 +1928,76 @@ def command_self_check(_args):
         assert anchored_question("structure:neutrality") is not None, "the neutrality anchor resolves to nothing"
         assert anchored_question("structure:portability") is not None, "the portability anchor resolves to nothing"
         assert anchored_question("structure:layout") is not None, "the layout anchor resolves to nothing"
+        assert anchored_question("structure:filing") is not None, "the filing anchor resolves to nothing"
+
+        # references/structure.md states the filing rule in both directions and
+        # only one was enforced: a workflow naming no coordinator was caught,
+        # while a fully gated pipeline sitting in references/ passed every
+        # check. That is the direction that costs a reader more, since nobody
+        # browsing for the procedure looks there.
+        (stranded / "workflows").mkdir()
+        gated = (
+            "# Pipeline\n\n## Phase 1: Collect\n\n**Entry:** inputs are known.\n\n"
+            "**Exit:** inputs are recorded.\n\n## Phase 2: Apply\n\n"
+            "**Entry:** phase 1 recorded its inputs.\n\n**Exit:** the change landed.\n"
+        )
+        (stranded / "references" / "pipeline.md").write_text(gated)
+        misfiled = [item["evidence"] for item in filing_findings(stranded)]
+        assert misfiled == ["references/pipeline.md"], misfiled
+        # Computing the finding and leaving it out of the shared set is the same
+        # as not computing it: a run seeded from a list this is missing from
+        # closes clean, and design.py closes against that same list.
+        filing_run = root / "filing-run"
+        execute("init", "--skill", stranded, "--run-dir", filing_run)
+        seeded_filing = json.loads((filing_run / "findings.json").read_text())["findings"]
+        assert "structure:filing" in [item["source"] for item in seeded_filing], seeded_filing
+        # The same document under workflows/ is exactly where it belongs.
+        (stranded / "references" / "pipeline.md").rename(stranded / "workflows" / "pipeline.md")
+        assert filing_findings(stranded) == [], filing_findings(stranded)
+
+        # One gated phase is a section, not a pipeline. A contract document
+        # routinely states what must hold before and after the single operation
+        # it owns, and calling that a workflow would empty references/ of every
+        # document that bothers to state its own preconditions.
+        (stranded / "references" / "single.md").write_text(
+            "# Single\n\n## Phase 1: Apply\n\n**Entry:** the target exists.\n\n**Exit:** the change landed.\n"
+        )
+        assert filing_findings(stranded) == [], filing_findings(stranded)
+        (stranded / "references" / "single.md").unlink()
+
+        # The reverse: a workflow with no ordering a reader can follow. Judged
+        # on phases, numbered steps, and commands rather than on gate words,
+        # because an index of other workflows names an "Exit artifact" per row
+        # and would otherwise read as instructing.
+        (stranded / "workflows" / "index.md").write_text(
+            "# Index\n\n| Workflow | Exit artifact |\n|---|---|\n| pipeline.md | a landed change |\n"
+        )
+        assert [item["evidence"] for item in filing_findings(stranded)] == ["workflows/index.md"]
+        # Numbered steps and a command to run are each ordering on their own,
+        # so a workflow carrying either is instructing even with no phase
+        # heading anywhere. Asserted separately: a single fixture holding both
+        # passes whichever half is left standing.
+        (stranded / "workflows" / "index.md").write_text("# Steps\n\n1. Locate the target.\n2. Apply the change.\n")
+        assert filing_findings(stranded) == [], filing_findings(stranded)
+        (stranded / "workflows" / "index.md").write_text("# Run\n\nStart the coordinator:\n\n```\nrun --resume\n```\n")
+        assert filing_findings(stranded) == [], filing_findings(stranded)
+        (stranded / "workflows" / "index.md").unlink()
+
+        # Phases alone are not a pipeline. A topic broken into stages carries
+        # no gate, and a document stating what another pipeline's phases must
+        # leave behind carries only exits: reporting either would tell an
+        # author to move a document whose subject is someone else's procedure.
+        staged = stranded / "references" / "growth.md"
+        staged.write_text("# Growth\n\n## Phase 1: Before You Open\n\nprose.\n\n## Phase 2: Acquisition\n\nprose.\n")
+        assert filing_findings(stranded) == [], filing_findings(stranded)
+        staged.write_text(
+            "# Deltas\n\n## Phase 2 deltas\n\n**Exit:** the blueprint differs.\n\n"
+            "## Phase 3 deltas\n\n**Exit:** nothing changes.\n"
+        )
+        assert filing_findings(stranded) == [], filing_findings(stranded)
+        staged.unlink()
+        (stranded / "workflows" / "pipeline.md").unlink()
+        (stranded / "workflows").rmdir()
 
         # A directory one letter from a routed destination is not an
         # alternative convention, it is the destination misspelled: guidance,

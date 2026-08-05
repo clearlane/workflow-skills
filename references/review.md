@@ -60,6 +60,7 @@ Against [structure.md](structure.md) and [naming.md](naming.md):
 - Does core guidance name capabilities rather than a host's own paths, leaving those to an adapter?
 - Does core instruction size stay within budget, with detail deferred to references?
 - Does the skill contain every file it reads, so copying the directory copies the skill?
+- Does each document sit in the directory its own shape claims, with gated phases in `workflows/` and contracts in `references/`?
 
 A finding here names material in the wrong place; it does not move it. When the fix is a set of file moves rather than an edit, [layout.md](layout.md) decides whether the arrangement is genuinely wrong and [restructure.md](../workflows/restructure.md) is the run that carries it out under approval.
 
