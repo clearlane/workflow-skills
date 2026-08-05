@@ -1199,7 +1199,25 @@ def command_init(args):
     # Non-empty when the format's own bounds are already broken: those have
     # exact answers, so spending a reviewer's judgement to rediscover them
     # wastes the expensive resource on the cheap question.
-    seeded = (
+    seeded = mechanical_findings(skill_root)
+    for index, finding in enumerate(seeded, start=1):
+        finding["id"] = f"F{index}"
+    save_findings(root, seeded)
+    save_state(root, state, "initialized")
+    print_status(root, state)
+
+
+def mechanical_findings(skill_root):
+    """Every finding a machine can establish without a reviewer's judgement.
+
+    This is the one place that answers "what is mechanically wrong with this
+    skill". A design run closing against a different list would be a second
+    reviewer with no shared contract, which is exactly what closure.md says a
+    design run must not become: it directs a run to work review's questions
+    because a boundary that would fail an audit has already failed, whether or
+    not an auditor has looked yet.
+    """
+    return (
         conformance_findings(skill_root)
         + safety_findings(skill_root)
         + unreachable_findings(skill_root)
@@ -1208,11 +1226,6 @@ def command_init(args):
         + portability_findings(skill_root)
         + layout_findings(skill_root)
     )
-    for index, finding in enumerate(seeded, start=1):
-        finding["id"] = f"F{index}"
-    save_findings(root, seeded)
-    save_state(root, state, "initialized")
-    print_status(root, state)
 
 
 def command_status(args):

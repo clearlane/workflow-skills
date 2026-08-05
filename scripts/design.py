@@ -149,6 +149,36 @@ def command_complete_phase(args):
         if errors:
             detail = "\n".join(f"  {f.message}\n    fix: {f.remedy}" for f in errors)
             fail(f"Cannot close the design run: the skill does not conform to the format:\n{detail}")
+        # references/closure.md directs a closing run to work review's own
+        # questions, on the grounds that a boundary failing an audit has
+        # already failed whether or not an auditor has looked. That was true
+        # of the judgement questions and false of everything a machine can
+        # decide: a design run closed cleanly on a skill whose review reported
+        # a misrouted directory, so the two workflows disagreed about the same
+        # tree. Seeding from review's list rather than a second one is what
+        # makes closure the same logic instead of a weaker copy of it.
+        #
+        # Imported here rather than at module scope because review imports the
+        # capability table from this module; the dependency runs design -> ...
+        # -> review only at the moment a run closes.
+        from review import mechanical_findings
+
+        # Every severity, not just the blocking ones. These findings are the
+        # machine-decidable half of a review: each has one exact answer and
+        # cost a reviewer nothing to produce. A run that built the skill is
+        # the cheapest place to fix them, and the misrouted directory that
+        # exposed this gap is filed `minor`, so a severity filter would have
+        # let through the very case that proved the two logics disagreed.
+        blocking = mechanical_findings(Path(state["skill"]["path"]))
+        if blocking:
+            detail = "\n".join(
+                f"  [{item['source']}] {item['evidence']}: {item['summary']}\n    fix: {item['remedy']}"
+                for item in blocking
+            )
+            fail(
+                "Cannot close the design run: a review of this skill would report "
+                f"findings the run has not resolved:\n{detail}"
+            )
     decision = {
         "phase": expected,
         "resource": phase_resource(expected),
@@ -312,6 +342,20 @@ def command_self_check(_args):
         # A warning alone is the author's call and must not block closure: this
         # skill's directory is named for the run, not for the skill.
         core.write_text("---\nname: finish-skill\ndescription: d\n---\n", encoding="utf-8")
+        # closure.md says a design run answers review's own questions, because
+        # a boundary that would fail an audit has already failed. Only the
+        # judgement half honoured that: this run closed clean on a tree whose
+        # review reported a misrouted directory, so the two workflows
+        # disagreed about the same skill. The finding is filed `minor`, which
+        # is why closure cannot filter by severity.
+        (built / "reference").mkdir()
+        (built / "reference" / "note.md").write_text("# Note\n", encoding="utf-8")
+        result = close()
+        assert result.returncode != 0, "a design run closed on a skill its own review rejects"
+        assert "a review of this skill would report" in result.stderr, result.stderr
+        assert "fix: move reference/ into references/" in result.stderr, result.stderr
+        (built / "reference" / "note.md").unlink()
+        (built / "reference").rmdir()
         close(check=True)
         status = json.loads(execute("status", "--run-dir", run).stdout)
         assert status["phase"] is None and status["remaining"] == []

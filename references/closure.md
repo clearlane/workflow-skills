@@ -6,6 +6,8 @@ Close a design run by testing owner boundaries against the run's own artifacts. 
 
 Work the always-run phase questions in [review.md](review.md), plus the surface questions for each capability the contract selected. They are the same boundaries either way: a boundary that would fail an audit has already failed, whether or not an auditor has looked yet.
 
+That applies to the machine-decidable findings too, and the coordinator enforces it rather than asking. Closing the final phase seeds the same finding list a review of the skill would produce, and refuses to close while any remains. Severity does not soften it: these findings have exact answers and cost a reviewer nothing to produce, so the run that built the skill is the cheapest place to resolve them. A design run that closed clean while a review of the same tree reported a misrouted directory is the failure this prevents.
+
 Answer every one from the run's own artifacts. A question that cannot be answered that way is itself a finding, because the run lacks the evidence it claimed to produce. This is the difference that makes closure a distinct phase rather than a review: a reviewer reads a finished skill and may inspect anything, while closure may read only what the run recorded, so an unanswerable question convicts the run rather than the skill.
 
 ## Questions Only a Design Run Can Ask
