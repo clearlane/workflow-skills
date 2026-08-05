@@ -52,6 +52,7 @@ import remediate
 import restructure
 import review
 import state
+import validate as validate_module
 from design import CAPABILITY_PHASES
 from neutrality import HOST_INSTALL_PATH, host_paths, is_core_guidance
 from validate import COMPATIBILITY_LIMIT, DESCRIPTION_LIMIT, NAME_LIMIT
@@ -1885,6 +1886,69 @@ def check_single_entrypoint(root):
     return failures
 
 
+# The spellings a description is actually written in. The wrapped plain scalar
+# is the one that drifted: it carries no header, so the parser had nothing to
+# key off and skipped its continuation as a nested member of the key.
+FRONTMATTER_SPELLINGS = (
+    ("plain", "name: a\ndescription: a single line\n"),
+    ("wrapped plain", "name: a\ndescription: an opening line -\n  and its continuation\n"),
+    ("wrapped plain, three lines", "name: a\ndescription: one\n  two\n  three\n"),
+    ("folded block", "name: a\ndescription: >-\n  folded onto\n  one line\n"),
+    ("literal block", "name: a\ndescription: |\n  kept as\n  written\n"),
+    ("double quoted", 'name: a\ndescription: "quoted value"\n'),
+    ("single quoted", "name: a\ndescription: 'quoted value'\n"),
+    ("with nested mapping", "name: a\ndescription: d\nmetadata:\n  author: someone\n"),
+    ("colon in value", "name: a\ndescription: a value: with a colon\n"),
+)
+
+
+def check_frontmatter_parser_agrees(samples=None, parser=None):
+    """The stdlib frontmatter parser must agree with PyYAML on real skills.
+
+    scripts/validate.py parses frontmatter without PyYAML on purpose, so a
+    user can check a skill without installing anything. That freedom is only
+    safe while the subset it implements answers the same as the engine, and
+    nothing held it to that: the agreement was established once by hand
+    against a corpus, then left to drift. It drifted. A plain scalar wrapped
+    onto a second line had its continuation skipped as a nested member, so a
+    241-character description measured 64 and the format's bound was applied
+    to a fragment of the value.
+
+    The fixtures are the spellings a description is actually written in. A
+    corpus is not available here, and a check that needed one could not run
+    for anyone else, so the spellings stand in for it.
+    """
+    if yaml is None:
+        return []
+    cases = samples if samples is not None else FRONTMATTER_SPELLINGS
+    failures = []
+    for label, block in cases:
+        try:
+            expected = yaml.safe_load(block)
+        except yaml.YAMLError:
+            continue
+        if not isinstance(expected, dict):
+            continue
+        parsed = (parser or validate_module).parse_scalars(block)
+        for field in ("name", "description", "compatibility"):
+            reference = expected.get(field)
+            if not isinstance(reference, str):
+                continue
+            found = parsed.get(field)
+            # Compared by words, not characters. validate.py joins a literal
+            # block with spaces where YAML keeps newlines, which it documents:
+            # the two differ by one character per line and never by enough to
+            # decide a bound. Demanding byte equality would report that as a
+            # defect and push the parser toward the engine it exists to avoid.
+            # Losing or truncating a value changes the words, which is the
+            # failure this is here to catch.
+            if found is None or found.split() != reference.split():
+                failures.append(
+                    f"frontmatter {label}: validate.py reads {field} as {found!r}, PyYAML reads {reference!r}"
+                )
+    return failures
+
+
 def check_floor_runtime(root):
     """Run the whole suite on the declared floor, when a runtime for it exists.
 
@@ -1997,10 +2061,21 @@ def registered_checks(source):
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef):
             continue
+        # A call and a bare reference both wire a check up. The registry
+        # entries are mostly `lambda: check_x(ROOT)`, but a check needing no
+        # argument is registered as `check_x` itself, and counting only calls
+        # reported that one as never registered: the check ran on every suite
+        # invocation while the wiring check insisted it did not.
+        # A call and a bare reference both wire a check up. The registry
+        # entries are mostly `lambda: check_x(ROOT)`, but a check needing no
+        # argument is registered as `check_x` itself, and counting only calls
+        # reported that one as never registered: the check ran on every suite
+        # invocation while the wiring check insisted it did not. Restricted to
+        # names that are checks, so the sets answer about checks alone.
         called = {
-            inner.func.id
+            inner.id
             for inner in ast.walk(node)
-            if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
+            if isinstance(inner, ast.Name) and isinstance(inner.ctx, ast.Load) and inner.id in defined
         }
         if node.name == "main":
             registry |= called
@@ -2177,6 +2252,17 @@ def self_check():
         "def check_a(root):\n    return []\n\ndef main():\n    check_a(ROOT)\n\ndef self_check():\n    check_a(ROOT)\n"
     )
     assert registered_checks(wired) == ({"check_a"}, {"check_a"}, {"check_a"})
+    # A check taking no argument is registered as the function itself rather
+    # than wrapped in a lambda, and counting only calls reported it as never
+    # registered while it ran on every invocation. The registry entry is a
+    # reference either way.
+    bare = (
+        "def check_a(root):\n    return []\n\n"
+        "def main():\n    entries = [check_a]\n\n"
+        "def self_check():\n    check_a(ROOT)\n"
+    )
+    defined, registry, _ = registered_checks(bare)
+    assert defined - registry == set(), "a check registered by reference was reported unregistered"
     unregistered = (
         "def check_a(root):\n    return []\n\ndef main():\n    pass\n\ndef self_check():\n    check_a(ROOT)\n"
     )
@@ -2908,6 +2994,37 @@ def self_check():
         guidance(tree, README, "# R\n\n## Elsewhere\n\ntext\n")
         assert check_readme_structure(tree), f"a README with no '{README_SECTION}' section was accepted"
 
+    # The stdlib frontmatter parser is free to skip PyYAML only while it
+    # answers the same. The spellings it is held to must all pass, and a value
+    # the parser truncates must fail: a wrapped plain scalar read as its first
+    # line is exactly how a 241-character description came to measure 64.
+    assert check_frontmatter_parser_agrees() == [], "a spelling this parser handles was reported as disagreeing"
+
+    # The failing direction needs a parser that is actually wrong, so the
+    # check is run against a stand-in that truncates at the first line, which
+    # is the defect this was written for. Asserting only that correct input
+    # passes would leave the check unable to fail.
+    class Truncating:
+        @staticmethod
+        def parse_scalars(block):
+            values = {}
+            for line in block.splitlines():
+                key, separator, value = line.partition(":")
+                if separator and not key[:1].isspace():
+                    values[key.strip()] = value.strip()
+            return values
+
+    wrapped = [("wrapped", "name: a\ndescription: an opening line -\n  and its continuation\n")]
+    reported = check_frontmatter_parser_agrees(wrapped, parser=Truncating)
+    assert reported, "a parser that drops a wrapped continuation was accepted"
+    assert "and its continuation" in reported[0], reported
+    # Separators are not a disagreement. validate.py joins a literal block
+    # with spaces where YAML keeps newlines, which differs by one character
+    # per line and never decides a bound; requiring byte equality would report
+    # a documented choice as a defect.
+    literal = [("literal", "name: a\ndescription: |\n  kept as\n  written\n")]
+    assert check_frontmatter_parser_agrees(literal) == [], literal
+
     # The remaining checks delegate to a tool that owns the answer. Asserting
     # only that a missing tool is a skip was the previous bar, and it left all
     # four indistinguishable from a stub: against a tree that already passes,
@@ -3132,6 +3249,7 @@ def main():
         ("schema lint", lambda: check_schema_lint(ROOT)),
         ("schema keywords", lambda: check_schema_keywords(ROOT)),
         ("vendored schemas", lambda: check_vendored_schemas(ROOT)),
+        ("frontmatter parser agreement", check_frontmatter_parser_agrees),
         ("python lint", lambda: check_lint(ROOT)),
         ("python format", lambda: check_format(ROOT)),
         ("external links", lambda: check_external_links(ROOT)),

@@ -168,6 +168,21 @@ def parse_scalars(block):
             # A quoted scalar carries escapes that the host resolves before it
             # counts characters, so leaving them in overstates the length.
             value = value.replace("\\" + quote, quote) if quote == '"' else value.replace(quote * 2, quote)
+        elif value:
+            # A plain scalar continues onto the following indented lines, and
+            # YAML folds them into it with a space. Treating those lines as a
+            # nested member of the key instead truncated the value at the first
+            # wrap: a published 241-character description was measured as 64,
+            # so a skill over the format's bound would have been reported as
+            # comfortably inside it. Only unquoted values continue this way;
+            # a quoted scalar that wrapped would need its closing quote found
+            # first, which is the point where this stops being a subset and
+            # needs the engine.
+            while index < len(lines) and lines[index][:1].isspace() and lines[index].strip():
+                if lines[index].lstrip().startswith("- "):
+                    break
+                value = f"{value} {lines[index].strip()}"
+                index += 1
         values[key.strip()] = value
     return values
 
@@ -410,6 +425,27 @@ def self_check():
             assert "description" in rules(validate(skill)), f"a block scalar ({header}) evaded the bound"
         core.write_text("---\nname: good-skill\ndescription: >-\n  short enough\n---\n", encoding="utf-8")
         assert validate(skill) == [], "a short block scalar was rejected"
+
+        # A plain scalar wraps onto indented lines with no header at all, and
+        # those lines were skipped as a nested member of the key. That is the
+        # same failure the block-scalar case fixed, in the spelling nobody
+        # thought to check: a published 241-character description measured as
+        # 64, so the bound was applied to a fragment. Sized to pass only if
+        # the continuation is folded in.
+        wrapped = "\n".join(f"  {'d' * 80}" for _ in range(20))
+        core.write_text(
+            f"---\nname: good-skill\ndescription: opening line -\n{wrapped}\n---\n",
+            encoding="utf-8",
+        )
+        assert "description" in rules(validate(skill)), "a wrapped plain scalar evaded the bound"
+        # The continuation joins with a space, the way YAML folds it, rather
+        # than being concatenated or dropped.
+        assert parse_scalars("description: first\n  second") == {"description": "first second"}
+        # A key with no value is a nested structure rather than a wrapped
+        # scalar, so its indented lines are not folded into it. It is reported
+        # as present without being interpreted, which is this parser's stated
+        # limit; the fields it bounds are all scalars.
+        assert parse_scalars("metadata:\n  author: someone") == {"metadata": "author: someone"}
 
         # An escape is resolved by the host before it counts characters, so
         # leaving it in overstates the length of a quoted scalar. Sized to land
